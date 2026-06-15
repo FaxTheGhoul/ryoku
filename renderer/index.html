@@ -1,0 +1,1745 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RYOKU</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"></script>
+  <link rel="stylesheet" href="styles.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.44.0/dist/tabler-icons.min.css"/>
+</head>
+<body>
+  <div id="app-bg-layer"></div>
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div class="titlebar-logo">
+        <img src="../assets/icon.png" width="20" height="20" style="border-radius:4px" />
+        <span class="titlebar-title">RYOKU</span>
+      </div>
+
+    </div>
+    <div class="titlebar-controls">
+      <button id="btn-min" title="Minimizar">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><line x1="1" y1="8" x2="9" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <span class="tb-line"></span>
+      </button>
+      <button id="btn-max" title="Maximizar">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1.5" y="1.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        <span class="tb-line"></span>
+      </button>
+      <button id="btn-close" title="Cerrar">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><line x1="1.5" y1="1.5" x2="8.5" y2="8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="8.5" y1="1.5" x2="1.5" y2="8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <span class="tb-line"></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside class="sidebar" id="main-sidebar">
+      <!-- Switcher de módulos (antes era el logo) -->
+      <div class="sidebar-logo mod-switcher" onclick="abrirSwitcherModulos()" title="Cambiar módulo">
+        <div id="mod-switcher-icon">
+          <img src="../assets/icon.png" width="36" height="36" style="border-radius:8px" />
+        </div>
+      </div>
+
+      <!-- Sidebar módulo ANIME -->
+      <div id="sidebar-anime">
+        <button class="nav-btn activo" data-modulo="anime" data-page="inicio" title="Inicio">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
+        </button>
+        <button class="nav-btn" data-modulo="anime" data-page="anime-biblioteca" title="Buscar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607z"/></svg>
+        </button>
+        <button class="nav-btn" data-modulo="anime" data-page="favoritos" title="Favoritos">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"/></svg>
+        </button>
+
+        <button class="nav-btn" data-modulo="anime" data-page="calendario" title="Calendario">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
+      </div>
+
+      <!-- Sidebar módulo MANGA -->
+      <div id="sidebar-manga" style="display:none">
+        <button class="nav-btn activo" data-modulo="manga" data-page="manga-inicio" title="Inicio">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
+        </button>
+        <button class="nav-btn" data-modulo="manga" data-page="manga-biblioteca" title="Buscar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607z"/></svg>
+        </button>
+        <button class="nav-btn" data-modulo="manga" data-page="manga-favoritos" title="Favoritos">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"/></svg>
+        </button>
+
+      </div>
+
+
+      <!-- Botones inferiores -->
+      <div class="sidebar-bottom">
+        <!-- Botón cuenta -->
+        <button class="nav-btn account-nav-btn" id="account-btn" onclick="window._abrirAccountModal && window._abrirAccountModal()" title="Mi cuenta">
+          <div class="account-avatar-wrap" id="account-avatar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div class="account-online-dot" id="account-dot" style="display:none"></div>
+        </button>
+        <!-- Botón configuración -->
+        <button class="nav-btn" onclick="abrirConfig()" title="Configuración">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Modal de cuenta -->
+    <div id="account-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;" onclick="if(event.target===this)window._cerrarAccountModal&&window._cerrarAccountModal()">
+      <div class="account-modal-box">
+        <button class="account-modal-close" onclick="window._cerrarAccountModal&&window._cerrarAccountModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div id="account-modal-body"></div>
+      </div>
+    </div>
+    <div class="sidebar-trigger" id="sidebar-trigger"></div>
+    <div id="continuar-ctx-menu">
+      <button class="continuar-menu-item" id="ctx-ver-eps"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>Ver episodios</button>
+      <button class="continuar-menu-item danger" id="ctx-quitar"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>Quitar de la lista</button>
+    </div>
+
+    <main id="app-anime" class="contenido activo">
+      <div class="pagina activa" id="page-inicio">
+        <div class="home-hero-layout">
+          <div class="home-hero-continuar" id="home-hero-continuar" style="display:none">
+            <div class="continuar-header-row">
+              <h2 class="seccion-titulo">Continuar viendo</h2>
+              <span class="continuar-ver-vistos-link" id="continuar-ver-vistos-btn" onclick="abrirPaginaContinuar()" style="display:none">Ver vistos →</span>
+            </div>
+            <div class="ac-cont-grid" id="continuar-lista"></div>
+          </div>
+          <div class="home-hero-banner">
+            <div class="slider-wrap" id="slider-wrap">
+              <div class="slider-track" id="slider-track"></div>
+              <button class="slider-arrow izq" id="slider-prev">&#8249;</button>
+              <button class="slider-arrow der" id="slider-next">&#8250;</button>
+              <div class="slider-dots" id="slider-dots"></div>
+            </div>
+          </div>
+        </div>
+        <h2 class="seccion-titulo" style="margin-top:28px">Añadidos recientemente</h2>
+        <div class="grilla" id="grilla-recientes"><div class="loading">Cargando...</div></div>
+        <h2 class="seccion-titulo" style="margin-top:32px">Series recientes</h2>
+        <div class="grilla grilla-series" id="grilla-series"><div class="loading">Cargando...</div></div>
+        <div style="display:flex;justify-content:center;margin:32px 0 16px">
+          <button class="mn-btn-biblioteca" onclick="abrirAnimeBiblioteca()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Ver todo
+          </button>
+        </div>
+      </div>
+      <div class="pagina" id="page-continuar">
+        <div class="detalle-floating-btns">
+          <button class="detalle-btn-volver" onclick="navegar('inicio')" title="Volver"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        </div>
+        <h2 class="seccion-titulo">Seguir viendo</h2>
+        <div id="continuar-full-lista"></div>
+      </div>
+      <div class="pagina" id="page-buscar">
+        <div class="search-bar">
+          <div class="sb-input-wrap" id="sb-anime-wrap">
+            <input type="text" id="buscador-2" placeholder="Buscar anime..." autocomplete="off" />
+            <button class="sb-clear-btn" id="sb-anime-clear" title="Limpiar">×</button>
+            <div class="sb-history-dropdown" id="sb-anime-history"></div>
+          </div>
+          <button id="btn-buscar">Buscar</button>
+        </div>
+      
+        <!-- FILTROS -->
+        <div class="filtros-bar" id="filtros-bar">
+          <!-- Categoría -->
+          <div class="filtro-dd" id="dd-categoria">
+            <button class="filtro-dd-btn" onclick="toggleDD('dd-categoria')">
+              <span id="dd-categoria-label">Categoría</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="filtro-dd-menu">
+              <div class="filtro-dd-item" data-value="" onclick="setFiltro('categoria','',this)">Todas</div>
+              <div class="filtro-dd-item" data-value="latino" onclick="setFiltro('categoria','latino',this)">Latino</div>
+              <div class="filtro-dd-item" data-value="castellano" onclick="setFiltro('categoria','castellano',this)">Castellano</div>
+              <div class="filtro-dd-item" data-value="pelicula" onclick="setFiltro('categoria','pelicula',this)">Película</div>
+              <div class="filtro-dd-item" data-value="ova" onclick="setFiltro('categoria','ova',this)">OVA</div>
+              <div class="filtro-dd-item" data-value="especial" onclick="setFiltro('categoria','especial',this)">Especial</div>
+            </div>
+          </div>
+          <!-- En emisión -->
+          <button class="filtro-toggle" id="filtro-emision">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+            En emisión
+          </button>
+          <button class="filtro-clear" id="btn-limpiar-filtros">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Limpiar
+          </button>
+        </div>
+      
+        <div class="grilla" id="grilla-buscar"></div>
+      </div>
+      <div class="pagina" id="page-modulos">
+        <h2 class="seccion-titulo">Módulos</h2>
+        <div class="mod-grid">
+          <div class="mod-card activo" id="mod-anime" onclick="activarModulo('anime')">
+            <span class="mod-badge on">✓ Activo</span>
+            <div class="mod-logo-wrap">
+              <img src="../assets/latanime-logo.svg" onerror="this.style.display='none'" />
+            </div>
+            <div class="mod-name">Anime</div>
+            <div class="mod-desc">Series, películas y OVAs doblados al español</div>
+            <div class="mod-url">latanime.org</div>
+          </div>
+          <div class="mod-card" id="mod-manga" onclick="activarModulo('manga')">
+            <span class="mod-badge off" id="mod-manga-badge">Instalar</span>
+            <div class="mod-logo-wrap">
+              <img src="../assets/zonatmo-logo.svg" onerror="this.style.display='none'" />
+            </div>
+            <div class="mod-name">Manga</div>
+            <div class="mod-desc">Lee manga en español, capítulos al día</div>
+            <div class="mod-url">zonatmo.org</div>
+          </div>
+
+        </div>
+      </div>
+      <div class="pagina" id="page-favoritos">
+        <h2 class="seccion-titulo">❤️ Mis favoritos</h2>
+        <div class="grilla" id="grilla-favoritos">
+          <div class="fav-vacio">No tienes animes guardados aún.<br>Dale ❤️ a un anime para guardarlo.</div>
+        </div>
+      </div>
+
+      <div class="pagina" id="page-anime-biblioteca">
+
+        <!-- Toprow -->
+        <div class="detalle-floating-btns" id="anime-bib-floating">
+          <button class="detalle-btn-volver" id="anime-bib-volver" title="Volver"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        </div>
+        <div class="mnbib-toprow">
+          <span class="mnbib-title" id="anime-bib-titulo">Biblioteca</span>
+          <span class="mnbib-count" id="anime-bib-count"></span>
+        </div>
+
+        <!-- Barra filtros -->
+        <div class="mnbib-filterbar">
+          <div class="mnbib-filterbar-top">
+            <div class="mnbib-search-wrap">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="anime-bib-input" placeholder="Título de anime..." />
+              <button class="mnbib-search-btn" onclick="animeBibBuscar()">Buscar</button>
+            </div>
+            <select class="mnbib-orden" id="anime-bib-orden" onchange="animeBibAplicarOrden()">
+              <option value="">Relevancia</option>
+              <option value="emision">En emisión</option>
+            </select>
+          </div>
+          <!-- Filtros dropdown -->
+          <div class="mnbib-drops">
+
+            <!-- Categoría -->
+            <div class="mnbib-drop" id="anime-drop-cat">
+              <button class="mnbib-drop-btn" onclick="animeBibToggleDrop('cat')">
+                Categoría <span class="mnbib-drop-val" id="anime-drop-cat-val">Todo</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="mnbib-drop-panel" id="anime-drop-cat-panel">
+                <button class="mnbib-tipo activo" data-cat=""          onclick="animeBibSetCat(this)">Todo</button>
+                <button class="mnbib-tipo"         data-cat="latino"   onclick="animeBibSetCat(this)">Latino</button>
+                <button class="mnbib-tipo"         data-cat="castellano" onclick="animeBibSetCat(this)">Castellano</button>
+                <button class="mnbib-tipo"         data-cat="pelicula" onclick="animeBibSetCat(this)">Película</button>
+                <button class="mnbib-tipo"         data-cat="ova"      onclick="animeBibSetCat(this)">OVA</button>
+                <button class="mnbib-tipo"         data-cat="especial" onclick="animeBibSetCat(this)">Especial</button>
+              </div>
+            </div>
+
+            <!-- Género -->
+            <div class="mnbib-drop" id="anime-drop-genero">
+              <button class="mnbib-drop-btn" onclick="animeBibToggleDrop('genero')">
+                Género <span class="mnbib-drop-val" id="anime-drop-genero-val">Todo</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="mnbib-drop-panel mnbib-drop-genero-panel" id="anime-drop-genero-panel">
+                <button class="mnbib-tipo activo" data-gen="" onclick="animeBibSetGenero(this)">Todo</button>
+                <button class="mnbib-tipo" data-gen="accion" onclick="animeBibSetGenero(this)">Acción</button>
+                <button class="mnbib-tipo" data-gen="aventura" onclick="animeBibSetGenero(this)">Aventura</button>
+                <button class="mnbib-tipo" data-gen="comedia" onclick="animeBibSetGenero(this)">Comedia</button>
+                <button class="mnbib-tipo" data-gen="drama" onclick="animeBibSetGenero(this)">Drama</button>
+                <button class="mnbib-tipo" data-gen="ecchi" onclick="animeBibSetGenero(this)">Ecchi</button>
+                <button class="mnbib-tipo" data-gen="escolares" onclick="animeBibSetGenero(this)">Escolares</button>
+                <button class="mnbib-tipo" data-gen="fantasia" onclick="animeBibSetGenero(this)">Fantasía</button>
+                <button class="mnbib-tipo" data-gen="gore" onclick="animeBibSetGenero(this)">Gore</button>
+                <button class="mnbib-tipo" data-gen="harem" onclick="animeBibSetGenero(this)">Harem</button>
+                <button class="mnbib-tipo" data-gen="horror" onclick="animeBibSetGenero(this)">Horror</button>
+                <button class="mnbib-tipo" data-gen="isekai" onclick="animeBibSetGenero(this)">Isekai</button>
+                <button class="mnbib-tipo" data-gen="josei" onclick="animeBibSetGenero(this)">Josei</button>
+                <button class="mnbib-tipo" data-gen="magia" onclick="animeBibSetGenero(this)">Magia</button>
+                <button class="mnbib-tipo" data-gen="mecha" onclick="animeBibSetGenero(this)">Mecha</button>
+                <button class="mnbib-tipo" data-gen="militar" onclick="animeBibSetGenero(this)">Militar</button>
+                <button class="mnbib-tipo" data-gen="misterio" onclick="animeBibSetGenero(this)">Misterio</button>
+                <button class="mnbib-tipo" data-gen="parodias" onclick="animeBibSetGenero(this)">Parodias</button>
+                <button class="mnbib-tipo" data-gen="psicologico" onclick="animeBibSetGenero(this)">Psicológico</button>
+                <button class="mnbib-tipo" data-gen="romance" onclick="animeBibSetGenero(this)">Romance</button>
+                <button class="mnbib-tipo" data-gen="ciencia-ficcion" onclick="animeBibSetGenero(this)">Sci-Fi</button>
+                <button class="mnbib-tipo" data-gen="seinen" onclick="animeBibSetGenero(this)">Seinen</button>
+                <button class="mnbib-tipo" data-gen="shojo" onclick="animeBibSetGenero(this)">Shojo</button>
+                <button class="mnbib-tipo" data-gen="shonen" onclick="animeBibSetGenero(this)">Shonen</button>
+                <button class="mnbib-tipo" data-gen="sobrenatural" onclick="animeBibSetGenero(this)">Sobrenatural</button>
+                <button class="mnbib-tipo" data-gen="deportes" onclick="animeBibSetGenero(this)">Deportes</button>
+                <button class="mnbib-tipo" data-gen="vampiros" onclick="animeBibSetGenero(this)">Vampiros</button>
+                <button class="mnbib-tipo" data-gen="yaoi" onclick="animeBibSetGenero(this)">Yaoi</button>
+                <button class="mnbib-tipo" data-gen="yuri" onclick="animeBibSetGenero(this)">Yuri</button>
+              </div>
+            </div>
+
+            <!-- Emisión toggle -->
+            <button class="mnbib-drop-btn" id="anime-bib-emision-btn" onclick="animeBibToggleEmision()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+              En emisión
+            </button>
+
+            <button class="mnbib-reset-btn" onclick="animeBibReset()">Limpiar</button>
+          </div>
+        </div>
+
+        <div class="mnbib-grid" id="grilla-anime-biblioteca">
+          <div class="mn-loading"><div class="mn-spinner"></div><span>Cargando...</span></div>
+        </div>
+
+        <div class="mnbib-footer" id="anime-bib-footer" style="display:none">
+          <button class="mnbib-btn-pag" id="anime-bib-btn-prev" onclick="animeBibPagAnterior()" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Anterior
+          </button>
+          <span class="mnbib-pag-label" id="anime-bib-pag-label">Página 1</span>
+          <button class="mnbib-btn-pag" id="anime-bib-btn-next" onclick="animeBibPagSiguiente()">
+            Siguiente
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="pagina" id="page-anime">
+
+        <!-- Botones flotantes -->
+        <div class="detalle-floating-btns" id="anime-floating-btns">
+          <button class="detalle-btn-volver" id="btn-volver" title="Volver"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="detalle-btn-fav" id="btn-fav" onclick="toggleFav()" title="Guardar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button>
+          <button class="detalle-btn-completado" id="btn-completado" onclick="toggleCompletado()" title="Marcar como completado">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Layout 3 columnas -->
+        <div class="md-layout">
+
+          <!-- ── COL IZQUIERDA: portada + botón ── -->
+          <div class="md-col-cover">
+            <div class="md-cover-wrap" id="anime-portada-wrap">
+              <img class="md-cover-img" id="anime-portada" src="" alt="" />
+            </div>
+            <div class="md-cta-btns">
+              <button class="md-btn-primary" id="anime-btn-ver" onclick="animeVerPrimerEp()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                <div class="md-btn-text">
+                  <span class="md-btn-label">Ver desde el inicio</span>
+                  <span class="md-btn-sub" id="anime-btn-sub">Episodio 1</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── COL CENTRAL: blur-card (título/sinopsis) + episodios abajo ── -->
+          <div class="md-col-main" id="anime-col-main">
+
+            <!-- Tarjeta con blur — solo título y descripción -->
+            <div class="detail-col-hero">
+              <div class="detail-col-blur" id="anime-hero-bg"></div>
+              <div class="detail-col-content">
+                <h1 class="md-titulo" id="anime-titulo">—</h1>
+                <div class="md-meta-row">
+                  <span class="md-meta-caps" id="anime-meta-eps" style="display:none">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                    <span id="anime-meta-eps-val">—</span>
+                  </span>
+                </div>
+                <div class="md-tags" id="anime-tags"></div>
+                <div class="md-sinopsis-wrap">
+                  <div class="md-sinopsis-titulo">Sinopsis</div>
+                  <p class="md-sinopsis-texto" id="anime-sinopsis">—</p>
+                  <button class="md-sinopsis-toggle" id="anime-sinopsis-toggle" onclick="toggleSinopsis()" style="display:none">
+                    Ver más
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Episodios (sin blur) -->
+            <div class="md-caps-section">
+              <div class="md-caps-header">
+                <span class="md-caps-titulo" id="anime-eps-titulo">Episodios</span>
+              </div>
+              <div class="eps-lista" id="eps-lista">
+                <div class="loading">Cargando episodios...</div>
+              </div>
+            </div>
+
+          </div><!-- /anime-col-main -->
+
+          <!-- ── COL DERECHA: panel info ── -->
+          <div class="md-col-panel" id="anime-col-panel">
+            <div class="md-panel-section">
+              <div class="md-panel-titulo">Información</div>
+              <div class="md-panel-rows">
+                <div class="md-panel-row"><span class="md-panel-key">Tipo</span><span class="md-panel-val">Anime</span></div>
+                <div class="md-panel-row"><span class="md-panel-key">Idioma</span><span class="md-panel-val">Español</span></div>
+                <div class="md-panel-row" id="anime-panel-eps-row" style="display:none"><span class="md-panel-key">Episodios</span><span class="md-panel-val" id="anime-panel-eps-val">—</span></div>
+              </div>
+            </div>
+            <div class="md-panel-section" id="anime-panel-generos-sec" style="display:none">
+              <div class="md-panel-titulo">Géneros</div>
+              <div class="md-panel-generos" id="anime-panel-generos"></div>
+            </div>
+          </div><!-- /anime-col-panel -->
+
+        </div><!-- /md-layout -->
+
+      </div>
+      <div class="pagina" id="page-calendario">
+        <h2 class="seccion-titulo">Calendario de emisión</h2>
+        <div class="cal-tabs" id="cal-tabs"></div>
+        <div class="cal-lista" id="cal-lista"><div class="loading">Cargando...</div></div>
+      </div>
+    </main>
+
+    <main id="app-manga" class="contenido" style="display:none">
+
+      <!-- INICIO -->
+      <div class="pagina" id="page-manga-mn-continuar">
+        <div class="detalle-floating-btns">
+          <button class="detalle-btn-volver" onclick="navegar('manga-inicio')" title="Volver"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        </div>
+        <h2 class="seccion-titulo">Continuar leyendo</h2>
+        <div class="mn-continuar-grid ac-cont-grid" id="mn-continuar-full-lista" style="flex-wrap:wrap;max-width:900px;padding:16px"></div>
+      </div>
+      <div class="pagina" id="page-manga-inicio">
+
+
+        <!-- Hero 50/50: Continuar leyendo + Slider banner (igual que anime) -->
+        <div class="home-hero-layout">
+          <div class="home-hero-continuar" id="mn-continuar-wrap" style="display:none">
+            <div class="continuar-header-row">
+              <h2 class="seccion-titulo">Continuar leyendo</h2>
+              <span class="continuar-ver-vistos-link" id="mn-continuar-ver-leidos-btn" onclick="abrirPaginaMnContinuar()" style="display:none">Ver leídos →</span>
+            </div>
+            <div class="mn-continuar-grid ac-cont-grid" id="mn-continuar-lista"></div>
+          </div>
+          <div class="home-hero-banner">
+            <div class="slider-wrap" id="mn-slider-wrap">
+              <div class="slider-track" id="mn-slider-track"></div>
+              <button class="slider-arrow izq" id="mn-slider-prev">&#8249;</button>
+              <button class="slider-arrow der" id="mn-slider-next">&#8250;</button>
+              <div class="slider-dots" id="mn-slider-dots"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── POPULARES ── -->
+        <div class="mn-home-sec" style="margin-top:28px;margin-bottom:40px">
+          <div class="mn-sec-head">
+            <div class="mn-sec-left">
+              <span class="mn-sec-bar pop"></span>
+              <span class="mn-section-title">Populares</span>
+            </div>
+          </div>
+          <div class="mn-tend-grid" id="grilla-pop">
+            <div class="mn-loading"><div class="mn-spinner"></div><span>Cargando...</span></div>
+          </div>
+        </div>
+
+        <!-- ── TRENDING ── -->
+        <div class="mn-home-sec" style="margin-bottom:40px">
+          <div class="mn-sec-head">
+            <div class="mn-sec-left">
+              <span class="mn-sec-bar trend"></span>
+              <span class="mn-section-title">Tendencia</span>
+            </div>
+          </div>
+          <div class="mn-tend-grid" id="grilla-trend">
+            <div class="mn-loading"><div class="mn-spinner"></div><span>Cargando...</span></div>
+          </div>
+        </div>
+
+        <!-- ── ÚLTIMOS AÑADIDOS ── -->
+        <div class="mn-home-sec" style="margin-bottom:40px">
+          <div class="mn-sec-head">
+            <div class="mn-sec-left">
+              <span class="mn-sec-bar new"></span>
+              <span class="mn-section-title">Últimos añadidos</span>
+            </div>
+          </div>
+          <div class="mn-tend-grid" id="grilla-new">
+            <div class="mn-loading"><div class="mn-spinner"></div><span>Cargando...</span></div>
+          </div>
+        </div>
+
+        <!-- Ver todo -->
+        <div style="display:flex;justify-content:center;margin-bottom:40px">
+          <button class="mn-btn-biblioteca" onclick="verTodoBiblioteca()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Ver todo
+          </button>
+        </div>
+
+      </div>
+      <!-- BUSCAR -->
+      <div class="pagina" id="page-manga-buscar">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <div class="mn-searchbar" style="flex:1;max-width:500px;position:relative">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="manga-buscador-2" placeholder="Buscar manga..." autocomplete="off" />
+            <button class="sb-clear-btn mn-clear-btn" id="sb-manga-clear" title="Limpiar">×</button>
+            <div class="sb-history-dropdown" id="sb-manga-history"></div>
+            <button id="manga-btn-buscar-2">Buscar</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:16px">
+          <button class="mn-filtro activo" data-filtro="all" onclick="setFiltroManga(this)">Todo</button>
+          <button class="mn-filtro" data-filtro="manga" onclick="setFiltroManga(this)">Manga</button>
+          <button class="mn-filtro" data-filtro="manhwa" onclick="setFiltroManga(this)">Manhwa</button>
+          <button class="mn-filtro" data-filtro="manhua" onclick="setFiltroManga(this)">Manhua</button>
+        </div>
+        <div style="font-size:13px;font-weight:600;color:#64748b;margin-bottom:14px" id="manga-buscar-label">Resultados de búsqueda</div>
+        <div class="mn-tend-grid" id="grilla-manga-buscar">
+          <div class="mn-loading"><div class="mn-spinner"></div><span>Busca un manga...</span></div>
+        </div>
+      </div>
+
+      <!-- BIBLIOTECA -->
+      <!-- BIBLIOTECA -->
+      <div class="pagina" id="page-manga-biblioteca">
+
+        <!-- Toprow: volver + título + count -->
+        <div class="detalle-floating-btns" id="manga-bib-floating">
+          <button class="detalle-btn-volver" id="manga-bib-volver" title="Volver"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        </div>
+        <div class="mnbib-toprow">
+          <span class="mnbib-title" id="mnbib-titulo">Biblioteca</span>
+          <span class="mnbib-count" id="mnbib-count"></span>
+        </div>
+
+        <!-- Barra filtros -->
+        <div class="mnbib-filterbar">
+          <div class="mnbib-filterbar-top">
+            <div class="mnbib-search-wrap">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="mnbib-input" placeholder="Título, autor o compañía..." />
+              <button type="button" class="mnbib-search-btn" onclick="mnBibBuscar()">Buscar</button>
+            </div>
+            <div id="mnbib-orden-wrap" style="display:contents">
+              <select class="mnbib-orden" id="mnbib-orden" onchange="mnBibAplicarFiltros()">
+                <option value="likes">Más populares</option>
+                <option value="score">Mejor valorados</option>
+                <option value="creation">Últimos añadidos</option>
+                <option value="trending">En tendencia</option>
+                <option value="alphabetic">Alfabético</option>
+              </select>
+              <select class="mnbib-orden" id="mnbib-dir" onchange="mnBibAplicarFiltros()">
+                <option value="desc">Descendente</option>
+                <option value="asc">Ascendente</option>
+              </select>
+            </div>
+          </div>
+          <!-- Dropdowns de filtros -->
+          <div class="mnbib-drops">
+
+            <div class="mnbib-drop" id="drop-tipo">
+              <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('tipo')">
+                Tipo <span class="mnbib-drop-val" id="drop-tipo-val">Todo</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="mnbib-drop-panel" id="drop-tipo-panel">
+                <button class="mnbib-tipo activo" data-type=""       onclick="mnBibTipo(this)">Todo</button>
+                <button class="mnbib-tipo"         data-type="manga"  onclick="mnBibTipo(this)">Manga</button>
+                <button class="mnbib-tipo"         data-type="manhwa" onclick="mnBibTipo(this)">Manhwa</button>
+                <button class="mnbib-tipo"         data-type="manhua" onclick="mnBibTipo(this)">Manhua</button>
+              </div>
+            </div>
+
+            <div class="mnbib-drop" id="drop-demo">
+              <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('demo')">
+                Demografía <span class="mnbib-drop-val" id="drop-demo-val">Todo</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="mnbib-drop-panel" id="drop-demo-panel">
+                <button class="mnbib-tipo activo" data-demo=""  onclick="mnBibDemo(this)">Todo</button>
+                <button class="mnbib-tipo" data-demo="2"        onclick="mnBibDemo(this)">Shounen</button>
+                <button class="mnbib-tipo" data-demo="1"        onclick="mnBibDemo(this)">Seinen</button>
+                <button class="mnbib-tipo" data-demo="4"        onclick="mnBibDemo(this)">Shoujo</button>
+                <button class="mnbib-tipo" data-demo="3"        onclick="mnBibDemo(this)">Josei</button>
+              </div>
+            </div>
+
+            <!-- Géneros ZonaTMO (IDs numéricos) -->
+            <div id="mnbib-zt-filters" style="display:contents">
+              <div class="mnbib-drop" id="drop-gen">
+                <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('gen')">
+                  Géneros <span class="mnbib-drop-val mnbib-drop-tags" id="drop-gen-val"></span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="mnbib-drop-panel wide" id="drop-gen-panel">
+                  <div class="mnbib-generos" id="mnbib-generos-inc">
+                    <button class="mnbib-genero" data-gid="1"  onclick="mnBibGenero(this,'inc')">Acción</button>
+                    <button class="mnbib-genero" data-gid="2"  onclick="mnBibGenero(this,'inc')">Aventura</button>
+                    <button class="mnbib-genero" data-gid="3"  onclick="mnBibGenero(this,'inc')">Comedia</button>
+                    <button class="mnbib-genero" data-gid="4"  onclick="mnBibGenero(this,'inc')">Drama</button>
+                    <button class="mnbib-genero" data-gid="5"  onclick="mnBibGenero(this,'inc')">Fantasía</button>
+                    <button class="mnbib-genero" data-gid="6"  onclick="mnBibGenero(this,'inc')">Romance</button>
+                    <button class="mnbib-genero" data-gid="7"  onclick="mnBibGenero(this,'inc')">Terror</button>
+                    <button class="mnbib-genero" data-gid="8"  onclick="mnBibGenero(this,'inc')">Sci-Fi</button>
+                    <button class="mnbib-genero" data-gid="9"  onclick="mnBibGenero(this,'inc')">Slice of Life</button>
+                    <button class="mnbib-genero" data-gid="10" onclick="mnBibGenero(this,'inc')">Sobrenatural</button>
+                    <button class="mnbib-genero" data-gid="11" onclick="mnBibGenero(this,'inc')">Deportes</button>
+                    <button class="mnbib-genero" data-gid="12" onclick="mnBibGenero(this,'inc')">Isekai</button>
+                    <button class="mnbib-genero" data-gid="13" onclick="mnBibGenero(this,'inc')">Histórico</button>
+                    <button class="mnbib-genero" data-gid="14" onclick="mnBibGenero(this,'inc')">Misterio</button>
+                    <button class="mnbib-genero" data-gid="15" onclick="mnBibGenero(this,'inc')">Psicológico</button>
+                    <button class="mnbib-genero" data-gid="16" onclick="mnBibGenero(this,'inc')">Ecchi</button>
+                    <button class="mnbib-genero" data-gid="17" onclick="mnBibGenero(this,'inc')">Harem</button>
+                    <button class="mnbib-genero" data-gid="18" onclick="mnBibGenero(this,'inc')">Magia</button>
+                    <button class="mnbib-genero" data-gid="19" onclick="mnBibGenero(this,'inc')">Escolar</button>
+                  </div>
+                </div>
+              </div>
+              <div class="mnbib-drop" id="drop-exc">
+                <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('exc')">
+                  Excluir <span class="mnbib-drop-val mnbib-drop-tags" id="drop-exc-val"></span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="mnbib-drop-panel wide" id="drop-exc-panel">
+                  <div class="mnbib-generos" id="mnbib-generos-exc">
+                    <button class="mnbib-genero" data-gid="1"  onclick="mnBibGenero(this,'exc')">Acción</button>
+                    <button class="mnbib-genero" data-gid="2"  onclick="mnBibGenero(this,'exc')">Aventura</button>
+                    <button class="mnbib-genero" data-gid="3"  onclick="mnBibGenero(this,'exc')">Comedia</button>
+                    <button class="mnbib-genero" data-gid="4"  onclick="mnBibGenero(this,'exc')">Drama</button>
+                    <button class="mnbib-genero" data-gid="5"  onclick="mnBibGenero(this,'exc')">Fantasía</button>
+                    <button class="mnbib-genero" data-gid="6"  onclick="mnBibGenero(this,'exc')">Romance</button>
+                    <button class="mnbib-genero" data-gid="7"  onclick="mnBibGenero(this,'exc')">Terror</button>
+                    <button class="mnbib-genero" data-gid="8"  onclick="mnBibGenero(this,'exc')">Sci-Fi</button>
+                    <button class="mnbib-genero" data-gid="9"  onclick="mnBibGenero(this,'exc')">Slice of Life</button>
+                    <button class="mnbib-genero" data-gid="16" onclick="mnBibGenero(this,'exc')">Ecchi</button>
+                    <button class="mnbib-genero" data-gid="17" onclick="mnBibGenero(this,'exc')">Harem</button>
+                  </div>
+                </div>
+              </div>
+            </div><!-- /mnbib-zt-filters -->
+
+            <!-- Géneros NovelCool (strings directos, generados por JS) -->
+            <div id="mnbib-nc-filters" style="display:contents">
+              <div class="mnbib-drop" id="drop-nc-gen">
+                <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('nc-gen')">
+                  Géneros <span class="mnbib-drop-val mnbib-drop-tags" id="drop-nc-gen-val"></span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="mnbib-drop-panel wide nc" id="drop-nc-gen-panel">
+                  <div class="mnbib-generos" id="mnbib-nc-generos-inc"></div>
+                </div>
+              </div>
+              <div class="mnbib-drop" id="drop-nc-exc">
+                <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('nc-exc')">
+                  Excluir <span class="mnbib-drop-val mnbib-drop-tags" id="drop-nc-exc-val"></span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="mnbib-drop-panel wide nc" id="drop-nc-exc-panel">
+                  <div class="mnbib-generos" id="mnbib-nc-generos-exc"></div>
+                </div>
+              </div>
+            </div><!-- /mnbib-nc-filters -->
+
+            <!-- Estado, Rating y Año: compartidos entre fuentes -->
+            <div class="mnbib-drop" id="drop-estado">
+              <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('estado')">
+                Estado <span class="mnbib-drop-val" id="drop-estado-val">Todo</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="mnbib-drop-panel" id="drop-estado-panel">
+                <button class="mnbib-tipo activo" data-status=""          onclick="mnBibStatus(this)">Todo</button>
+                <button class="mnbib-tipo"        data-status="updated"   onclick="mnBibStatus(this)">En marcha</button>
+                <button class="mnbib-tipo"        data-status="completed" onclick="mnBibStatus(this)">Terminado</button>
+              </div>
+            </div>
+
+            <div class="mnbib-drop" id="drop-rate">
+              <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('rate')">
+                Rating <span class="mnbib-drop-val" id="drop-rate-val">Todo</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="mnbib-drop-panel" id="drop-rate-panel">
+                <button class="mnbib-tipo activo" data-rate=""  onclick="mnBibRate(this)">Todo</button>
+                <button class="mnbib-tipo"        data-rate="5" onclick="mnBibRate(this)">★★★★★</button>
+                <button class="mnbib-tipo"        data-rate="4" onclick="mnBibRate(this)">★★★★+</button>
+                <button class="mnbib-tipo"        data-rate="3" onclick="mnBibRate(this)">★★★+</button>
+                <button class="mnbib-tipo"        data-rate="2" onclick="mnBibRate(this)">★★+</button>
+              </div>
+            </div>
+
+            <select class="mnbib-select" id="drop-year" onchange="mnBibYear(this)">
+              <option value="">Año: Todo</option>
+              <option value="2026">2026</option><option value="2025">2025</option>
+              <option value="2024">2024</option><option value="2023">2023</option>
+              <option value="2022">2022</option><option value="2021">2021</option>
+              <option value="2020">2020</option><option value="2019">2019</option>
+              <option value="2018">2018</option><option value="2017">2017</option>
+              <option value="2016">2016</option><option value="2015">2015</option>
+              <option value="2014">2014</option><option value="2013">2013</option>
+              <option value="2012">2012</option><option value="2011">2011</option>
+              <option value="2010">2010</option><option value="2009">2009</option>
+              <option value="2008">2008</option><option value="2007">2007</option>
+              <option value="2006">2006</option><option value="2005">2005</option>
+              <option value="2004">2004</option><option value="2003">2003</option>
+              <option value="2002">2002</option><option value="2001">2001</option>
+              <option value="2000">2000</option>
+            </select>
+
+            <button class="mnbib-reset-btn" onclick="mnBibReset()">Limpiar</button>
+          </div>
+        </div>
+
+        <div class="mnbib-grid" id="grilla-manga-biblioteca">
+          <div class="mn-loading"><div class="mn-spinner"></div><span>Cargando...</span></div>
+        </div>
+        <div class="mnbib-footer" id="mnbib-footer" style="display:none">
+          <button class="mnbib-btn-pag" id="mnbib-btn-prev" onclick="mnBibPagAnterior()" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Anterior
+          </button>
+          <span class="mnbib-pag-label" id="mnbib-pag-label">Página 1</span>
+          <button class="mnbib-btn-pag" id="mnbib-btn-next" onclick="mnBibPagSiguiente()">
+            Siguiente
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- DETALLE PREMIUM -->
+      <div class="pagina" id="page-manga-detalle">
+
+        <!-- Botones flotantes -->
+        <div class="detalle-floating-btns" id="manga-floating-btns">
+          <button class="detalle-btn-volver" id="manga-btn-volver" title="Volver"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="detalle-btn-fav" id="mn-btn-fav" title="Guardar" onclick="toggleMangaFav()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button>
+          <button class="detalle-btn-completado" id="mn-btn-completado" onclick="toggleMangaCompletado()" title="Marcar como completado">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+
+        <!-- ── LAYOUT 3 COLUMNAS ── -->
+        <div class="md-layout">
+
+          <!-- Columna izquierda: portada + botones (sin blur) -->
+          <div class="md-col-cover">
+            <div class="md-cover-wrap" id="md-cover-wrap">
+              <img class="md-cover-img" id="md-cover-img" src="" alt="" />
+              <div class="md-vol-badge" id="md-vol-badge" style="display:none"></div>
+            </div>
+            <div class="md-cta-btns" id="md-cta-btns">
+              <button class="md-btn-primary" id="md-btn-continuar" onclick="mdContinuarLeyendo()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                <div class="md-btn-text">
+                  <span class="md-btn-label">Continuar leyendo</span>
+                  <span class="md-btn-sub" id="md-btn-sub-continuar">Capítulo 1</span>
+                </div>
+              </button>
+              <button class="md-btn-secondary" id="md-btn-inicio" onclick="mdLeerDesdeInicio()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                <div class="md-btn-text">
+                  <span class="md-btn-label">Leer desde el inicio</span>
+                  <span class="md-btn-sub">Capítulo 1</span>
+                </div>
+              </button>
+            </div>
+          </div><!-- /md-col-cover -->
+
+          <!-- Columna central: hero blur (título+sinopsis) + capítulos -->
+          <div class="md-col-main md-content-loading" id="md-col-main">
+
+            <!-- Tarjeta con blur contenido -->
+            <div class="detail-col-hero">
+              <div class="detail-col-blur" id="md-bg"></div>
+              <div class="detail-col-content">
+
+                <!-- SKELETON -->
+                <div class="md-skeleton-overlay" id="md-skeleton-overlay" aria-hidden="true">
+                  <div class="md-skel-line title"></div>
+                  <div class="md-skel-line meta"></div>
+                  <div style="margin-bottom:14px">
+                    <div class="md-skel-line tag"></div>
+                    <div class="md-skel-line tag"></div>
+                    <div class="md-skel-line tag"></div>
+                  </div>
+                  <div style="height:12px;width:60px;margin-bottom:10px;border-radius:4px" class="md-skel-line"></div>
+                  <div class="md-skel-line para w95"></div>
+                  <div class="md-skel-line para w80"></div>
+                  <div class="md-skel-line para w95"></div>
+                  <div class="md-skel-line para w70"></div>
+                </div>
+
+                <!-- CONTENIDO REAL -->
+                <div class="md-real-content">
+                  <h1 class="md-titulo" id="md-titulo">—</h1>
+                  <div class="md-meta-row" id="md-meta-row">
+                    <span class="md-rating" id="md-rating" style="display:none">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="#F59E0B"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                      <span id="md-rating-val">—</span>
+                    </span>
+                    <span class="md-meta-caps" id="md-meta-caps" style="display:none">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                      <span id="md-meta-caps-val">—</span>
+                    </span>
+                    <span class="md-meta-update" id="md-meta-update" style="display:none">
+                      <span id="md-meta-update-val">—</span>
+                      <span class="md-dot-verde"></span>
+                    </span>
+                  </div>
+                  <div class="md-tags" id="md-tags"></div>
+                  <div class="md-sinopsis-wrap">
+                    <div class="md-sinopsis-titulo">Sinopsis</div>
+                    <p class="md-sinopsis-texto" id="md-sinopsis-texto">—</p>
+                    <button class="md-sinopsis-toggle" id="md-sinopsis-toggle" onclick="mdToggleSinopsis()" style="display:none">
+                      Mostrar más
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                  </div>
+                  <div class="md-continuar-card" id="md-continuar-card" style="display:none">
+                    <img class="md-cont-thumb" id="md-cont-thumb" src="" alt="" onerror="this.style.display='none'" />
+                    <div class="md-cont-info">
+                      <div class="md-cont-label">Continuar leyendo</div>
+                      <div class="md-cont-cap" id="md-cont-cap">—</div>
+                      <div class="md-cont-nombre" id="md-cont-nombre"></div>
+                      <div class="md-cont-prog-wrap">
+                        <div class="md-cont-prog-bar"><div class="md-cont-prog-fill" id="md-cont-prog-fill"></div></div>
+                        <span class="md-cont-pct" id="md-cont-pct">0%</span>
+                      </div>
+                    </div>
+                    <button class="md-cont-btn" id="md-cont-btn" onclick="mdContinuarLeyendo()">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                      Continuar
+                    </button>
+                  </div>
+                </div><!-- /md-real-content -->
+
+              </div><!-- /detail-col-content -->
+            </div><!-- /detail-col-hero -->
+
+            <!-- Capítulos (fuera del blur) -->
+            <div class="md-caps-section">
+              <div class="md-caps-header">
+                <span class="md-caps-titulo" id="md-caps-titulo-el">Capítulos</span>
+                <div class="md-caps-controles">
+                  <button class="md-caps-ctrl" id="md-btn-orden" onclick="mdToggleOrden()">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    Ordenar
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="md-caps-lista" id="md-caps-lista">
+                <div class="md-loading-caps"><div class="mn-spinner"></div> Cargando capítulos...</div>
+              </div>
+            </div>
+
+          </div><!-- /md-col-main -->
+
+          <!-- Columna derecha: panel de info -->
+          <div class="md-col-panel" id="md-col-panel">
+
+            <div class="md-panel-section">
+              <div class="md-panel-titulo">Información</div>
+              <div class="md-panel-rows" id="md-panel-info">
+                <div class="md-panel-row"><span class="md-panel-key">Estado</span><span class="md-panel-val md-estado-val" id="md-estado">—</span></div>
+                <div class="md-panel-row"><span class="md-panel-key">Tipo</span><span class="md-panel-val" id="md-tipo">Manga</span></div>
+                <div class="md-panel-row"><span class="md-panel-key">Idioma</span><span class="md-panel-val">Español</span></div>
+              </div>
+            </div>
+
+            <div class="md-panel-section">
+              <div class="md-panel-titulo">Estadísticas</div>
+              <div class="md-stats-grid" id="md-stats">
+                <div class="md-stat-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span class="md-stat-label">Vistas</span>
+                  <span class="md-stat-val" id="md-stat-vistas">—</span>
+                </div>
+                <div class="md-stat-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                  <span class="md-stat-label">Seguidores</span>
+                  <span class="md-stat-val" id="md-stat-segs">—</span>
+                </div>
+                <div class="md-stat-item">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  <span class="md-stat-label">Valoración</span>
+                  <span class="md-stat-val" id="md-stat-val">—</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="md-panel-section" id="md-panel-generos-sec" style="display:none">
+              <div class="md-panel-titulo">Géneros</div>
+              <div class="md-panel-generos" id="md-panel-generos"></div>
+            </div>
+
+          </div><!-- /md-col-panel -->
+
+        </div><!-- /md-layout -->
+      </div>
+
+      <!-- LECTOR PREMIUM -->
+      <div class="pagina" id="page-manga-lector">
+
+        <!-- HEADER -->
+        <div class="rl-header">
+          <button class="rl-back" id="manga-lector-volver">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div class="rl-header-info">
+            <div class="rl-header-titulo" id="manga-lector-titulo"></div>
+            <div class="rl-header-cap" id="manga-lector-subtitulo"></div>
+          </div>
+          <div class="rl-header-actions">
+<button class="rl-icon-btn" id="rl-btn-flip" title="Dirección" onclick="rlToggleDireccion()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+            </button>
+            <button class="rl-icon-btn" id="rl-btn-toggle-caps" title="Ocultar capítulos" onclick="rlToggleSidebar()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="18" rx="1"/><path d="M14 8l-3 4 3 4"/></svg>
+            </button>
+            <button class="rl-icon-btn" id="rl-btn-settings" title="Ajustes" onclick="rlToggleSettings()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- BODY: 3 COLUMNAS -->
+        <div class="rl-body">
+
+          <!-- SIDEBAR IZQ — capítulos -->
+          <div class="rl-sidebar" id="rl-sidebar">
+            <div class="rl-sidebar-head">
+              <span class="rl-sidebar-titulo">Capítulos</span>
+            </div>
+            <div class="rl-caps-lista" id="ml-caps-lista"></div>
+            <div class="rl-sidebar-footer">
+              <div class="rl-caps-count" id="rl-caps-count"></div>
+            </div>
+          </div>
+
+          <!-- VISOR CENTRAL -->
+          <div class="rl-visor" id="rl-visor">
+            <!-- Flecha anterior -->
+            <button class="rl-nav-arrow rl-arrow-prev" id="rl-arrow-prev" onclick="rlPrevPag()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+
+            <!-- Páginas -->
+            <div class="rl-paginas" id="manga-lector-paginas">
+              <div class="rl-loading"><div class="mn-spinner"></div><span>Cargando capítulo...</span></div>
+            </div>
+
+            <!-- Flecha siguiente -->
+            <button class="rl-nav-arrow rl-arrow-next" id="rl-arrow-next" onclick="rlNextPag()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+
+            <!-- Barra de progreso inferior -->
+            <div class="rl-progress-bar">
+              <button class="rl-prog-btn" id="ml-prev-cap" title="Capítulo anterior">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="19 20 9 12 19 4"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+              </button>
+              <div class="rl-prog-track-wrap">
+                <input type="range" class="rl-prog-slider" id="rl-prog-slider" min="1" value="1" />
+              </div>
+              <span class="rl-prog-label" id="ml-progress-label">1 / 1</span>
+              <button class="rl-prog-btn" id="ml-next-cap" title="Capítulo siguiente">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="5 4 15 12 5 20"/><line x1="19" y1="4" x2="19" y2="20"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- PANEL DER — ajustes -->
+          <div class="rl-panel" id="rl-panel">
+            <div class="rl-panel-titulo">Lectura</div>
+
+            <!-- Modo de lectura -->
+            <div class="rl-section">
+              <div class="rl-section-label-row">
+                <span class="rl-section-label">Modo de lectura</span>
+                <span class="rl-tipo-badge" id="rl-tipo-badge"></span>
+              </div>
+              <div class="rl-btn-group three">
+                <button class="rl-opt activo" id="rl-modo-horizontal" onclick="rlSetModo('horizontal')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/><polyline points="13 9 16 12 13 15"/></svg>
+                  Horizontal
+                </button>
+                <button class="rl-opt" id="rl-modo-vertical" onclick="rlSetModo('vertical')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><polyline points="9 13 12 16 15 13"/></svg>
+                  Vertical
+                </button>
+                <button class="rl-opt" id="rl-modo-doble" onclick="rlSetModo('doble')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="9" height="18" rx="1"/><rect x="13" y="3" width="9" height="18" rx="1"/></svg>
+                  Doble
+                </button>
+              </div>
+            </div>
+
+            <!-- Espejo (solo en modo doble) -->
+            <div class="rl-section" id="rl-section-espejo">
+              <div class="rl-section-label">Orden de páginas</div>
+              <div class="rl-btn-group two">
+                <button class="rl-opt activo" id="rl-espejo-rtl" onclick="rlSetEspejo('rtl')">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                  Der→Izq (manga)
+                </button>
+                <button class="rl-opt" id="rl-espejo-ltr" onclick="rlSetEspejo('ltr')">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                  Izq→Der (cómic)
+                </button>
+              </div>
+            </div>
+
+            <!-- Dirección (solo en modo vertical) -->
+            <div class="rl-section" id="rl-section-direccion">
+              <div class="rl-section-label">Dirección</div>
+              <div class="rl-btn-group two">
+                <button class="rl-opt activo" id="rl-dir-abajo" onclick="rlSetDireccion('abajo')">De arriba a abajo</button>
+                <button class="rl-opt" id="rl-dir-arriba" onclick="rlSetDireccion('arriba')">De abajo a arriba</button>
+              </div>
+            </div>
+
+            <!-- Tema -->
+            <div class="rl-section">
+              <div class="rl-section-label">Tema</div>
+              <div class="rl-btn-group three">
+                <button class="rl-opt activo" id="rl-tema-oscuro" onclick="rlSetTema('oscuro')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                  Oscuro
+                </button>
+                <button class="rl-opt" id="rl-tema-oled" onclick="rlSetTema('oled')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+                  Negro OLED
+                </button>
+                <button class="rl-opt" id="rl-tema-claro" onclick="rlSetTema('claro')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                  Claro
+                </button>
+              </div>
+            </div>
+
+            <div class="rl-divider"></div>
+            <div class="rl-panel-titulo" style="margin-top:4px">Imagen</div>
+
+            <!-- Ajuste de imagen -->
+            <div class="rl-section">
+              <div class="rl-section-label">Ajuste de imagen</div>
+              <div class="rl-btn-group three">
+                <button class="rl-opt activo" id="rl-aj-auto" onclick="rlSetAjuste('auto')">Automático</button>
+                <button class="rl-opt" id="rl-aj-claro" onclick="rlSetAjuste('claro')">Claro</button>
+                <button class="rl-opt" id="rl-aj-oscuro" onclick="rlSetAjuste('oscuro')">Oscuro</button>
+              </div>
+            </div>
+
+            <!-- Zoom -->
+            <div class="rl-section">
+              <div class="rl-section-label-row">
+                <span class="rl-section-label">Zoom</span>
+                <span class="rl-zoom-val" id="manga-zoom-val">100%</span>
+              </div>
+              <div class="rl-zoom-row">
+                <button class="rl-zoom-btn" onclick="rlAjustarZoom(-10)" title="Reducir">−</button>
+                <input class="rl-zoom-slider" type="range" id="ml-zoom-slider" min="50" max="160" value="100" step="5" oninput="rlSetUserZoom(this.value)">
+                <button class="rl-zoom-btn" onclick="rlAjustarZoom(10)" title="Ampliar">+</button>
+              </div>
+            </div>
+
+            <div class="rl-divider"></div>
+            <div class="rl-panel-titulo" style="margin-top:4px">Avanzado</div>
+
+            <div class="rl-section">
+              <div class="rl-toggle-row">
+                <span class="rl-toggle-label">Animación al cambiar página</span>
+                <label class="rl-toggle"><input type="checkbox" id="rl-tog-transiciones" checked onchange="rlToggleOpt('transiciones',this.checked)"><span class="rl-toggle-track"></span></label>
+              </div>
+              <div class="rl-toggle-row">
+                <span class="rl-toggle-label">Mostrar bordes entre páginas</span>
+                <label class="rl-toggle"><input type="checkbox" id="rl-tog-bordes" onchange="rlToggleOpt('bordes',this.checked)"><span class="rl-toggle-track"></span></label>
+              </div>
+              <div class="rl-toggle-row">
+                <span class="rl-toggle-label">Recordar última posición</span>
+                <label class="rl-toggle"><input type="checkbox" id="rl-tog-posicion" checked onchange="rlToggleOpt('posicion',this.checked)"><span class="rl-toggle-track"></span></label>
+              </div>
+            </div>
+
+          </div><!-- /rl-panel -->
+
+        </div><!-- /rl-body -->
+      </div>
+
+      <!-- FAVORITOS -->
+      <div class="pagina" id="page-manga-favoritos">
+        <h2 class="seccion-titulo">❤️ Mis favoritos</h2>
+        <div class="mn-tend-grid" id="grilla-manga-favoritos"><div class="fav-vacio">No tienes mangas guardados.</div></div>
+      </div>
+
+      <!-- HISTORIAL -->
+      <div class="pagina" id="page-manga-historial">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <h2 class="seccion-titulo" style="margin-bottom:0">🕐 Historial</h2>
+          <button class="btn-limpiar" onclick="limpiarMangaHistorial()">Limpiar todo</button>
+        </div>
+        <div id="manga-historial-lista"><div class="fav-vacio">No has leído ningún capítulo aún.</div></div>
+      </div>
+
+    </main>
+
+  </div><!-- /layout -->
+
+  <!-- ── MODAL: SOURCE PICKER (NovelCool) ─────────────────────────────────── -->
+  <div class="overlay" id="overlay-nc-fuente">
+    <div class="card-servidor">
+      <div class="card-servidor-header">
+        <div>
+          <p class="card-label">Elige una fuente de lectura</p>
+          <h3 id="nc-fuente-titulo"></h3>
+        </div>
+        <button class="btn-cerrar" id="nc-fuente-cerrar">✕</button>
+      </div>
+      <div class="nc-fuente-lista">
+        <button class="nc-fuente-btn" onclick="ncElegirFuente(1)">
+          <span class="nc-fuente-num">1</span>
+          <span class="nc-fuente-label">Fuente 1</span>
+          <span class="nc-fuente-desc">Directo · SSR</span>
+        </button>
+        <button class="nc-fuente-btn" onclick="ncElegirFuente(2)">
+          <span class="nc-fuente-num">2</span>
+          <span class="nc-fuente-label">Fuente 2</span>
+          <span class="nc-fuente-desc">CDN alternativo</span>
+        </button>
+        <button class="nc-fuente-btn" onclick="ncElegirFuente(3)">
+          <span class="nc-fuente-num">3</span>
+          <span class="nc-fuente-label">Fuente 3</span>
+          <span class="nc-fuente-desc">CDN alternativo</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay-servidor">
+    <div class="card-servidor">
+      <div class="card-servidor-header">
+        <div>
+          <p class="card-label">Selecciona un servidor</p>
+          <h3 id="srv-titulo"></h3>
+        </div>
+        <button class="btn-cerrar" id="srv-cerrar">✕</button>
+      </div>
+      <div id="srv-lista" class="srv-lista"><div class="loading">Cargando servidores...</div></div>
+    </div>
+  </div>
+  <div class="rp-overlay" id="overlay-player">
+
+    <div class="rp-shell">
+
+      <div class="rp-body">
+
+        <!-- COLUMNA PRINCIPAL: video + info abajo -->
+        <div class="rp-main-col">
+
+          <!-- VIDEO full-width -->
+          <div class="rp-col-video">
+            <div class="rp-video-area" id="rp-video-wrap">
+              <video id="player-video" autoplay playsinline></video>
+              <div class="player-spinner" id="player-spinner"><div class="spinner"></div></div>
+
+              <!-- OSD Volumen teclado -->
+              <div class="rp-vol-osd" id="rp-vol-osd">
+                <svg class="rp-vol-icon" id="rp-vol-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path id="rp-vol-waves" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                  <g id="rp-vol-mute-x" style="display:none">
+                    <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+                  </g>
+                </svg>
+                <div class="rp-vol-bar-wrap">
+                  <div class="rp-vol-bar-fill" id="rp-vol-fill"></div>
+                </div>
+                <span class="rp-vol-pct" id="rp-vol-pct">100%</span>
+              </div>
+
+              <div class="rp-video-title-float">
+                <div class="rp-vtitle-row">
+                  <button class="rp-exit-btn" id="player-cerrar" onclick="event.stopPropagation();cerrarReproductor()">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+                    Salir
+                  </button>
+                  <div class="rp-vtitle-text">
+                    <div class="rp-vtitle-main" id="rp-anime-nombre">—</div>
+                    <div class="rp-vtitle-sub" id="rp-ep-nombre">—</div>
+                  </div>
+                </div>
+              </div>
+
+              <button class="rp-skip-intro" id="rp-skip-intro" onclick="event.stopPropagation();saltarOpening()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Saltar Intro
+              </button>
+
+              <div class="rp-video-controls" id="rp-video-controls">
+                <div class="rp-center-ctrls" id="rp-center-controls">
+                  <canvas id="c-skip-back" width="80" height="80" onclick="event.stopPropagation();skipSegundo(-10)" style="cursor:pointer"></canvas>
+                  <canvas id="c-play-pause" width="80" height="80" style="cursor:pointer"></canvas>
+                  <canvas id="c-skip-fwd"  width="80" height="80" onclick="event.stopPropagation();skipSegundo(10)"  style="cursor:pointer"></canvas>
+                </div>
+
+                <div class="rp-vc-progress">
+                  <span class="rp-vc-time" id="player-time-current">0:00</span>
+                  <div class="rp-vc-track" id="player-progress-bg">
+                    <div class="rp-vc-fill" id="player-progress-fill"></div>
+                    <div class="rp-vc-thumb" id="player-progress-thumb"></div>
+                    <div class="rp-prog-preview" id="rp-prog-preview">0:00</div>
+                  </div>
+                  <span class="rp-vc-time" id="player-time-total">0:00</span>
+                </div>
+
+                <div class="rp-vc-btns">
+                  <div class="rp-vc-left">
+                    <button class="rp-vc-btn" id="rp-play-small">
+                      <svg class="icon-play-s" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                      <svg class="icon-pause-s" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>
+                    </button>
+                    <div class="rp-vc-vol">
+                      <button class="rp-vc-btn" id="player-mute">
+                        <svg id="vol-icon-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                          <path id="vol-wave-small" d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                          <path id="vol-wave-big"   d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                        </svg>
+                        <svg id="vol-icon-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                          <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+                        </svg>
+                      </button>
+                      <input type="range" class="rp-vc-vol-slider" id="player-vol" min="0" max="1" step="0.05" value="1"/>
+                    </div>
+                  </div>
+                  <div class="rp-vc-right">
+                    <button class="rp-vc-btn" id="rp-share-btn" title="Compartir en chat" onclick="event.stopPropagation();window._chatShareAnime&&window._chatShareAnime()">
+                      <i class="ti ti-share" style="font-size:16px" aria-hidden="true"></i>
+                    </button>
+                    <button class="rp-vc-btn" id="rp-chat-btn" title="Chat" onclick="event.stopPropagation();window._chatToggle&&window._chatToggle()">
+                      <i class="ti ti-message-circle" style="font-size:16px" aria-hidden="true"></i>
+                      <span id="rp-chat-badge" style="display:none;position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#ef4444"></span>
+                    </button>
+                    <button class="rp-vc-btn" id="rp-pip-btn" title="Ventana flotante" onclick="event.stopPropagation();togglePiP()">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+                    </button>
+                    <div class="rp-speed-wrap">
+                      <button class="rp-vc-btn rp-pill-btn" id="rp-speed-btn" onclick="toggleSpeedDropdown()">
+                        <span id="rp-speed-label">1x</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      <div class="rp-speed-dropdown" id="rp-speed-dropdown">
+                        <div class="rp-dd-item" onclick="setSpeed(0.5)">0.5x</div>
+                        <div class="rp-dd-item" onclick="setSpeed(0.75)">0.75x</div>
+                        <div class="rp-dd-item rp-dd-active" onclick="setSpeed(1)">1x</div>
+                        <div class="rp-dd-item" onclick="setSpeed(1.25)">1.25x</div>
+                        <div class="rp-dd-item" onclick="setSpeed(1.5)">1.5x</div>
+                        <div class="rp-dd-item" onclick="setSpeed(2)">2x</div>
+                      </div>
+                    </div>
+                    <button class="rp-vc-btn" onclick="toggleFullscreenPlayer()">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- INFO ABAJO — 2 columnas -->
+          <div class="rp-info-bottom">
+
+            <!-- IZQUIERDA: nombre serie, título ep, likes, sinopsis -->
+            <div class="rp-ib-left">
+              <div class="rp-ib-series-name" id="rp-info-titulo">—</div>
+              <div class="rp-ib-ep-title" id="rp-info-ep-name">—</div>
+              <div class="rp-ib-meta-row">
+                <span class="rp-ib-meta-text" id="rp-info-season-ep"></span>
+              </div>
+              <div class="rp-ib-actions-row">
+                <button class="rp-ib-like-btn" id="rp-btn-like" onclick="toggleRpLike()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                  Me gusta
+                </button>
+                <button class="rp-ib-like-btn" id="rp-btn-dislike" onclick="toggleRpDislike()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+                  No me gusta
+                </button>
+                <div class="rp-ib-sep"></div>
+                <button class="rp-ib-like-btn" id="rp-btn-bookmark" onclick="toggleRpBookmark()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                  Guardar
+                </button>
+              </div>
+              <p class="rp-ib-synopsis" id="rp-info-sinopsis">—</p>
+              <div id="rp-info-genres-section" style="display:none">
+                <div class="rp-info-genres" id="rp-info-genres"></div>
+              </div>
+              <!-- Portada oculta — referencia JS -->
+              <img id="rp-info-portada" style="display:none" src="" alt=""/>
+            </div>
+
+            <!-- DERECHA: ep anterior, siguiente, ver lista -->
+            <div class="rp-ib-right" id="rp-col-info">
+
+              <div id="rp-prev-ep-section" style="display:none">
+                <div class="rp-ib-ep-label">Episodio anterior</div>
+                <div class="rp-ib-ep-card" id="rp-prev-ep-card" onclick="irEpisodioAnterior()">
+                  <div class="rp-ib-ep-arrow">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                  </div>
+                  <img class="rp-ib-ep-thumb" id="rp-prev-thumb" src="" alt=""/>
+                  <div class="rp-ib-ep-info">
+                    <div class="rp-ib-ep-name" id="rp-prev-title">—</div>
+                    <div class="rp-ib-ep-sub" id="rp-prev-sub"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="rp-next-ep-section" style="display:none">
+                <div class="rp-ib-ep-label">Siguiente episodio</div>
+                <div class="rp-ib-ep-card" id="rp-next-ep-card" onclick="irSiguienteEpisodio()">
+                  <img class="rp-ib-ep-thumb" id="rp-next-thumb" src="" alt=""/>
+                  <div class="rp-ib-ep-info">
+                    <div class="rp-ib-ep-name" id="rp-next-title">—</div>
+                    <div class="rp-ib-ep-sub" id="rp-next-sub"></div>
+                  </div>
+                  <div class="rp-ib-ep-arrow">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rp-ib-divider"></div>
+
+              <button class="rp-ib-eps-list-btn" onclick="cerrarReproductor()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                Ver más episodios
+              </button>
+
+            </div>
+          </div><!-- /rp-info-bottom -->
+
+        </div><!-- /rp-main-col -->
+
+      </div><!-- /rp-body -->
+
+      <!-- Notificaciones flotantes de chat — dentro de rp-shell para funcionar en fullscreen -->
+      <div id="chat-float-overlay"></div>
+
+    </div><!-- /rp-shell -->
+  </div>
+
+  <div id="overlay-modulos" style="display:none;position:fixed;inset:0;z-index:999">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,0.6)" onclick="cerrarSwitcherModulos()"></div>
+    <div class="mod-overlay-panel">
+      <div class="mod-ov-views">
+        <div class="mod-ov-track" id="mod-ov-track">
+
+          <!-- PASO 1: Anime / Manga -->
+          <div class="mod-ov-view">
+            <div class="mod-overlay-titulo">Cambiar módulo</div>
+            <div class="mod-overlay-grid">
+              <div class="mod-overlay-card activo" id="modcard-anime" onclick="abrirSeleccionFuenteAnime()">
+                <div class="mod-overlay-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div class="mod-overlay-logo">
+                  <img src="../assets/icon.png" style="border-radius:12px;width:100%;height:100%;object-fit:cover" />
+                </div>
+                <div class="mod-overlay-info">
+                  <div class="mod-overlay-name">Anime</div>
+                  <div class="mod-overlay-src" id="modcard-anime-src">latanime.org</div>
+                </div>
+                <svg class="mod-overlay-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div class="mod-overlay-card" id="modcard-manga" onclick="abrirSeleccionFuenteManga()">
+                <div class="mod-overlay-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div class="mod-overlay-logo">
+                  <img src="../assets/Manga.png" style="width:100%;height:100%;object-fit:contain;border-radius:10px" />
+                </div>
+                <div class="mod-overlay-info">
+                  <div class="mod-overlay-name">Manga</div>
+                  <div class="mod-overlay-src" id="modcard-manga-src">zonatmo.org</div>
+                </div>
+                <svg class="mod-overlay-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- PASO 2: Fuentes manga -->
+          <div class="mod-ov-view">
+            <div class="mod-overlay-titulo con-back">
+              <button class="mod-overlay-back" onclick="modOverlayBack()" aria-label="Volver">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              Repositorio manga
+            </div>
+            <div class="mod-overlay-grid">
+
+              <!-- ZonaTMO -->
+              <div class="mod-overlay-card" id="modcard-src-zonatmo" onclick="seleccionarFuenteManga('zonatmo')">
+                <div class="mod-overlay-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div class="mod-overlay-logo">
+                  <img src="https://www.google.com/s2/favicons?domain=zonatmo.org&sz=128" width="52" height="52" style="border-radius:12px;object-fit:cover;image-rendering:auto;" alt="ZonaTMO" onerror="this.src='https://www.google.com/s2/favicons?domain=zonatmo.org&sz=128'">
+                </div>
+                <div class="mod-overlay-info">
+                  <div class="mod-overlay-name">ZonaTMO</div>
+                  <div class="mod-overlay-src">zonatmo.org</div>
+                </div>
+              </div>
+
+              <!-- NovelCool -->
+              <div class="mod-overlay-card" id="modcard-src-novelcool" onclick="seleccionarFuenteManga('novelcool')">
+                <div class="mod-overlay-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div class="mod-overlay-logo">
+                  <img src="https://www.google.com/s2/favicons?domain=novelcool.com&sz=128" width="52" height="52" style="border-radius:12px;object-fit:cover;image-rendering:auto;" alt="NovelCool" onerror="this.src='https://www.google.com/s2/favicons?domain=es.novelcool.com&sz=128'">
+                </div>
+                <div class="mod-overlay-info">
+                  <div class="mod-overlay-name">NovelCool</div>
+                  <div class="mod-overlay-src">es.novelcool.com</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- PASO 3: Fuentes anime -->
+          <div class="mod-ov-view">
+            <div class="mod-overlay-titulo con-back">
+              <button class="mod-overlay-back" onclick="modOverlayAnimeBack()" aria-label="Volver">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              Repositorio anime
+            </div>
+            <div class="mod-overlay-grid">
+
+              <!-- Latanime -->
+              <div class="mod-overlay-card" id="modcard-src-latanime" onclick="seleccionarFuenteAnime('latanime')">
+                <div class="mod-overlay-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div class="mod-overlay-logo">
+                  <img src="../assets/Latanime.png" width="52" height="52"
+                       style="border-radius:12px;object-fit:cover;object-position:center center;display:block;flex-shrink:0"
+                       alt="Latanime">
+                </div>
+                <div class="mod-overlay-info">
+                  <div class="mod-overlay-name">Latanime</div>
+                  <div class="mod-overlay-src">latanime.org</div>
+                </div>
+              </div>
+
+              <!-- AnimeFLV -->
+              <div class="mod-overlay-card" id="modcard-src-animeflv" onclick="seleccionarFuenteAnime('animeflv')">
+                <div class="mod-overlay-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div class="mod-overlay-logo">
+                  <img src="../assets/AnimeFLV.jpg" width="52" height="52"
+                       style="border-radius:12px;object-fit:cover;object-position:center center;display:block;flex-shrink:0"
+                       alt="AnimeFLV">
+                </div>
+                <div class="mod-overlay-info">
+                  <div class="mod-overlay-name">AnimeFLV</div>
+                  <div class="mod-overlay-src">animeflv.net</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL CONFIGURACIÓN -->
+    <!-- CONFIGURACIÓN DRILL-DOWN -->
+  <div id="overlay-config" style="display:none;position:fixed;inset:0;z-index:999;pointer-events:none">
+    <div style="position:absolute;inset:0;pointer-events:all" onclick="cerrarConfig()"></div>
+    <div class="cfg-panel" style="pointer-events:all">
+      <div class="cfg-header">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="cfg-back" id="cfg-back" onclick="cfgVolver()" style="display:none"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <span class="cfg-titulo" id="cfg-titulo">Configuración</span>
+        </div>
+        <button class="cfg-close" onclick="cerrarConfig()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <!-- MENÚ PRINCIPAL -->
+      <div class="cfg-view" id="cfg-view-menu">
+        <button class="cfg-menu-item" onclick="cfgIr('apariencia')"><div class="cfg-menu-item-left"><div class="cfg-menu-icon" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div><div><div class="cfg-menu-title">Apariencia</div><div class="cfg-menu-desc">Tema, color y fondo</div></div></div><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        <button class="cfg-menu-item" onclick="cfgIr('interfaz')"><div class="cfg-menu-item-left"><div class="cfg-menu-icon" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="cfg-menu-title">Interfaz</div><div class="cfg-menu-desc">Sidebar y comportamiento</div></div></div><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        <button class="cfg-menu-item" onclick="cfgIr('amigos')"><div class="cfg-menu-item-left"><div class="cfg-menu-icon" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><div><div class="cfg-menu-title">Amigos</div><div class="cfg-menu-desc">Actividad y privacidad</div></div></div><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        <button class="cfg-menu-item" onclick="cfgIr('contenido')"><div class="cfg-menu-item-left"><div class="cfg-menu-icon" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div><div><div class="cfg-menu-title">Contenido</div><div class="cfg-menu-desc">Filtros y +18</div></div></div><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        <button class="cfg-menu-item" onclick="cfgIr('cache')"><div class="cfg-menu-item-left"><div class="cfg-menu-icon" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div><div><div class="cfg-menu-title">Caché</div><div class="cfg-menu-desc">Limpiar datos</div></div></div><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        <button class="cfg-menu-item" onclick="cfgIr('creditos')"><div class="cfg-menu-item-left"><div class="cfg-menu-icon" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="cfg-menu-title">Acerca de</div><div class="cfg-menu-desc">Versión e info</div></div></div><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+      </div>
+      <!-- APARIENCIA -->
+      <div class="cfg-view" id="cfg-view-apariencia" style="display:none">
+        <div class="cfg-section"><div class="cfg-section-label">Modo</div><div class="cfg-row">
+          <button class="cfg-mode-btn activo" id="cfg-modo-oscuro" onclick="setAppModo('oscuro')">Oscuro</button>
+          <button class="cfg-mode-btn" id="cfg-modo-claro" onclick="setAppModo('claro')">Claro</button>
+          <button class="cfg-mode-btn" id="cfg-modo-oled" onclick="setAppModo('oled')">OLED</button>
+          <button class="cfg-mode-btn" id="cfg-modo-sistema" onclick="setAppModo('sistema')">Sistema</button>
+        </div></div>
+        <div class="cfg-section"><div class="cfg-section-label">Color de acento</div><div class="cfg-colors">
+          <button class="cfg-color activo" data-accent="blue"   onclick="setAppAccent('blue')"   title="Azul"    style="background:#2563EB"></button>
+          <button class="cfg-color"         data-accent="purple" onclick="setAppAccent('purple')" title="Morado"  style="background:#7C3AED"></button>
+          <button class="cfg-color"         data-accent="rose"   onclick="setAppAccent('rose')"   title="Rosa"    style="background:#E11D48"></button>
+          <button class="cfg-color"         data-accent="green"  onclick="setAppAccent('green')"  title="Verde"   style="background:#059669"></button>
+          <button class="cfg-color"         data-accent="orange" onclick="setAppAccent('orange')" title="Naranja" style="background:#EA580C"></button>
+          <button class="cfg-color"         data-accent="cyan"   onclick="setAppAccent('cyan')"   title="Cian"    style="background:#0891B2"></button>
+          <button class="cfg-color"         data-accent="gold"   onclick="setAppAccent('gold')"   title="Dorado"  style="background:#D97706"></button>
+          <button class="cfg-color"         data-accent="pink"   onclick="setAppAccent('pink')"   title="Fucsia"  style="background:#DB2777"></button>
+        </div></div>
+        <div class="cfg-section"><div class="cfg-section-label">Fondo personalizado</div>
+          <div class="cfg-bg-preview" id="cfg-bg-preview"><span id="cfg-bg-label">Sin fondo</span></div>
+          <div class="cfg-bg-actions">
+            <button class="cfg-bg-btn" onclick="setBgImagen()">Seleccionar imagen</button>
+            <button class="cfg-bg-apply" id="cfg-bg-apply" onclick="aplicarBgImagen()" style="display:none">Aplicar</button>
+            <button class="cfg-bg-remove" id="cfg-bg-remove" onclick="quitarBgImagen()" style="display:none">Quitar</button>
+          </div>
+          <div class="cfg-bg-opacity-row" id="cfg-bg-opacity-row" style="display:none">
+            <span class="cfg-bg-opacity-label">Transparencia</span>
+            <input type="range" id="cfg-bg-opacity" min="5" max="60" value="20" oninput="setBgOpacidad(this.value)">
+            <span class="cfg-bg-opacity-val" id="cfg-bg-opacity-val">20%</span>
+          </div>
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-section-label">Sidebar</div>
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Modo neon</div><div class="cfg-toggle-desc">Indicador y glow en el color de acento</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-neon" onchange="setSidebarNeon(this.checked)"><span class="rl-toggle-track"></span></label></div>
+        </div>
+      </div>
+      <!-- INTERFAZ -->
+      <div class="cfg-view" id="cfg-view-interfaz" style="display:none">
+        <div class="cfg-section">
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Barra lateral automática</div><div class="cfg-toggle-desc">Se oculta al alejar el cursor</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-sidebar" onchange="setSidebarAutohide(this.checked)"><span class="rl-toggle-track"></span></label></div>
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-section-label">Portadas visibles</div>
+          <div class="cfg-toggle-title" style="margin-top:6px">Seguir viendo / Continuar leyendo</div>
+          <div class="cfg-toggle-desc" style="margin-bottom:8px">Portadas en las secciones de anime y manga</div>
+          <div class="cfg-row" id="cfg-portadas-max-group">
+            <button class="cfg-num-btn" data-val="4" onclick="setPortadasMax(4)">4</button>
+            <button class="cfg-num-btn" data-val="6" onclick="setPortadasMax(6)">6</button>
+            <button class="cfg-num-btn activo" data-val="8" onclick="setPortadasMax(8)">8</button>
+          </div>
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-section-label">Diseño de listas de episodios / capítulos</div>
+          <div class="cfg-toggle-title" style="margin-top:6px">Estilo visual</div>
+          <div class="cfg-toggle-desc" style="margin-bottom:8px">Cómo se ven los episodios en anime y los capítulos en manga</div>
+          <div class="cfg-row" id="cfg-lista-estilo-group">
+            <button class="cfg-num-btn activo" data-val="tarjetas" onclick="setListaEstilo('tarjetas')">Tarjetas</button>
+            <button class="cfg-num-btn" data-val="lista" onclick="setListaEstilo('lista')">Lista</button>
+          </div>
+        </div>
+      </div>
+      <!-- AMIGOS -->
+      <div class="cfg-view" id="cfg-view-amigos" style="display:none">
+        <div class="cfg-section">
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Compartir actividad</div><div class="cfg-toggle-desc">Tus amigos pueden ver qué anime o manga estás viendo</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-activity" onchange="setActivityShare(this.checked)"><span class="rl-toggle-track"></span></label></div>
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Actividad en Discord</div><div class="cfg-toggle-desc">Muestra qué estás viendo en tu estado de Discord</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-discord" onchange="setDiscordActivity(this.checked)"><span class="rl-toggle-track"></span></label></div>
+        </div>
+      </div>
+      <!-- CONTENIDO -->
+      <div class="cfg-view" id="cfg-view-contenido" style="display:none">
+        <div class="cfg-section"><div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Mostrar contenido +18</div><div class="cfg-toggle-desc">Hentai según MyAnimeList</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-18" onchange="setConfig18(this.checked)"><span class="rl-toggle-track"></span></label></div></div>
+      </div>
+      <!-- CACHÉ -->
+      <div class="cfg-view" id="cfg-view-cache" style="display:none">
+        <div class="cfg-section"><button class="cfg-cache-btn" id="cfg-btn-cache" onclick="limpiarCache()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Borrar caché</button></div>
+      </div>
+      <!-- ACERCA DE -->
+      <div class="cfg-view" id="cfg-view-creditos" style="display:none">
+        <div class="cfg-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+            <div>
+              <div style="font-size:18px;font-weight:800;color:var(--text-main);letter-spacing:2px">RYOKU</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">By <span style="color:var(--primary);font-weight:600">Phantom - City</span></div>
+            </div>
+            <span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(var(--primary-rgb,37,99,235),0.12);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.2)">v1.0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Chat: FAB ── -->
+  <div id="chat-fab" style="display:none" onclick="window._chatToggle&&window._chatToggle()" title="Chat">
+    <i class="ti ti-message-circle"></i>
+    <div id="chat-fab-badge" style="display:none">0</div>
+  </div>
+
+  <!-- ── Chat: ventana flotante ── -->
+  <div id="chat-window" class="cw-hidden">
+    <div class="cw-titlebar">
+      <div class="cw-titlebar-left">
+        <button class="cw-back-btn" id="cw-back-btn" onclick="window._chatBack&&window._chatBack()" style="display:none"><i class="ti ti-arrow-left"></i></button>
+        <span class="cw-title" id="cw-title">Mensajes</span>
+      </div>
+      <div class="cw-hdr-actions">
+        <span class="cw-icon-btn" id="cw-search-btn" onclick="window._chatToggleSearch&&window._chatToggleSearch()" style="display:none" title="Buscar"><i class="ti ti-search"></i></span>
+        <span class="cw-icon-btn" id="cw-group-btn" onclick="window._chatGroupSettings&&window._chatGroupSettings()" style="display:none" title="Opciones del grupo"><i class="ti ti-settings"></i></span>
+        <span class="cw-icon-btn" onclick="window._chatToggle&&window._chatToggle()"><i class="ti ti-x"></i></span>
+      </div>
+    </div>
+    <div id="cw-search-bar" class="cw-search-bar" style="display:none">
+      <i class="ti ti-search" aria-hidden="true"></i>
+      <input id="cw-search-input" type="text" placeholder="Buscar mensajes..." autocomplete="off" oninput="window._chatSearch&&window._chatSearch(this.value)" />
+      <button onclick="window._chatToggleSearch&&window._chatToggleSearch()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="cw-tabs" id="cw-tabs">
+      <div class="cw-tab active" id="cw-tab-dms" onclick="window._chatTab&&window._chatTab('dms')">DMs</div>
+      <div class="cw-tab" id="cw-tab-sala" onclick="window._chatTab&&window._chatTab('sala')">Grupos</div>
+    </div>
+    <div id="cw-body" class="cw-body"></div>
+    <div id="cw-composer" class="cw-composer" style="display:none">
+      <div id="cw-reply-bar" class="cw-reply-bar" style="display:none">
+        <div class="crb-content">
+          <span class="crb-name"></span>
+          <span class="crb-text"></span>
+        </div>
+        <button class="crb-close" onclick="window._chatClearReply&&window._chatClearReply()"><i class="ti ti-x"></i></button>
+      </div>
+      <div id="cw-img-bar" class="cw-img-bar" style="display:none">
+        <i class="ti ti-photo" style="color:var(--primary);font-size:14px;flex-shrink:0"></i>
+        <input id="cw-img-input" type="text" placeholder="Pega URL de imagen o GIF..."
+          onkeydown="if(event.key==='Enter')window._chatSendImg&&window._chatSendImg();if(event.key==='Escape')window._chatImageSend&&window._chatImageSend()" />
+        <button onclick="window._chatSendImg&&window._chatSendImg()"><i class="ti ti-send"></i></button>
+        <button onclick="window._chatImageSend&&window._chatImageSend()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="cw-input-row">
+        <input id="cw-input" class="cw-input" type="text" placeholder="Escribe un mensaje..." autocomplete="off"
+          onkeydown="window._chatInputKey&&window._chatInputKey(event)"
+          oninput="window._chatTyping&&window._chatTyping()" />
+        <button class="cw-img-btn" onclick="window._chatImageSend&&window._chatImageSend()" title="Imagen / GIF"><i class="ti ti-photo"></i></button>
+        <button class="cw-send" onclick="window._chatSend&&window._chatSend()"><i class="ti ti-send"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Amigos: FAB ── -->
+  <div id="friends-fab" style="display:none" onclick="window._friendsToggle&&window._friendsToggle()" title="Amigos">
+    <i class="ti ti-users"></i>
+    <div id="friends-fab-badge" style="display:none">0</div>
+  </div>
+
+  <!-- ── Amigos: ventana flotante ── -->
+  <div id="friends-window" class="fw-hidden">
+    <div class="fw-titlebar">
+      <span class="fw-title">Amigos</span>
+      <div class="fw-hdr-actions">
+        <span class="fw-icon-btn" onclick="window._friendsSwitchTab('agregar')" title="Agregar amigo"><i class="ti ti-user-plus"></i></span>
+        <span class="fw-icon-btn" onclick="window._friendsToggle&&window._friendsToggle()"><i class="ti ti-x"></i></span>
+      </div>
+    </div>
+    <div class="fw-search-wrap">
+      <i class="ti ti-search" style="font-size:12px;color:var(--text-muted)"></i>
+      <input type="text" id="fw-search-input" placeholder="Buscar..." oninput="window._friendsFilterChange&&window._friendsFilterChange()" />
+    </div>
+    <div class="fw-tabs">
+      <div class="fw-tab active" id="fw-tab-online"      onclick="window._friendsSwitchTab('online')">En línea</div>
+      <div class="fw-tab"        id="fw-tab-todos"       onclick="window._friendsSwitchTab('todos')">Todos</div>
+      <div class="fw-tab"        id="fw-tab-solicitudes" onclick="window._friendsSwitchTab('solicitudes')">Solicitudes <span id="fw-req-badge" class="fw-req-badge" style="display:none">0</span></div>
+    </div>
+    <div id="fw-body" class="fw-body"></div>
+    <div id="fw-add-row" class="fw-add-row" style="display:none">
+      <input id="fw-add-input" class="fw-add-input" type="text" placeholder="Email o @nombre_usuario..." />
+      <button onclick="window._friendsAdd&&window._friendsAdd()" class="fw-add-btn">Enviar</button>
+    </div>
+    <div id="fw-add-msg" class="fw-add-msg"></div>
+  </div>
+
+  <script src="modulos/utils.js"></script>
+  <script src="modulos/core.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+  <script src="modulos/auth.js"></script>
+  <script src="modulos/sync.js"></script>
+  <script src="modulos/ui.js"></script>
+  <script src="modulos/anime.js"></script>
+  <script src="modulos/manga.js"></script>
+  <script src="modulos/friends.js"></script>
+  <script src="modulos/chat.js"></script>
+  <script src="modulos/profile.js"></script>
+
+  <!-- PERFIL OVERLAY -->
+  <div id="overlay-perfil" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.75);align-items:center;justify-content:center;padding:20px">
+    <div id="perfil-panel" class="pf-panel"></div>
+  </div>
+  <!-- ── BANNER ACTUALIZACIÓN ──────────────────────────────────────────────── -->
+  <div id="update-banner" style="display:none;position:fixed;bottom:20px;right:20px;z-index:9999;background:var(--bg-secondary);border:1px solid var(--accent);border-radius:12px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.5);min-width:280px;max-width:340px">
+    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">🎉 Nueva versión disponible</div>
+    <div id="update-version" style="font-size:12px;color:var(--text-muted);margin-bottom:12px"></div>
+    <div id="update-progress-wrap" style="display:none;margin-bottom:10px">
+      <div style="background:var(--bg-tertiary);border-radius:4px;height:4px;overflow:hidden">
+        <div id="update-progress-bar" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
+      </div>
+      <div id="update-progress-txt" style="font-size:11px;color:var(--text-muted);margin-top:4px">Descargando… 0%</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="update-btn" onclick="window._updateDescargar()" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer">Actualizar ahora</button>
+      <button onclick="document.getElementById('update-banner').style.display='none'" style="background:var(--bg-tertiary);color:var(--text-muted);border:none;border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer">Después</button>
+    </div>
+  </div>
+
+  <script>
+    window._updateDescargar = function() {
+      document.getElementById('update-btn').textContent = 'Descargando…'
+      document.getElementById('update-btn').disabled = true
+      document.getElementById('update-progress-wrap').style.display = 'block'
+      window.api.updateDownload()
+    }
+    window.api.onUpdateAvailable((version) => {
+      document.getElementById('update-version').textContent = 'Versión ' + version + ' lista para instalar'
+      document.getElementById('update-banner').style.display = 'block'
+    })
+    window.api.onUpdateProgress((pct) => {
+      document.getElementById('update-progress-bar').style.width = pct + '%'
+      document.getElementById('update-progress-txt').textContent = 'Descargando… ' + pct + '%'
+    })
+    window.api.onUpdateDownloaded(() => {
+      document.getElementById('update-btn').textContent = 'Reiniciar e instalar'
+      document.getElementById('update-btn').disabled = false
+      document.getElementById('update-btn').onclick = () => window.api.updateInstall()
+      document.getElementById('update-progress-wrap').style.display = 'none'
+    })
+  </script>
+
+</body>
+</html>
