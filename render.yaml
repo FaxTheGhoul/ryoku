@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ryoku-server
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health

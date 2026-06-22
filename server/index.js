@@ -33,8 +33,22 @@ app.use(rateLimit({
 app.use('/api/anime', require('./routes/anime'))
 app.use('/api/manga', require('./routes/manga'))
 
-// ── Health check ──────────────────────────────────────────────────────────────
-app.get('/health', (_, res) => res.json({ ok: true, ts: Date.now() }))
+// ── Health check + keep-alive (cron-job.org pinga esto cada 14 min) ───────────
+let _lastPing = Date.now()
+app.get('/health', (_, res) => {
+  _lastPing = Date.now()
+  res.json({ ok: true, ts: Date.now(), uptime: process.uptime() })
+})
+
+// Keep-alive activo: si no hay ping en 13 min, el propio servidor se auto-pinga
+setInterval(async () => {
+  if (Date.now() - _lastPing > 13 * 60 * 1000) {
+    try {
+      const axios = require('axios')
+      await axios.get(`http://localhost:${PORT}/health`, { timeout: 5000 })
+    } catch(e) {}
+  }
+}, 5 * 60 * 1000)
 
 // ── Version check para auto-update de Android ─────────────────────────────────
 app.get('/version', (_, res) => {
