@@ -242,6 +242,21 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   mainWindow.on('maximize',   () => mainWindow.webContents.send('window-maximize-change', true))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-maximize-change', false))
+
+  // Guardar en cloud antes de cerrar
+  let _quitReady = false
+  mainWindow.on('close', (e) => {
+    if (_quitReady) return
+    e.preventDefault()
+    let _done = false
+    const _timer = setTimeout(() => {
+      if (!_done) { _done = true; _quitReady = true; mainWindow.close() }
+    }, 4000)
+    ipcMain.once('save-before-quit-done', () => {
+      if (!_done) { _done = true; clearTimeout(_timer); _quitReady = true; mainWindow.close() }
+    })
+    mainWindow.webContents.send('save-before-quit')
+  })
 }
 
 app.whenReady().then(() => {
@@ -249,8 +264,17 @@ app.whenReady().then(() => {
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 ipcMain.on('minimize-window', () => mainWindow.minimize())
+ipcMain.on('win-drag', (_, x, y) => { if(mainWindow) mainWindow.setPosition(Math.round(x), Math.round(y)) })
 ipcMain.on('maximize-window', () => { if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize() })
-ipcMain.on('close-window', () => mainWindow.close())
+let _quitting = false
+ipcMain.on('close-window', () => {
+  if (_quitting) return
+  mainWindow.webContents.send('save-before-quit')
+})
+ipcMain.on('save-before-quit-done', () => {
+  _quitting = true
+  mainWindow.close()
+})
 
 // ANILIST - portada
 async function getInfoAnilist(titulo) {
@@ -671,114 +695,6 @@ ipcMain.handle('_get-servidores-LEGACY', async (_, url) => {
   } catch(e) { return [] }
 })
 
-// INFO ANIME (legacy — Latanime only, replaced by get-anime above)
-ipcMain.handle('_get-anime-latanime-legacy', async (_, url) => {
-  try {
-    const slugBase = url.split('/anime/')[1]?.replace(/-(latino|castellano)$/, '') || ''
-    const cacheKey = slugBase
-    const cachedImg = coverCache.get(cacheKey)
-
-    const urlsAProbar = [
-      `https://latanime.org/anime/${slugBase}-latino`,
-      `https://latanime.org/anime/${slugBase}-castellano`,
-      url
-    ]
-
-    let data = null
-    for (const u of urlsAProbar) {
-      try {
-        const res = await axios.get(u, { headers: HEADERS, timeout: 8000 })
-        if (res.status === 200) { data = res.data; break }
-      } catch(e) { continue }
-    }
-    if (!data) return null
-
-    const $ = cheerio.load(data)
-    let titulo = $('meta[property="og:title"]').attr('content') || $('h1').first().text().trim() || ''
-    titulo = titulo.replace(/\s*[—–|-]\s*(Latanime|Ver Anime|Online).*/i,'').replace(/\s*\|\s*Latanime.*/i,'').trim()
-
-    const tituloLimpio = titulo.replace(/\s+(Latino|Castellano)$/i,'').replace(/\s+S\d+$/i,'').trim()
-    const slugTitulo = slugBase.replace(/-/g,' ')
-
-    // Portada
-    let imagen = cachedImg || $('meta[property="og:image"]').attr('content') || ''
-
-    // Sinopsis — intentar selectores del cuerpo primero (texto completo)
-    const _sinopsisSelectores = [
-      '.sinopsis p', '.Description p', '.descripcion p',
-      '.sinopsis', '.Description', '.descripcion',
-      '[class*="sinopsis"]', '[class*="descripcion"]', '[class*="description"]',
-      '.anime-info p', '.info-content p', '.anime-description p',
-    ]
-    let sinopsis = ''
-    for (const sel of _sinopsisSelectores) {
-      const textos = []
-      $(sel).each((_, el) => { const t = $(el).text().trim(); if (t) textos.push(t) })
-      if (textos.length) {
-        const joined = textos.join(' ').trim()
-        if (joined.length > 80) { sinopsis = joined; break }
-      }
-    }
-    if (!sinopsis) {
-      // Fallback: párrafo más largo del cuerpo
-      let mejor = ''
-      $('p').each((_, el) => {
-        if ($(el).closest('nav, footer, aside, header, .nav, .footer, .menu, .copyright').length) return
-        const t = $(el).text().trim()
-        if (t.length > mejor.length) mejor = t
-      })
-      if (mejor.length > 80) sinopsis = mejor
-    }
-    if (!sinopsis) {
-      sinopsis = ($('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || '')
-        .replace(/Todos los anime.*sin limites\./i,'').replace(/Para descargar.*sin limites\./i,'').trim()
-    }
-
-    if (!sinopsis || sinopsis.length < 80) {
-      for (const u of urlsAProbar.slice(1)) {
-        const s = await getSinopsisLatanime(u)
-        if (s && s.length > 80) { sinopsis = s; break }
-      }
-    }
-
-    if (!sinopsis || sinopsis.length < 80) {
-      sinopsis = await getSinopsisAnimeFlv(tituloLimpio) ||
-                 await getSinopsisAnimeFlv(slugTitulo) || sinopsis
-    }
-
-    // Último recurso: MAL vía Jikan
-    if (!sinopsis || sinopsis.length < 80) {
-      try {
-        const mal = await jikanBuscar(tituloLimpio) || await jikanBuscar(slugTitulo)
-        if (mal?.sinopsis && mal.sinopsis.length > 80) sinopsis = mal.sinopsis
-      } catch(e) {}
-    }
-
-    if (!imagen || imagen.includes('web.jpg')) {
-      for (const t of [tituloLimpio, slugTitulo, titulo]) {
-        const info = await getInfoAnilist(t)
-        if (info.imagen) { imagen = info.imagen; break }
-      }
-    }
-
-    if (imagen) { coverCache.set(cacheKey, imagen); guardarCache() }
-
-    // Episodios
-    const episodios = []
-    const vistos = new Set()
-    $('a[href*="/ver/"]').each((i, el) => {
-      const link = $(el).attr('href') || ''
-      if (vistos.has(link)) return
-      vistos.add(link)
-      const epMatch = link.match(/-episodio-(\d+)/)
-      const num = epMatch ? parseInt(epMatch[1]) : i+1
-      episodios.push({ num, link })
-    })
-    episodios.sort((a,b) => a.num - b.num)
-
-    return { titulo, imagen, sinopsis, episodios }
-  } catch(e) { return null }
-})
 
 // STREAM
 const streamCache = new Map()
@@ -1034,6 +950,13 @@ ipcMain.handle('add-historial',    (_, ep)   => {
 ipcMain.handle('remove-historial', (_, link) => { _setH(_hist().filter(h => h.link !== link)) })
 ipcMain.handle('remove-progreso',  (_, link) => { _delP(link) })
 ipcMain.handle('clear-historial',  ()        => { _setH([]); return [] })
+ipcMain.handle('restore-favs',     (_, lista) => { _setF(lista) })
+ipcMain.handle('restore-historial',(_, lista) => { _setH(lista) })
+ipcMain.handle('restore-progresos',(_, datos) => {
+  if (!datos || typeof datos !== 'object') return
+  _progD[_src()] = datos
+  _saveJ(_srcFile('progreso', _src()), _prog())
+})
 
 // PROGRESO DE EPISODIOS
 ipcMain.handle('set-progreso',        (_, link, currentTime, duration) => {
@@ -2184,7 +2107,7 @@ autoUpdater.setFeedURL({
   provider: 'github',
   owner: 'FaxTheGhoul',
   repo: 'ryoku',
-  token: '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',
+  token: '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',
   private: true,
 })
 autoUpdater.autoDownload = false
@@ -2202,13 +2125,21 @@ function initUpdater(win) {
   })
   autoUpdater.on('error', (e) => {
     console.error('[Updater]', e.message)
+    win.webContents.send('update-error', e.message)
+  })
+  autoUpdater.on('update-not-available', () => {
+    win.webContents.send('update-error', 'update-not-available (ya tienes la última versión)')
   })
   // Chequear al abrir, con delay para no bloquear el splash
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000)
+  setTimeout(() => autoUpdater.checkForUpdates().catch((e) => {
+    win.webContents.send('update-error', 'checkForUpdates catch: ' + e.message)
+  }), 8000)
 }
 
 ipcMain.on('update-download', () => autoUpdater.downloadUpdate())
 ipcMain.on('update-install',  () => autoUpdater.quitAndInstall())
+ipcMain.handle('get-app-version', () => app.getVersion())
+ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates().catch((e) => { throw e }))
 
 // ─── GOOGLE AUTH — abre en navegador del sistema ──────────────────────────────
 ipcMain.handle('google-auth', () => {

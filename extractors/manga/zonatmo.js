@@ -19,13 +19,13 @@ module.exports = function createZonatmoSource(deps) {
   return {
     id:     'zonatmo',
     nombre: 'ZonaTMO',
-    dominio: 'zonatmo.org',
-    BASE: 'https://zonatmo.org',
+    dominio: 'zonatmo.net',
+    BASE: 'https://zonatmo.net',
     HEADERS: {
       'User-Agent': UA,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'es-ES,es;q=0.9',
-      'Referer': 'https://zonatmo.org/'
+      'Referer': 'https://zonatmo.net/'
     },
     _tendCache: null,
 

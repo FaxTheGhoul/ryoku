@@ -247,9 +247,20 @@ function _renderModal(user) {
           <div class="acm-row" id="acm-sync-status">
             <div class="acm-row-left" style="color:#22c55e">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              <span style="color:var(--text-2)">Sincronizado</span>
+              <span class="acm-sync-text" style="color:var(--text-2)">Listo</span>
             </div>
-            <span class="acm-sync-pill">Al día</span>
+          </div>
+
+          <!-- Botones guardar / cargar -->
+          <div class="acm-sync-btns">
+            <button class="acm-sync-save-btn" onclick="window._syncGuardar?.()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Guardar
+            </button>
+            <button class="acm-sync-load-btn" onclick="window._syncCargar?.()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Cargar
+            </button>
           </div>
 
         </div>

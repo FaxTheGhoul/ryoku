@@ -112,9 +112,10 @@ function _renderPerfil() {
     badgeColor = frame
   }
   // Color del nombre visible: opción independiente guardada por el usuario
-  var nameColor = d.nameColor || '#ffffff'
-  var favorites = d.favorites  || []
-  var historial = d._historial || []
+  var nameColor      = d.nameColor       || '#ffffff'
+  var favorites      = d.favorites       || []
+  var favsManga      = d.favorites_manga || []
+  var historial      = d._historial      || []
   var pub       = d.profilePublic !== false
   var bannerPos   = d.bannerPosition || 'center center'
   var avatarPos   = d.avatarPosition || 'center center'
@@ -143,28 +144,33 @@ function _renderPerfil() {
       '</button>'
     : ''
 
-  // Favorites HTML
-  var favsHTML = ''
-  for (var i = 0; i < 4; i++) {
-    var fav = favorites[i]
-    if (fav) {
-      var removeBtn = _isOwn
-        ? '<button class="pf-fav-remove" onclick="window._profileRemoveFav(' + i + ')" title="Quitar">✕</button>'
-        : ''
-      favsHTML += '<div class="pf-fav-slot filled" style="position:relative">' +
-        (fav.image ? '<img src="' + fav.image + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />' :
-          '<div style="width:100%;height:100%;border-radius:8px;background:#2a2a3a;display:flex;align-items:center;justify-content:center;font-size:11px;color:rgba(255,255,255,.5);text-align:center;padding:4px">' + fav.title + '</div>') +
-        '<div class="pf-fav-title">' + fav.title + '</div>' +
-        removeBtn +
-      '</div>'
-    } else {
-      favsHTML += _isOwn
-        ? '<div class="pf-fav-slot empty" onclick="window._profileOpenFavPicker(' + i + ')">' +
-            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
-          '</div>'
-        : '<div class="pf-fav-slot empty" style="cursor:default;opacity:.3"></div>'
+  // ── Función auxiliar para construir una grilla de 4 slots ──────────────────
+  function _buildFavsGrid(list, tipo) {
+    var html = ''
+    for (var i = 0; i < 4; i++) {
+      var fav = list[i]
+      if (fav) {
+        var removeBtn = _isOwn
+          ? '<button class="pf-fav-remove" onclick="window._profileRemoveFav(\'' + tipo + '\',' + i + ')" title="Quitar">✕</button>'
+          : ''
+        html += '<div class="pf-fav-slot filled" style="position:relative">' +
+          (fav.image ? '<img src="' + fav.image + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />' :
+            '<div style="width:100%;height:100%;border-radius:8px;background:#2a2a3a;display:flex;align-items:center;justify-content:center;font-size:11px;color:rgba(255,255,255,.5);text-align:center;padding:4px">' + fav.title + '</div>') +
+          '<div class="pf-fav-title">' + fav.title + '</div>' +
+          removeBtn +
+        '</div>'
+      } else {
+        html += _isOwn
+          ? '<div class="pf-fav-slot empty" onclick="window._profileOpenFavPicker(\'' + tipo + '\',' + i + ')">' +
+              '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+            '</div>'
+          : '<div class="pf-fav-slot empty" style="cursor:default;opacity:.3"></div>'
+      }
     }
+    return html
   }
+  var animeHTML = _buildFavsGrid(favorites, 'anime')
+  var mangaHTML = _buildFavsGrid(favsManga, 'manga')
 
   // Privacy badge (own only)
   var privHTML = _isOwn
@@ -214,9 +220,19 @@ function _renderPerfil() {
       '<div class="pf-stat"><div class="pf-stat-n">' + epsCount + '</div><div class="pf-stat-l">Eps vistos</div></div>' +
     '</div>' +
 
-    '<div class="pf-section">' +
-      '<div class="pf-section-label">Favoritos</div>' +
-      '<div class="pf-favs-grid">' + favsHTML + '</div>' +
+    '<div class="pf-section pf-favs-section">' +
+      '<div class="pf-favs-tabs">' +
+        '<button class="pf-favs-tab active" id="pf-tab-anime" onclick="window._profileSwitchFavTab(\'anime\')">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>' +
+          'Anime' +
+        '</button>' +
+        '<button class="pf-favs-tab" id="pf-tab-manga" onclick="window._profileSwitchFavTab(\'manga\')">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>' +
+          'Manga' +
+        '</button>' +
+      '</div>' +
+      '<div id="pf-favs-anime" class="pf-favs-grid">' + animeHTML + '</div>' +
+      '<div id="pf-favs-manga" class="pf-favs-grid" style="display:none">' + mangaHTML + '</div>' +
     '</div>' +
 
     '<div id="pf-bio-form" style="display:none" class="pf-section">' +
@@ -253,7 +269,7 @@ function _renderPerfil() {
     '</div>' +
 
     '<div id="pf-fav-picker" style="display:none" class="pf-section">' +
-      '<div class="pf-section-label">Seleccionar favorito</div>' +
+      '<div class="pf-section-label" id="pf-fav-picker-label">Seleccionar favorito</div>' +
       '<div id="pf-fav-list" class="pf-fav-picker-list"></div>' +
     '</div>'
 }
@@ -667,41 +683,83 @@ window._profileEditUname = function (span) {
 }
 
 
+// ─── Tabs de favoritos ────────────────────────────────────────────────────────
+window._profileSwitchFavTab = function (tipo) {
+  var tabAnime  = document.getElementById('pf-tab-anime')
+  var tabManga  = document.getElementById('pf-tab-manga')
+  var gridAnime = document.getElementById('pf-favs-anime')
+  var gridManga = document.getElementById('pf-favs-manga')
+  if (!tabAnime || !tabManga || !gridAnime || !gridManga) return
+  if (tipo === 'manga') {
+    tabAnime.classList.remove('active'); tabManga.classList.add('active')
+    gridAnime.style.display = 'none';   gridManga.style.display = ''
+  } else {
+    tabManga.classList.remove('active'); tabAnime.classList.add('active')
+    gridManga.style.display = 'none';   gridAnime.style.display = ''
+  }
+}
+
 // ─── Favoritos ────────────────────────────────────────────────────────────────
 var _favSlotIndex = 0
+var _favSlotTipo  = 'anime'  // 'anime' | 'manga'
 
-window._profileOpenFavPicker = async function (slotIdx) {
-  _favSlotIndex = slotIdx
+window._profileOpenFavPicker = async function (tipo, slotIdx) {
   var picker = document.getElementById('pf-fav-picker')
+  if (!picker) return
+  // Toggle: si ya está abierto para el mismo slot, cerrarlo
+  if (picker.style.display !== 'none' && _favSlotTipo === tipo && _favSlotIndex === slotIdx) {
+    picker.style.display = 'none'
+    return
+  }
+  _favSlotTipo  = tipo
+  _favSlotIndex = slotIdx
   var list   = document.getElementById('pf-fav-list')
-  if (!picker || !list) return
+  var label  = document.getElementById('pf-fav-picker-label')
+  if (!list) return
+  if (label) label.textContent = tipo === 'manga' ? 'Seleccionar manga favorito' : 'Seleccionar anime favorito'
   picker.style.display = 'block'
   list.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:13px;padding:8px 0">Cargando...</div>'
 
-  // Cargar solo favoritos guardados
   var items = []
-  try {
-    var favs = (await window.api.getFavs()) || []
-    favs.forEach(function (f) {
-      items.push({ type: 'anime', title: f.titulo || f.title || '', image: f.imagen || f.image || '', url: f.link || f.url || '' })
-    })
-  } catch(e){}
+
+  if (tipo === 'manga') {
+    // Leer todos los manga-favs-* de localStorage
+    for (var k = 0; k < localStorage.length; k++) {
+      var key = localStorage.key(k)
+      if (key && key.startsWith('manga-favs')) {
+        try {
+          var mfavs = JSON.parse(localStorage.getItem(key) || '[]')
+          mfavs.forEach(function(f) {
+            if (!items.some(function(x){ return x.url === (f.url || f.link) }))
+              items.push({ type: 'manga', title: f.titulo || f.title || '', image: f.imagen || f.image || '', url: f.url || f.link || '' })
+          })
+        } catch(e) {}
+      }
+    }
+  } else {
+    try {
+      var favs = (await window.api.getFavs()) || []
+      favs.forEach(function(f) {
+        items.push({ type: 'anime', title: f.titulo || f.title || '', image: f.imagen || f.image || '', url: f.link || f.url || '' })
+      })
+    } catch(e) {}
+  }
 
   if (!items.length) {
-    list.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:13px;padding:8px 0">No hay items en tu biblioteca todavía.</div>'
+    var msg = tipo === 'manga' ? 'No tienes mangas guardados todavía.' : 'No hay animes en tu biblioteca todavía.'
+    list.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:13px;padding:8px 0">' + msg + '</div>'
     return
   }
 
-  list.innerHTML = items.map(function (item, idx) {
+  list.innerHTML = items.map(function(item, idx) {
     return '<div class="pf-fav-pick-item" onclick="window._profileSelectFav(' + idx + ')">' +
       (item.image
         ? '<img src="' + item.image + '" />'
-        : '<div class="pf-fav-pick-thumb-empty">🎬</div>') +
+        : '<div class="pf-fav-pick-thumb-empty">' + (tipo === 'manga' ? '📖' : '🎬') + '</div>') +
       '<span class="pf-fav-pick-title">' + _escapeHtml(item.title) + '</span>' +
     '</div>'
   }).join('')
 
-  // Store items temporarily
   window._pfPickerItems = items
 }
 
@@ -711,22 +769,26 @@ window._profileSelectFav = async function (itemIdx) {
   var item  = items[itemIdx]
   if (!item) return
 
-  var favorites = (_profileData.favorites || []).slice()
-  while (favorites.length < 4) favorites.push(null)
-  favorites[_favSlotIndex] = { type: item.type, title: item.title, image: item.image, url: item.url }
+  var campo = _favSlotTipo === 'manga' ? 'favorites_manga' : 'favorites'
+  var lista = ((_profileData[campo] || []).slice())
+  while (lista.length < 4) lista.push(null)
+  lista[_favSlotIndex] = { type: item.type, title: item.title, image: item.image, url: item.url }
 
-  await _db.collection('users').doc(_currentUser.uid).set({ favorites: favorites }, { merge: true })
-  _profileData.favorites = favorites
+  var update = {}; update[campo] = lista
+  await _db.collection('users').doc(_currentUser.uid).set(update, { merge: true })
+  _profileData[campo] = lista
   document.getElementById('pf-fav-picker').style.display = 'none'
   _renderPerfil()
 }
 
-window._profileRemoveFav = async function (idx) {
+window._profileRemoveFav = async function (tipo, idx) {
   if (!_currentUser || !_db) return
-  var favorites = (_profileData.favorites || []).slice()
-  favorites[idx] = null
-  await _db.collection('users').doc(_currentUser.uid).set({ favorites: favorites }, { merge: true })
-  _profileData.favorites = favorites
+  var campo = tipo === 'manga' ? 'favorites_manga' : 'favorites'
+  var lista = ((_profileData[campo] || []).slice())
+  lista[idx] = null
+  var update = {}; update[campo] = lista
+  await _db.collection('users').doc(_currentUser.uid).set(update, { merge: true })
+  _profileData[campo] = lista
   _renderPerfil()
 }
 

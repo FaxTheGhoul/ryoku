@@ -10,7 +10,7 @@
 </head>
 <body>
   <div id="app-bg-layer"></div>
-  <div class="titlebar">
+  <div class="titlebar" onmousedown="(function(e){if(e.button!==0||e.target.closest('.titlebar-controls'))return;var ox=e.screenX-window.screenX,oy=e.screenY-window.screenY;function mm(e){window.api.winDrag?.(e.screenX-ox,e.screenY-oy)}function mu(){document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu)}document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu)})(event)">
     <div class="titlebar-left">
       <div class="titlebar-logo">
         <img src="../assets/icon.png" width="20" height="20" style="border-radius:4px" />
@@ -1590,7 +1590,14 @@
               <div style="font-size:18px;font-weight:800;color:var(--text-main);letter-spacing:2px">RYOKU</div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:2px">By <span style="color:var(--primary);font-weight:600">Phantom - City</span></div>
             </div>
-            <span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(var(--primary-rgb,37,99,235),0.12);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.2)">v1.0</span>
+            <span id="app-version-badge" style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(var(--primary-rgb,37,99,235),0.12);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.2)">v1.0.6</span>
+          </div>
+          <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+            <button id="update-check-btn" onclick="window._checkForUpdates()" style="width:100%;background:rgba(var(--primary-rgb,37,99,235),0.1);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.25);border-radius:10px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+              <i class="ti ti-refresh" style="font-size:14px"></i>
+              Buscar actualización
+            </button>
+            <div id="update-check-status" style="display:none;font-size:11px;text-align:center;color:var(--text-muted)"></div>
           </div>
         </div>
       </div>
@@ -1739,7 +1746,51 @@
       document.getElementById('update-btn').onclick = () => window.api.updateInstall()
       document.getElementById('update-progress-wrap').style.display = 'none'
     })
+    window._checkForUpdates = function() {
+      var btn = document.getElementById('update-check-btn')
+      var status = document.getElementById('update-check-status')
+      if (!btn || !status) return
+      btn.disabled = true
+      btn.innerHTML = '<i class="ti ti-loader-2" style="font-size:14px;animation:spin 1s linear infinite"></i> Buscando…'
+      status.style.display = 'none'
+      status.dataset.checking = '1'
+      window.api.checkForUpdates()
+        .then(function(result) {
+          if (!result || !result.updateInfo) {
+            btn.disabled = false
+            btn.innerHTML = '<i class="ti ti-refresh" style="font-size:14px"></i> Buscar actualización'
+            status.style.display = 'block'
+            status.textContent = '✓ Ya tienes la última versión'
+          }
+        })
+        .catch(function(e) {
+          btn.disabled = false
+          btn.innerHTML = '<i class="ti ti-refresh" style="font-size:14px"></i> Buscar actualización'
+          status.style.display = 'block'
+          status.textContent = 'No se pudo verificar. Revisa tu conexión.'
+          delete status.dataset.checking
+        })
+    }
+    window.api.onUpdateError((msg) => {
+      console.warn('[Updater]', msg)
+      var status = document.getElementById('update-check-status')
+      if (status && status.dataset.checking) {
+        status.style.display = 'block'
+        status.textContent = msg.indexOf('not-available') >= 0 ? '✓ Ya tienes la última versión' : 'No se pudo verificar. Revisa tu conexión.'
+        var btn = document.getElementById('update-check-btn')
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh" style="font-size:14px"></i> Buscar actualización' }
+        delete status.dataset.checking
+      }
+    })
+    window.api.getAppVersion().then((v) => {
+      var badge = document.getElementById('app-version-badge')
+      if (badge) badge.textContent = 'v' + v
+    })
   </script>
 
+  <div id="ryoku-quit-overlay">
+    <div class="rqo-spinner"></div>
+    <div class="rqo-label">Guardando datos…</div>
+  </div>
 </body>
 </html>

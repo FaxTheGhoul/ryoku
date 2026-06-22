@@ -1,6 +1,6 @@
 {
   "name": "ryoku",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "RYOKU - Anime streaming app",
   "main": "main.js",
   "scripts": {
@@ -27,6 +27,8 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
+      "installerSidebar": "assets/installer-sidebar.bmp",
+      "installerHeader": "assets/installer-header.bmp",
       "shortcutName": "RYOKU",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

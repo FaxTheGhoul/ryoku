@@ -1077,9 +1077,31 @@ function _renderMsgRow(doc, mine, friendPhoto, friendName, prevDayStr) {
     var ctxAttr = mine
       ? 'oncontextmenu="window._chatCtxMenu(event,' + _jsonAttr(docId) + ',' + _jsonAttr(docPath) + ',' + _jsonAttr(shareText) + ',true)"'
       : 'oncontextmenu="window._chatCtxMenu(event,' + _jsonAttr(docId) + ',' + _jsonAttr(docPath) + ',' + _jsonAttr(shareText) + ',false)"'
+    var shareReactHtml = ''
+    if (d.reactions && Object.keys(d.reactions).length) {
+      shareReactHtml = '<div class="cw-reactions">'
+      Object.keys(d.reactions).forEach(function (emoji) {
+        var count = (d.reactions[emoji] || []).length
+        if (!count) return
+        var isMine2 = (d.reactions[emoji] || []).indexOf(_currentUser.uid) >= 0
+        shareReactHtml += '<button class="cw-react-pill' + (isMine2 ? ' mine' : '') + '" ' +
+          'onclick="window._chatAddReaction(' + _jsonAttr(docPath) + ',' + _jsonAttr(emoji) + ')">' +
+          emoji + ' ' + count +
+        '</button>'
+      })
+      shareReactHtml += '</div>'
+    }
+    var shareAvatarPhoto = mine
+      ? ((window._authGetAvatarURL && window._authGetAvatarURL()) || _currentUser.photoURL || '')
+      : (d.fromPhoto || friendPhoto)
+    var shareAvatarName = mine ? (_currentUser.displayName || 'Yo') : (d.fromName || friendName)
+    var shareAvatarHtml = shareAvatarPhoto
+      ? '<img class="cw-avatar" src="' + _esc(shareAvatarPhoto) + '" alt="" onerror="this.style.display=\'none\'">'
+      : '<div class="cw-avatar cw-avatar-init">' + _esc((shareAvatarName || '?')[0].toUpperCase()) + '</div>'
     return {
       html: sepHtml +
         '<div class="cw-msg-row ' + (mine ? 'mine' : 'theirs') + '" data-doc-id="' + _esc(docId) + '" ' + ctxAttr + '>' +
+          (!mine ? shareAvatarHtml : '') +
           '<div class="cw-msg-wrap">' +
             '<div class="cw-share-card" ' + onClickAttr + '>' +
               (ad.img ? '<img class="cw-share-img" src="' + _esc(ad.img) + '" alt="" />' : '') +
@@ -1089,10 +1111,12 @@ function _renderMsgRow(doc, mine, friendPhoto, friendName, prevDayStr) {
                 (ad.ep ? '<div class="cw-share-ep">Episodio ' + _esc(String(ad.ep)) + '</div>' : '') +
               '</div>' +
             '</div>' +
+            '<div class="cw-msg-meta">' +
+              shareReactHtml +
+              '<span class="cw-time">' + _timeHM(d.createdAt) + '</span>' +
+            '</div>' +
           '</div>' +
-          '<div class="cw-msg-meta">' +
-            '<span class="cw-time">' + _timeHM(d.createdAt) + '</span>' +
-          '</div>' +
+          (mine ? shareAvatarHtml : '') +
         '</div>',
       dayStr: dayStr
     }
@@ -1178,12 +1202,12 @@ function _renderMsgRow(doc, mine, friendPhoto, friendName, prevDayStr) {
 function _scrollToBottom(body) {
   if (!body) return
   var doScroll = function () { body.scrollTop = body.scrollHeight }
-  // Primer intento inmediato (para mensajes de texto sin imágenes)
+  // Primer intento inmediato
   doScroll()
   // Segundo intento tras layout
   requestAnimationFrame(function () {
     doScroll()
-    // Tercer intento tras cargar imágenes pendientes
+    // Tercer intento tras cargar imágenes pendientes (avatares, share-img, msg-img)
     var imgs = body.querySelectorAll('img')
     var pending = 0
     imgs.forEach(function (img) {
@@ -1193,8 +1217,14 @@ function _scrollToBottom(body) {
         img.addEventListener('error', function () { doScroll() }, { once: true })
       }
     })
-    // Fallback por si las imágenes nunca disparan eventos
-    if (pending > 0) setTimeout(doScroll, 600)
+    // Fallbacks encadenados para imágenes lentas
+    if (pending > 0) {
+      setTimeout(doScroll, 300)
+      setTimeout(doScroll, 800)
+    } else {
+      // Sin imágenes pendientes, un fallback extra por si hay reflow tardío
+      setTimeout(doScroll, 100)
+    }
   })
 }
 

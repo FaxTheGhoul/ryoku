@@ -92,7 +92,7 @@ function limpiarMangaHistorial() {
 function _detectarFuenteUrl(url) {
   if (!url) return null
   if (url.includes('novelcool.com')) return 'novelcool'
-  if (url.includes('zonatmo.org') || url.includes('visortmo.com') || url.includes('tmo.to')) return 'zonatmo'
+  if (url.includes('zonatmo.org') || url.includes('zonatmo.net') || url.includes('visortmo.com') || url.includes('tmo.to')) return 'zonatmo'
   return null
 }
 

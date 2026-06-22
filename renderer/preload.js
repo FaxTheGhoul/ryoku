@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('minimize-window'),
+  winDrag: (x, y) => ipcRenderer.send('win-drag', x, y),
   maximize: () => ipcRenderer.send('maximize-window'),
   close: () => ipcRenderer.send('close-window'),
   onMaximizeChange: (cb) => ipcRenderer.on('window-maximize-change', cb),
@@ -58,11 +59,19 @@ contextBridge.exposeInMainWorld('api', {
   offNcPagesDone: ()   => ipcRenderer.removeAllListeners('nc-pages-done'),
   onAoCFUnlocking: (cb) => ipcRenderer.on('ao-cf-unlocking', (_, v) => cb(v)),
   googleAuth: () => ipcRenderer.invoke('google-auth'),
+  restoreFavs:      (lista) => ipcRenderer.invoke('restore-favs', lista),
+  restoreHistorial: (lista) => ipcRenderer.invoke('restore-historial', lista),
+  restoreProgresos: (datos) => ipcRenderer.invoke('restore-progresos', datos),
+  onSaveBeforeQuit:   (cb)  => ipcRenderer.on('save-before-quit', () => cb()),
+  saveBeforeQuitDone: ()    => ipcRenderer.send('save-before-quit-done'),
 
   // ── AUTO UPDATER ──────────────────────────────────────────────────────────
   onUpdateAvailable: (cb)  => ipcRenderer.on('update-available', (_, v) => cb(v)),
   onUpdateProgress:  (cb)  => ipcRenderer.on('update-progress',  (_, p) => cb(p)),
   onUpdateDownloaded:(cb)  => ipcRenderer.on('update-downloaded', () => cb()),
+  onUpdateError:     (cb)  => ipcRenderer.on('update-error', (_, msg) => cb(msg)),
   updateDownload:    ()    => ipcRenderer.send('update-download'),
   updateInstall:     ()    => ipcRenderer.send('update-install'),
+  getAppVersion:     ()    => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates:   ()    => ipcRenderer.invoke('check-for-updates'),
 })

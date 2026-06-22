@@ -23,7 +23,21 @@ async function cargarRecientes(onDone) {
     '#page-inicio .seccion-titulo:nth-of-type(2)','#grilla-series']
   _elemsAnime.forEach(s => { const el=document.querySelector(s); if(el){el.style.visibility='hidden';el.style.opacity='0'} })
 
-  const { slider, lista, series } = await window.api.getRecientes()
+  let _recData
+  try {
+    _recData = await window.api.getRecientes()
+  } catch(e) {
+    console.error('[cargarRecientes] error al obtener datos:', e)
+    _elemsAnime.forEach(s => { const el=document.querySelector(s); if(el){el.style.visibility='';el.style.opacity='1'} })
+    grilla.innerHTML = `<div class="loading" style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <span>No se pudo cargar el contenido.</span>
+      <button onclick="cargarRecientes()" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:7px 18px;font-size:13px;cursor:pointer;font-family:inherit">Reintentar</button>
+    </div>`
+    if (gSeries) gSeries.innerHTML = ''
+    if (typeof onDone === 'function') onDone()
+    return
+  }
+  const { slider, lista, series } = _recData
 
   // ── SLIDER ──────────────────────────────────────────────────────────────
   if (slider && slider.length) {
@@ -786,6 +800,7 @@ document.getElementById('srv-cerrar').addEventListener('click', () => {
 // ─── PASO 2: REPRODUCTOR ──────────────────────────────────────────────────
 let hls = null, _idxActivo = 0
 let _reproducirToken = 0  // token de cancelación — se incrementa al cerrar/cambiar
+let _toastContinuarDone = false  // true una vez que el toast fue atendido/descartado en el episodio actual
 const _nombresDisplay = ['Ultra HD','Rápido','Respaldo','Alternativo','HD','Backup']
 const _proveedores = ['byse','voe','mp4upload','dsvplay','mixdrop','hexload']
 
@@ -1094,6 +1109,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
   const skipBtnReset = document.getElementById('rp-skip-intro')
   if (skipBtnReset) skipBtnReset._usado = false
   document.getElementById('toast-progreso')?.remove()
+  _toastContinuarDone = false
   const fill  = document.getElementById('player-progress-fill')
   const thumb = document.getElementById('player-progress-thumb')
   if (fill)  fill.style.width = '0%'
@@ -1157,9 +1173,11 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     }, 15000)
     const prog = await window.api.getProgreso(_urlEpisodioActual)
     if (prog && prog.currentTime > 10 && prog.porcentaje < 95) {
+      const _tokenSnapshot = _reproducirToken
       const mostrarCuandoArranque = () => {
-        mostrarToastProgreso(prog.currentTime)
         video.removeEventListener('playing', mostrarCuandoArranque)
+        if (_reproducirToken !== _tokenSnapshot) return  // episodio cambió, ignorar
+        mostrarToastProgreso(prog.currentTime)
       }
       video.addEventListener('playing', mostrarCuandoArranque)
     }
@@ -1495,6 +1513,8 @@ function _scrubTo(e) {
 
 _progBg.addEventListener('mousedown', e => {
   e.stopPropagation()
+  _toastContinuarDone = true
+  document.getElementById('toast-progreso')?.remove()
   _scrubbing = true
   _progBg.style.transition = 'none'
   _progBg.style.transform = 'scaleY(1)'
@@ -1795,7 +1815,11 @@ function saltarOpening() {
     skipBtn._usado = true
   }
 }
-function skipSegundo(s) { video.currentTime = Math.max(0, Math.min(video.currentTime + s, video.duration)) }
+function skipSegundo(s) {
+  _toastContinuarDone = true
+  document.getElementById('toast-progreso')?.remove()
+  video.currentTime = Math.max(0, Math.min(video.currentTime + s, video.duration))
+}
 
 function mostrarToastProgreso(currentTime) {
   document.getElementById('toast-progreso')?.remove()
@@ -1824,10 +1848,11 @@ function mostrarToastProgreso(currentTime) {
     bar.style.width = '0%'
   })
 
-  const t = setTimeout(() => { toast.remove() }, DURACION)
+  const t = setTimeout(() => { _toastContinuarDone = true; toast.remove() }, DURACION)
 
   document.getElementById('toast-continuar').onclick = () => {
     clearTimeout(t)
+    _toastContinuarDone = true
     video.currentTime = currentTime
     video.play().catch(()=>{})
     toast.remove()
@@ -1872,14 +1897,14 @@ function showControls(e) {
   clearTimeout(_ctrlTimer)
   syncSkipIntro()
   const toast = document.getElementById('toast-progreso')
-  if (toast) { toast.style.opacity = '1'; toast.style.pointerEvents = '' }
+  if (toast && !_toastContinuarDone) { toast.style.opacity = '1'; toast.style.pointerEvents = '' }
   if (!_mouseOverControls) {
     _ctrlTimer = setTimeout(() => {
       if (!video.paused) {
         videoWrap.classList.remove('show-controls')
         syncSkipIntro()
         const toast = document.getElementById('toast-progreso')
-        if (toast) { toast.style.opacity = '0'; toast.style.pointerEvents = 'none' }
+        if (toast) { _toastContinuarDone = true; toast.remove() }
       }
     }, 3000)
   }
@@ -1890,9 +1915,8 @@ function hideControls() {
   if (!video.paused) {
     videoWrap.classList.remove('show-controls')
     syncSkipIntro()
-    // Ocultar toast
     const toast = document.getElementById('toast-progreso')
-    if (toast) { toast.style.opacity = '0'; toast.style.pointerEvents = 'none' }
+    if (toast) { _toastContinuarDone = true; toast.remove() }
   }
 }
 
@@ -1934,7 +1958,7 @@ let _mouseOverControls = false
         videoWrap.classList.remove('show-controls')
         syncSkipIntro()
         const toast = document.getElementById('toast-progreso')
-        if (toast) toast.style.opacity = '0'
+        if (toast) { _toastContinuarDone = true; toast.remove() }
       }, 2000)
     }
   })
@@ -2064,7 +2088,8 @@ function renderTarjeta(r) {
   </div>`
 }
 
-cargarRecientes()
+// Auto-retry en el arranque: si falla la primera vez, reintenta después de 1.5s
+cargarRecientes().catch(() => setTimeout(() => cargarRecientes(), 1500))
 
 
 // ─── MÓDULO ANIME BIBLIOTECA ──────────────────────────────────────────────
