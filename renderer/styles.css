@@ -7052,3 +7052,152 @@ body.mobile-mode .home-section .seccion-titulo.desktop-only { display: none !imp
 /* ── 11. Tarjeta img-wrap necesita position:relative para badges ── */
 .tarjeta-img-wrap { position: relative; }
 
+
+/* ═══════════════════════════════════════════════
+   MOBILE FIXES — v2 (corrige gap, slider, icon)
+   ═══════════════════════════════════════════════ */
+
+/* FIX 1: gap extra — layout ya tiene padding-top: safe-area,
+   app-anime sólo necesita compensar el header fijo (60px) */
+body.mobile-mode #app-anime,
+body.mobile-mode #app-manga {
+  padding-top: 60px !important;
+}
+
+/* FIX 2a: slider-slide-img — posición correcta en mobile
+   (en desktop es width:60%; right:0 — en mobile debe cubrir todo) */
+body.mobile-mode .slider-slide-img {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+}
+
+/* FIX 2b: gradiente del slide — va de negro semitransparente a transparente
+   para que el texto sea visible independientemente de si la imagen carga */
+body.mobile-mode .slider-slide::before {
+  background:
+    linear-gradient(to top,
+      rgba(0,0,0,0.92) 0%,
+      rgba(0,0,0,0.6)  30%,
+      rgba(0,0,0,0.2)  60%,
+      transparent      82%),
+    linear-gradient(to right,
+      rgba(0,0,0,0.5)  0%,
+      transparent      65%) !important;
+  z-index: 1 !important;
+}
+
+/* FIX 2c: fondo del slide para cuando no carga la imagen */
+body.mobile-mode .slider-slide {
+  background: linear-gradient(135deg, #0d1b3e 0%, #0a1020 100%) !important;
+}
+
+/* FIX 2d: asegurar que slider-info sea visible */
+body.mobile-mode .slider-info {
+  z-index: 3 !important;
+  left: 16px !important;
+  bottom: 32px !important;
+  max-width: 84% !important;
+}
+body.mobile-mode .slider-info h2 {
+  font-size: 20px !important;
+  font-weight: 900 !important;
+  line-height: 1.15 !important;
+  margin-bottom: 6px !important;
+  color: #fff !important;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8) !important;
+}
+body.mobile-mode .slider-desc {
+  display: -webkit-box !important;
+  display: block !important;
+  -webkit-line-clamp: 3 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  color: rgba(255,255,255,0.82) !important;
+  margin-bottom: 12px !important;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important;
+}
+
+/* FIX 3: icono del header — kanji 力 en círculo (sin depender de icon.png) */
+.mh-icon {
+  width: 38px !important; height: 38px !important;
+  border-radius: 50% !important;
+  background: #0b1437 !important;
+  border: 2px solid var(--primary) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: visible !important;
+  font-size: 20px !important;
+  font-weight: 900 !important;
+  color: #fff !important;
+  flex-shrink: 0 !important;
+}
+/* Ocultar la img dentro del mh-icon */
+.mh-icon img { display: none !important; }
+/* Mostrar el kanji via ::after */
+.mh-icon::after {
+  content: '力';
+  font-size: 18px;
+  font-weight: 900;
+  color: #fff;
+  line-height: 1;
+}
+
+
+/* ═══════════════════════════════════════════════
+   MOBILE FIXES — v3 (banner, perfil, login UX)
+   ═══════════════════════════════════════════════ */
+
+/* FIX: max-height del escritorio limita el slider en mobile */
+body.mobile-mode .home-hero-banner .slider-wrap {
+  max-height: none !important;
+}
+
+/* FIX: padding de la página empuja el banner — quitarlo en la sección hero */
+body.mobile-mode #page-inicio {
+  padding: 0 !important;
+}
+body.mobile-mode .home-section {
+  padding: 0 !important;
+}
+
+/* Centrado del slider: márgenes iguales */
+body.mobile-mode .home-hero-banner {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+}
+
+/* FIX: perfil descuadrado — account-avatar-wrap es un div extra en el flex column */
+body.mobile-mode .account-avatar-wrap {
+  display: contents !important;
+}
+/* El online-dot en el nav confunde la alineación vertical */
+body.mobile-mode .account-online-dot {
+  position: absolute !important;
+  top: 4px !important;
+  right: 50% !important;
+  transform: translateX(14px) !important;
+  width: 8px !important; height: 8px !important;
+  z-index: 2 !important;
+}
+
+/* FIX: asegurar que el nav-btn del account quede igual que los demás */
+body.mobile-mode .account-nav-btn {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+}
+

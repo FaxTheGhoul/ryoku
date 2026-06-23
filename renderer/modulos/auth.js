@@ -104,7 +104,15 @@ async function loginGoogle() {
       const provider = new firebase.auth.GoogleAuthProvider()
       provider.addScope('profile')
       provider.addScope('email')
-      const userCred = await _auth.signInWithPopup(provider)
+      // Timeout de 60 s — si el popup no responde (Google bloquea WebView sin UA fix)
+      // la promesa se rechaza y el botón vuelve al estado inicial.
+      const timeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('login-timeout')), 60000)
+      )
+      const userCred = await Promise.race([
+        _auth.signInWithPopup(provider),
+        timeout
+      ])
       return userCred.user
     }
     // Electron: usar OAuth via IPC nativo
@@ -432,10 +440,18 @@ window._cerrarAccountModal = cerrarAccountModal
 window._authLoginGoogle = async () => {
   const btn = document.querySelector('.acm-google-btn')
   if (btn) { btn.disabled = true; btn.textContent = 'Conectando...' }
-  await loginGoogle()
+  try {
+    await loginGoogle()
+  } catch(e) {
+    console.warn('[auth] loginGoogle error', e)
+  }
+  // Restaurar botón si el login no se completó
   if (!_currentUser) {
     const body = document.getElementById('account-modal-body')
     if (body) _renderModal(null)
+    // Asegurar que el botón quede habilitado si el modal fue destruido
+    const b2 = document.querySelector('.acm-google-btn')
+    if (b2) { b2.disabled = false; b2.textContent = 'Iniciar sesión con Google' }
   }
 }
 window._authLogout = async () => { await logout() }

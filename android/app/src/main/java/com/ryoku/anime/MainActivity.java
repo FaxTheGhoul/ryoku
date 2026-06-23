@@ -50,6 +50,12 @@ public class MainActivity extends BridgeActivity {
         getBridge().getWebView().getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
         getBridge().getWebView().getSettings().setSupportMultipleWindows(true);
 
+        // Google OAuth rechaza el flujo en WebViews identificados con "wv" en el UA.
+        // Eliminarlo hace que el servidor de Google lo trate como Chrome móvil normal.
+        String ua = getBridge().getWebView().getSettings().getUserAgentString();
+        ua = ua.replace("; wv)", ")").replace("; wv;", ";");
+        getBridge().getWebView().getSettings().setUserAgentString(ua);
+
         getBridge().getWebView().addJavascriptInterface(
             new StreamExtractorInterface(), "_nativeExtractor"
         );
