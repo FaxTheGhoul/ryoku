@@ -6069,18 +6069,26 @@ mark.cw-highlight {
 
 /* Ocultar titlebar de escritorio */
 body.mobile-mode .titlebar { display: none !important; }
-body.mobile-mode .layout   { padding-top: 0; height: 100dvh; }
+/* Con WindowCompat.setDecorFitsSystemWindows(false) el WebView llega hasta los
+   bordes físicos — compensar con env(safe-area-inset-top) para el status bar */
+body.mobile-mode .layout {
+  padding-top: env(safe-area-inset-top, 0px);
+  height: 100dvh;
+}
 
-/* Sidebar → bottom nav bar */
+/* Sidebar → bottom nav bar
+   env(safe-area-inset-bottom) compensa la barra de navegación del sistema */
 body.mobile-mode .sidebar {
   position: fixed !important;
   bottom: 0; left: 0; right: 0; top: auto !important;
   width: 100% !important;
-  height: 62px;
+  height: calc(62px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   flex-direction: row !important;
   justify-content: space-around;
   align-items: center;
-  padding: 0 8px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
   gap: 0 !important;
   border-right: none !important;
   border-top: 1px solid var(--border);
@@ -6114,7 +6122,7 @@ body.mobile-mode .nav-btn.activo::before {
 body.mobile-mode #app-anime,
 body.mobile-mode #app-manga {
   margin-left: 0 !important;
-  padding-bottom: 70px;
+  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
 }
 
 /* Hacer que el layout no tenga padding-left del sidebar */
@@ -6583,9 +6591,12 @@ body.rp-fs-active .rp-overlay.activo { z-index: 999999 !important; }
 
 .rp-shell.rp-mobile-fullscreen {
   position: fixed !important;
-  inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
+  /* Con viewport-fit=cover + setDecorFitsSystemWindows(false),
+     inset:0 alcanza los bordes físicos del dispositivo */
+  top: 0 !important; left: 0 !important;
+  right: 0 !important; bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
   z-index: 999999 !important;
   background: #000 !important;
   overflow: hidden !important;

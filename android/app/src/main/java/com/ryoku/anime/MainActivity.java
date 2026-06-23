@@ -14,6 +14,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import androidx.core.view.WindowCompat;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends BridgeActivity {
@@ -38,6 +39,11 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Edge-to-edge: el WebView se extiende detrás de status bar y nav bar.
+        // Sin esto, inset:0 en CSS solo cubre el área sin las barras del sistema
+        // y queda el espacio vacío en los lados en landscape.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
         super.onCreate(savedInstanceState);
         getBridge().getWebView().addJavascriptInterface(
             new StreamExtractorInterface(), "_nativeExtractor"
