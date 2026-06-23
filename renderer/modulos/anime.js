@@ -45,17 +45,20 @@ async function cargarRecientes(onDone) {
     _sliderTotal = sliderFiltrado.length
     const track = document.getElementById('slider-track')
     const dots  = document.getElementById('slider-dots')
+    const _isMobileSlider = document.body.classList.contains('mobile-mode')
     track.innerHTML = sliderFiltrado.map(s => {
       const esA = s.adulto || _esAdulto(s)
       return `<div class="slider-slide">
         <img class="slider-slide-img" src="${s.imagen}" alt="${s.titulo}" style="${esA ? 'filter:blur(14px);transform:scale(1.05)' : ''}" />
         ${esA ? '<span class="badge-18 badge-18-slider">+18</span>' : ''}
+        ${_isMobileSlider && !esA ? '<div class="slider-nuevo-badge">★ NUEVO EPISODIO ★</div>' : ''}
         <div class="slider-info">
-          ${s.idioma ? `<div class="slider-ep-badge">${s.idioma}</div>` : ''}
+          ${s.idioma && !_isMobileSlider ? `<div class="slider-ep-badge">${s.idioma}</div>` : ''}
           <h2>${s.titulo}</h2>
           ${s.desc && !esA ? `<p class="slider-desc">${s.desc}</p>` : ''}
           <div class="slider-btns">
             <button class="slider-btn-ver" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">▶ Ver ahora</button>
+            ${_isMobileSlider ? `<button class="slider-btn-add" onclick="event.stopPropagation()" title="Añadir">+</button>` : ''}
           </div>
         </div>
       </div>`
@@ -72,6 +75,7 @@ async function cargarRecientes(onDone) {
   // ── AÑADIDOS RECIENTEMENTE ──────────────────────────────────────────────
   if (!lista.length) { grilla.innerHTML = '<div class="loading">Sin episodios.</div>' }
   else {
+    const _isMobileCards = document.body.classList.contains('mobile-mode')
     grilla.innerHTML = _marcarAdultos(_filtrarLista(lista)).map(ep => {
       const animeUrl = _epLinkToAnimeUrl(ep.link)
       const letra = ep.titulo.charAt(0)
@@ -82,7 +86,9 @@ async function cargarRecientes(onDone) {
       return `
       <div class="tarjeta" onclick="abrirAnime('${_esc(animeUrl)}','${_esc(ep.titulo)}')">
         <div class="play-overlay">▶</div>
-        <div class="tarjeta-img-wrap tarjeta-ep" data-letra="${letra}">${imgHtml}</div>
+        <div class="tarjeta-img-wrap tarjeta-ep" data-letra="${letra}">${imgHtml}
+          ${_isMobileCards ? '<div class="tarjeta-badge-nuevo">★ NUEVO</div>' : ''}
+        </div>
         <div class="tarjeta-info">
           <div class="tarjeta-titulo">${ep.titulo}</div>
           <div class="tarjeta-sub">${ep.ep}${ep.ep && ep.idioma ? ' · ' : ''}${ep.idioma}${ep.fecha ? ' · ' + ep.fecha : ''}</div>
@@ -99,15 +105,20 @@ async function cargarRecientes(onDone) {
     gSeries.innerHTML = '<div class="loading">Sin series.</div>'
     return
   }
-  gSeries.innerHTML = _marcarAdultos(_filtrarLista(series)).map(s => {
+  const _isMobileSeries = document.body.classList.contains('mobile-mode')
+  const _rankColors = ['#2563eb','#f97316','#7c3aed','#16a34a','#dc2626']
+  gSeries.innerHTML = _marcarAdultos(_filtrarLista(series)).map((s, idx) => {
     const letra = s.titulo.charAt(0)
     const tieneImg = s.imagen && !s.imagen.includes('logito') && !s.imagen.includes('web.jpg')
+    const rankColor = _rankColors[idx] || '#6b7280'
     return `
     <div class="tarjeta tarjeta-serie" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">
       <div class="tarjeta-img-wrap tarjeta-serie-cover" data-letra="${letra}">
         ${tieneImg
           ? `<img src="${s.imagen}" onload="imgLoaded(this)" onerror="imgError(this)" />`
           : `<div class="tarjeta-letra-grande">${letra}</div>`}
+        ${_isMobileSeries ? `<div class="tarjeta-rank-badge" style="background:${rankColor}">${idx+1}</div>` : ''}
+        ${_isMobileSeries && s.rating ? `<div class="tarjeta-rating-badge">★ ${s.rating}</div>` : ''}
       </div>
       <div class="tarjeta-info">
         <div class="tarjeta-titulo">${s.titulo}</div>
