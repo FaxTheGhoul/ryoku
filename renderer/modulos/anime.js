@@ -49,7 +49,7 @@ async function cargarRecientes(onDone) {
     track.innerHTML = sliderFiltrado.map(s => {
       const esA = s.adulto || _esAdulto(s)
       return `<div class="slider-slide">
-        <img class="slider-slide-img" src="${s.imagen}" alt="${s.titulo}" style="${esA ? 'filter:blur(14px);transform:scale(1.05)' : ''}" />
+        ${!_isMobileSlider ? `<img class="slider-slide-img" src="${s.imagen}" alt="${s.titulo}" style="${esA ? 'filter:blur(14px);transform:scale(1.05)' : ''}" />` : ''}
         ${esA ? '<span class="badge-18 badge-18-slider">+18</span>' : ''}
         ${_isMobileSlider && !esA ? '<div class="slider-nuevo-badge">★ NUEVO EPISODIO ★</div>' : ''}
         <div class="slider-info">
@@ -63,6 +63,16 @@ async function cargarRecientes(onDone) {
         </div>
       </div>`
     }).join('')
+    // Mobile: inyectar background-image via JS — más fiable que <img> absoluto en Android WebView
+    if (_isMobileSlider) {
+      Array.from(track.children).forEach((slide, i) => {
+        const s = sliderFiltrado[i]
+        if (s && s.imagen) {
+          slide.style.backgroundImage = `url("${s.imagen}")`
+          if (s.adulto || _esAdulto(s)) slide.style.filter = 'blur(14px)'
+        }
+      })
+    }
     dots.innerHTML = sliderFiltrado.map((_,i) => `<div class="slider-dot ${i===0?'activo':''}" onclick="irSlide(${i})"></div>`).join('')
     irSlide(0)
     if (_sliderTimer) clearInterval(_sliderTimer)

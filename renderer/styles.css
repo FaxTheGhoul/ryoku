@@ -6721,6 +6721,9 @@ body.mobile-mode .home-hero-banner .slider-wrap {
 body.mobile-mode .slider-arrow { display: none !important; }
 body.mobile-mode .slider-dots {
   bottom: 10px !important;
+  left: 0 !important;
+  right: 0 !important;
+  justify-content: center !important;
   gap: 5px !important;
 }
 body.mobile-mode .slider-dot {
@@ -7093,9 +7096,16 @@ body.mobile-mode .slider-slide::before {
   z-index: 1 !important;
 }
 
-/* FIX 2c: fondo del slide para cuando no carga la imagen */
+/* FIX 2c: fondo del slide para cuando no carga la imagen + soporte bg-image via JS */
 body.mobile-mode .slider-slide {
-  background: linear-gradient(135deg, #0d1b3e 0%, #0a1020 100%) !important;
+  background-color: #0a1020 !important;
+  background-size: cover !important;
+  background-position: center top !important;
+  background-repeat: no-repeat !important;
+}
+/* Ocultar el <img> en mobile — usamos background-image en su lugar */
+body.mobile-mode .slider-slide-img {
+  display: none !important;
 }
 
 /* FIX 2d: asegurar que slider-info sea visible */
