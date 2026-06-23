@@ -17,6 +17,8 @@ const AD_DOMAINS = [
 
 async function getBrowser() {
   if (_browser && _browser.isConnected()) return _browser
+  // Si el browser anterior se cayó, limpiarlo
+  if (_browser) { try { await _browser.close() } catch(e) {} _browser = null }
   const { chromium } = require('playwright-core')
   _browser = await chromium.launch({
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -31,6 +33,8 @@ async function getBrowser() {
       '--single-process',
     ]
   })
+  // Detectar crash y resetear referencia
+  _browser.on('disconnected', () => { _browser = null })
   return _browser
 }
 

@@ -95,10 +95,9 @@ router.get('/stream', async (req, res) => {
     // Primero intentar con los extractores (devuelven null en servidor por falta de Electron)
     let result = await extIndex.getStream(url)
 
-    // Si el extractor devolvió null, usar Playwright directamente
+    // Si el extractor devolvió null, usar Playwright directamente (con retry)
     if (!result) {
       const { extraerStream } = require('../browser')
-      // Determinar referer según el proveedor
       const ul = url.toLowerCase()
       let referer = 'https://latanime.org/'
       if (ul.includes('mp4upload'))  referer = 'https://www.mp4upload.com/'
@@ -107,7 +106,15 @@ router.get('/stream', async (req, res) => {
       if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
       if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
 
-      const streamUrl = await extraerStream(url, { referer, timeout: 20000 })
+      // Intentar hasta 2 veces (Playwright a veces falla por timing en Render)
+      let streamUrl = null
+      for (let _try = 0; _try < 2 && !streamUrl; _try++) {
+        try {
+          streamUrl = await extraerStream(url, { referer, timeout: 20000 })
+        } catch(e) {
+          console.error(`[STREAM] intento ${_try + 1} falló:`, e.message)
+        }
+      }
       if (streamUrl) {
         const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
         result = { tipo, url: streamUrl }

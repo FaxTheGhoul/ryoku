@@ -847,11 +847,18 @@ async function elegirServidor(idx) {
     if (dot) dot.className = 'srv-dot srv-dot-checking'
   }
 
-  // Usar stream pre-fetcheado si ya está en cache, si no pedirlo ahora
-  const _streamPromise = _streamCache[s.url] || window.api.getStream(s.url)
-  const resultado = await _streamPromise
-  // Limpiar del cache una vez consumido
-  delete _streamCache[s.url]
+  // Usar stream pre-fetcheado si ya está en cache
+  const _cached = _streamCache[s.url]
+  delete _streamCache[s.url]  // consumir del cache
+  let resultado = _cached ? (await _cached.catch(() => null)) : null
+
+  // Si el pre-fetch falló o no había cache, intentar hasta 2 veces
+  if (!resultado?.url) {
+    for (let _intento = 0; _intento < 2; _intento++) {
+      resultado = await window.api.getStream(s.url).catch(() => null)
+      if (resultado?.url) break
+    }
+  }
 
   if (!resultado?.url) {
     // Falló — tachado + pill rojo
