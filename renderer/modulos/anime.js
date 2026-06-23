@@ -715,15 +715,14 @@ let _pendingEp = null
 
 // Cache de streams pre-fetcheados: { [urlServidor]: Promise<resultado> }
 const _streamCache = {}
+const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','doodstream','streamwish','sw']
+const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
 
 function _preFetchServidores(lista) {
-  // Pre-fetchear los primeros N servidores en paralelo mientras el usuario decide
-  const MAX_PREFETCH = 3
-  let count = 0
+  // Pre-fetchear todos los servidores en paralelo (el servidor maneja la concurrencia)
   for (const s of lista) {
     if (!s?.url || _streamCache[s.url]) continue
     _streamCache[s.url] = window.api.getStream(s.url).catch(() => null)
-    if (++count >= MAX_PREFETCH) break
   }
 }
 
@@ -759,13 +758,8 @@ async function abrirSelector(url, titulo) {
     return
   }
 
-  // Servidores conocidos como funcionales — aparecen en verde directamente
-  const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','doodstream','streamwish','sw']
-  const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
-
   // Renderizar: funcionales en verde, resto en neutro
   const _indexados = _servidores.map((s, i) => ({ ...s, _idx: i }))
-  // Ordenar: funcionales primero
   _indexados.sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
 
   lista.innerHTML = _indexados.map(s => {
@@ -796,13 +790,11 @@ async function pedirServidorEp(url, titulo) {
     return
   }
 
-  const _SRV_OK2 = ['mp4upload','uqload','voe','savefiles','mixdrop','doodstream','streamwish','sw']
-  const _esFuncional2 = n => _SRV_OK2.some(k => (n || '').toLowerCase().includes(k))
   const _indexados2 = _servidores.map((s, i) => ({ ...s, _idx: i }))
-  _indexados2.sort((a, b) => _esFuncional2(b.nombre) - _esFuncional2(a.nombre))
+  _indexados2.sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
 
   lista.innerHTML = _indexados2.map(s => {
-    const ok = _esFuncional2(s.nombre)
+    const ok = _esFuncional(s.nombre)
     return `<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
       <div class="srv-dot ${ok ? 'srv-dot-ok' : ''}"></div>
       <span class="srv-nombre">${s.nombre}</span>
@@ -810,7 +802,7 @@ async function pedirServidorEp(url, titulo) {
   }).join('')
 
   // Pre-fetch en background
-  const ordenPrefetch2 = [..._indexados2].sort((a, b) => _esFuncional2(b.nombre) - _esFuncional2(a.nombre))
+  const ordenPrefetch2 = [..._indexados2].sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
   _preFetchServidores(ordenPrefetch2)
 }
 

@@ -123,7 +123,7 @@ const EXTRACT_JS = `(function() {
   return null
 })()`
 
-async function extraerStream(pageUrl, { referer = null, timeout = 30000 } = {}) {
+async function extraerStream(pageUrl, { referer = null, timeout = 20000 } = {}) {
   const browser = await getBrowser()
   const ctx = await browser.newContext({
     userAgent: UA,
@@ -131,54 +131,65 @@ async function extraerStream(pageUrl, { referer = null, timeout = 30000 } = {}) 
     ignoreHTTPSErrors: true,
   })
 
-  let capturedUrl = null
+  // Resolver en cuanto tengamos la URL — no esperar al timeout
+  let _resolve
+  const found = new Promise(r => { _resolve = r })
 
-  // Interceptar requests de red — captura .m3u8 y .mp4 directos
+  const fake = ['thumb','poster','preview','advert','placeholder']
+  const _isVideoUrl = (u) => {
+    try {
+      const path = new URL(u).pathname.toLowerCase()
+      return path.includes('.m3u8') ||
+        (path.includes('.mp4') && !path.endsWith('.html') && !fake.some(f => path.includes(f)))
+    } catch(e) { return false }
+  }
+
+  // Interceptar requests — resolve inmediatamente al primer hit de video
   await ctx.route('**/*', (route) => {
     const u = route.request().url()
     const ul = u.toLowerCase()
     if (AD_DOMAINS.some(d => ul.includes(d))) return route.abort()
-    if (!capturedUrl) {
-      try {
-        const path = new URL(u).pathname.toLowerCase()
-        const fake = ['thumb','poster','preview','advert','placeholder']
-        const isVideo = path.includes('.m3u8') ||
-          (path.includes('.mp4') && !path.endsWith('.html') && !fake.some(f => path.includes(f)))
-        if (isVideo) capturedUrl = u
-      } catch(e) {}
-    }
+    if (_isVideoUrl(u)) _resolve(u)
     route.continue()
+  })
+
+  // También escuchar respuestas de red (algunos servers redirigen)
+  ctx.on('response', (resp) => {
+    const u = resp.url()
+    if (_isVideoUrl(u)) _resolve(u)
   })
 
   const page = await ctx.newPage()
   try {
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout })
+    // Navegar y activar el player en paralelo con la captura
+    const gotoPromise = page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: timeout - 2000 })
+      .then(async () => {
+        // Activar player
+        await page.evaluate(() => {
+          try { jwplayer().play() } catch(e) {}
+          document.querySelectorAll('[class*=play],[id*=play],button').forEach(b => { try{b.click()}catch(e){} })
+          document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){} })
+        }).catch(() => {})
 
-    // Intentar activar el player
-    await page.evaluate(() => {
-      try { jwplayer().play() } catch(e) {}
-      document.querySelectorAll('[class*=play],[id*=play],button').forEach(b => { try{b.click()}catch(e){} })
-      document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){} })
-    }).catch(() => {})
+        // Polling rápido como fallback al DOM (cada 300ms, hasta 8s)
+        for (let i = 0; i < 27; i++) {
+          await page.waitForTimeout(300)
+          try {
+            const url = await page.evaluate(EXTRACT_JS)
+            if (url?.startsWith('http')) { _resolve(url); break }
+          } catch(e) {}
+        }
+        _resolve(null)  // timeout — resolver con null
+      })
+      .catch(() => { _resolve(null) })
 
-    // Esperar hasta 8s comprobando cada 500ms (reducido para respuesta más rápida)
-    for (let i = 0; i < 16; i++) {
-      await page.waitForTimeout(500)
-      if (capturedUrl) break
-      try {
-        const url = await page.evaluate(EXTRACT_JS)
-        if (url && url.startsWith('http')) { capturedUrl = url; break }
-      } catch(e) {}
-    }
-
-    if (!capturedUrl) {
-      // Último intento DOM
-      try { capturedUrl = await page.evaluate(EXTRACT_JS) } catch(e) {}
-    }
+    // Esperar lo que llegue primero: URL capturada o timeout global
+    const timeoutPromise = new Promise(r => setTimeout(() => r(null), timeout))
+    const capturedUrl = await Promise.race([found, timeoutPromise])
 
     return capturedUrl || null
   } finally {
-    await ctx.close()
+    await ctx.close().catch(() => {})
   }
 }
 

@@ -92,36 +92,31 @@ router.get('/stream', async (req, res) => {
   if (!url) return res.status(400).json(null)
 
   try {
-    // Primero intentar con los extractores (devuelven null en servidor por falta de Electron)
-    let result = await extIndex.getStream(url)
+    const { extraerStream } = require('../browser')
+    const ul = url.toLowerCase()
+    let referer = 'https://latanime.org/'
+    if (ul.includes('mp4upload'))  referer = 'https://www.mp4upload.com/'
+    if (ul.includes('mixdrop') || ul.includes('miixdrop')) referer = 'https://mixdrop.ag/'
+    if (ul.includes('dood') || ul.includes('ds2play'))     referer = 'https://doodstream.com/'
+    if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
+    if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
 
-    // Si el extractor devolvió null, usar Playwright directamente (con retry)
-    if (!result) {
-      const { extraerStream } = require('../browser')
-      const ul = url.toLowerCase()
-      let referer = 'https://latanime.org/'
-      if (ul.includes('mp4upload'))  referer = 'https://www.mp4upload.com/'
-      if (ul.includes('mixdrop') || ul.includes('miixdrop')) referer = 'https://mixdrop.ag/'
-      if (ul.includes('dood') || ul.includes('ds2play'))     referer = 'https://doodstream.com/'
-      if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
-      if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
-
-      // Intentar hasta 2 veces (Playwright a veces falla por timing en Render)
-      let streamUrl = null
-      for (let _try = 0; _try < 2 && !streamUrl; _try++) {
-        try {
-          streamUrl = await extraerStream(url, { referer, timeout: 20000 })
-        } catch(e) {
-          console.error(`[STREAM] intento ${_try + 1} falló:`, e.message)
-        }
-      }
-      if (streamUrl) {
-        const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
-        result = { tipo, url: streamUrl }
+    // Playwright con event-driven capture (resuelve al instante al detectar el video)
+    // Retry una vez si falla
+    let streamUrl = null
+    for (let _try = 0; _try < 2 && !streamUrl; _try++) {
+      try {
+        streamUrl = await extraerStream(url, { referer, timeout: 20000 })
+      } catch(e) {
+        console.error(`[STREAM] intento ${_try + 1}:`, e.message)
       }
     }
 
-    res.json(result || null)
+    const result = streamUrl
+      ? { tipo: streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url: streamUrl }
+      : null
+
+    res.json(result)
   } catch(e) {
     console.error('[STREAM]', e.message)
     res.json(null)
