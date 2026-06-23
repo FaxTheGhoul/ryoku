@@ -96,6 +96,18 @@ async function loginGoogle() {
   _initFirebase()
   if (!_auth) return null
   try {
+    // Android/web: usar signInWithPopup de Firebase directamente.
+    // La API de Electron (window.api.googleAuth) devuelve { error: 'use-firebase-sdk' }
+    // en entornos no-Electron, así que detectamos si es Electron o no.
+    const isElectron = !!(window._apiBridge?.isElectron)
+    if (!isElectron) {
+      const provider = new firebase.auth.GoogleAuthProvider()
+      provider.addScope('profile')
+      provider.addScope('email')
+      const userCred = await _auth.signInWithPopup(provider)
+      return userCred.user
+    }
+    // Electron: usar OAuth via IPC nativo
     if (!window.api?.googleAuth) {
       console.error('[auth] window.api.googleAuth no disponible')
       return null

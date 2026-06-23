@@ -45,6 +45,11 @@ public class MainActivity extends BridgeActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
         super.onCreate(savedInstanceState);
+
+        // Permitir ventanas emergentes — necesario para Firebase signInWithPopup (login Google)
+        getBridge().getWebView().getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        getBridge().getWebView().getSettings().setSupportMultipleWindows(true);
+
         getBridge().getWebView().addJavascriptInterface(
             new StreamExtractorInterface(), "_nativeExtractor"
         );
