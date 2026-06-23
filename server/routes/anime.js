@@ -92,7 +92,9 @@ router.get('/stream', async (req, res) => {
   if (!url) return res.status(400).json(null)
 
   try {
-    const { extraerStreamHttp, extraerStream } = require('../browser')
+    // Solo HTTP — sin Playwright. El celular hace la extracción pesada localmente.
+    // Este endpoint es solo fallback para casos donde el WebView nativo no captura nada.
+    const { extraerStreamHttp } = require('../browser')
     const ul = url.toLowerCase()
     let referer = 'https://latanime.org/'
     if (ul.includes('mp4upload'))  referer = 'https://www.mp4upload.com/'
@@ -101,18 +103,7 @@ router.get('/stream', async (req, res) => {
     if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
     if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
 
-    // 1er intento: HTTP puro (rápido, sin RAM extra)
-    let streamUrl = await extraerStreamHttp(url, { referer }).catch(() => null)
-    console.log(`[STREAM] HTTP: ${streamUrl ? 'OK' : 'null'} — ${url}`)
-
-    // 2do intento: Playwright si HTTP no encontró nada
-    if (!streamUrl) {
-      streamUrl = await extraerStream(url, { referer, timeout: 20000 }).catch(e => {
-        console.error('[STREAM] Playwright:', e.message); return null
-      })
-      console.log(`[STREAM] Playwright: ${streamUrl ? 'OK' : 'null'}`)
-    }
-
+    const streamUrl = await extraerStreamHttp(url, { referer }).catch(() => null)
     const result = streamUrl
       ? { tipo: streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url: streamUrl }
       : null

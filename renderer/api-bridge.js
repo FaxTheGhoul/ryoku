@@ -43,37 +43,28 @@
   const _localConfig = JSON.parse(localStorage.getItem('ryoku-config') || '{}')
   function _saveConfig() { localStorage.setItem('ryoku-config', JSON.stringify(_localConfig)) }
 
-  // ── Extractor de stream local (WebView nativo en background) ────────────────
-  // MainActivity.java expone window._nativeExtractor.extractStream(url, cbId)
-  // que crea un WebView real en background (sin restricciones de iframe),
-  // intercepta la request de video y llama window._ryokuNativeCb(cbId, url).
-  // Fallback al servidor REST si no captura nada en 18s.
+
+  // ── Extractor local: usa WebView nativo de Android (MainActivity.java) ──────
+  // Cada dispositivo extrae su propio stream — el servidor no necesita Playwright.
   let _cbCounter = 0
   function _getStreamLocal(url) {
-    // Si no hay extractor nativo (PC/web), caer directo al servidor REST
     if (!window._nativeExtractor) {
+      // PC/web: caer al servidor REST directamente
       return _get('/api/anime/stream', { url }).catch(() => null)
     }
-
     return new Promise((resolve) => {
       const cbId = 'sc' + (++_cbCounter)
-
-      const finish = (streamUrl) => {
+      window._ryokuNativeCb = (id, streamUrl) => {
+        if (id !== cbId) return
         window._ryokuNativeCb = null
         if (streamUrl) {
           const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
           resolve({ tipo, url: streamUrl })
         } else {
-          // Fallback: servidor REST
+          // Timeout: fallback al servidor REST
           _get('/api/anime/stream', { url }).then(resolve).catch(() => resolve(null))
         }
       }
-
-      window._ryokuNativeCb = (id, streamUrl) => {
-        if (id !== cbId) return
-        finish(streamUrl)
-      }
-
       window._nativeExtractor.extractStream(url, cbId)
     })
   }

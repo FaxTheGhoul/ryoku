@@ -21,10 +21,21 @@ public class MainActivity extends BridgeActivity {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // JS para activar el player una vez que cargó la página
+    private static final String TRIGGER_JS =
+        "(function(){" +
+        "  try{ jwplayer().play() }catch(e){}" +
+        "  document.querySelectorAll('video').forEach(function(v){" +
+        "    try{ v.play() }catch(e){}" +
+        "  });" +
+        "  document.querySelectorAll('[class*=play],[id*=play],button').forEach(function(b){" +
+        "    try{ b.click() }catch(e){}" +
+        "  });" +
+        "})()";
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Exponer _nativeExtractor al JavaScript de la app
         getBridge().getWebView().addJavascriptInterface(
             new StreamExtractorInterface(), "_nativeExtractor"
         );
@@ -39,21 +50,20 @@ public class MainActivity extends BridgeActivity {
                 final WebView bg = new WebView(MainActivity.this);
                 final AtomicBoolean done = new AtomicBoolean(false);
 
-                // Configurar WebView background como un navegador real
-                WebSettings s = bg.getSettings();
-                s.setJavaScriptEnabled(true);
-                s.setDomStorageEnabled(true);
-                s.setUserAgentString(UA);
-                s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-                s.setMediaPlaybackRequiresUserGesture(false);
-                s.setLoadWithOverviewMode(true);
-                s.setUseWideViewPort(true);
+                WebSettings ws = bg.getSettings();
+                ws.setJavaScriptEnabled(true);
+                ws.setDomStorageEnabled(true);
+                ws.setUserAgentString(UA);
+                ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                ws.setMediaPlaybackRequiresUserGesture(false);
+                ws.setLoadWithOverviewMode(true);
+                ws.setUseWideViewPort(true);
 
                 bg.setWebViewClient(new WebViewClient() {
+
                     @Override
                     public WebResourceResponse shouldInterceptRequest(
                             WebView view, WebResourceRequest request) {
-
                         if (done.get()) return null;
 
                         String url = request.getUrl().toString();
@@ -67,37 +77,49 @@ public class MainActivity extends BridgeActivity {
                                       && !ul.contains("preview");
 
                         if (isM3u8 || isMp4) {
-                            if (done.compareAndSet(false, true)) {
-                                final String safe = url
-                                    .replace("\\", "\\\\")
-                                    .replace("'", "\\'");
-                                final WebView main = getBridge().getWebView();
-                                mainHandler.post(() -> {
-                                    main.evaluateJavascript(
-                                        "window._ryokuNativeCb&&window._ryokuNativeCb('"
-                                        + callbackId + "','" + safe + "')", null);
-                                    bg.destroy();
-                                });
-                            }
+                            sendResult(url);
                         }
                         return null;
+                    }
+
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        // Activar el player una vez cargada la página
+                        if (!done.get()) {
+                            view.evaluateJavascript(TRIGGER_JS, null);
+                        }
+                    }
+
+                    private void sendResult(String streamUrl) {
+                        if (!done.compareAndSet(false, true)) return;
+                        final String safe = streamUrl
+                            .replace("\\", "\\\\")
+                            .replace("'", "\\'");
+                        final WebView main = getBridge().getWebView();
+                        mainHandler.post(() -> {
+                            main.evaluateJavascript(
+                                "window._ryokuNativeCb&&window._ryokuNativeCb('"
+                                + callbackId + "','" + safe + "')", null);
+                            bg.stopLoading();
+                            bg.destroy();
+                        });
                     }
                 });
 
                 bg.loadUrl(pageUrl);
 
-                // Timeout 18s — resolver con null para caer al servidor REST
+                // Timeout 20s — caer al servidor REST como fallback
                 mainHandler.postDelayed(() -> {
-                    if (done.compareAndSet(false, true)) {
-                        final WebView main = getBridge().getWebView();
-                        mainHandler.post(() -> {
-                            main.evaluateJavascript(
-                                "window._ryokuNativeCb&&window._ryokuNativeCb('"
-                                + callbackId + "',null)", null);
-                            bg.destroy();
-                        });
-                    }
-                }, 18000);
+                    if (!done.compareAndSet(false, true)) return;
+                    final WebView main = getBridge().getWebView();
+                    mainHandler.post(() -> {
+                        main.evaluateJavascript(
+                            "window._ryokuNativeCb&&window._ryokuNativeCb('"
+                            + callbackId + "',null)", null);
+                        bg.stopLoading();
+                        bg.destroy();
+                    });
+                }, 20000);
             });
         }
     }
