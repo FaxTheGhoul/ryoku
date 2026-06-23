@@ -43,40 +43,38 @@
   const _localConfig = JSON.parse(localStorage.getItem('ryoku-config') || '{}')
   function _saveConfig() { localStorage.setItem('ryoku-config', JSON.stringify(_localConfig)) }
 
-  // ── Extractor de stream local (iframe oculto + intercepción nativa Android) ──
-  // MainActivity.java intercepta requests .m3u8/.mp4 del iframe y llama a
-  // window._ryokuStreamCapture(url). Fallback al servidor REST si no captura nada.
+  // ── Extractor de stream local (WebView nativo en background) ────────────────
+  // MainActivity.java expone window._nativeExtractor.extractStream(url, cbId)
+  // que crea un WebView real en background (sin restricciones de iframe),
+  // intercepta la request de video y llama window._ryokuNativeCb(cbId, url).
+  // Fallback al servidor REST si no captura nada en 18s.
+  let _cbCounter = 0
   function _getStreamLocal(url) {
+    // Si no hay extractor nativo (PC/web), caer directo al servidor REST
+    if (!window._nativeExtractor) {
+      return _get('/api/anime/stream', { url }).catch(() => null)
+    }
+
     return new Promise((resolve) => {
-      let done = false
-      let iframe = null
+      const cbId = 'sc' + (++_cbCounter)
 
       const finish = (streamUrl) => {
-        if (done) return
-        done = true
-        window._ryokuStreamCapture = null
-        if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        window._ryokuNativeCb = null
         if (streamUrl) {
           const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
           resolve({ tipo, url: streamUrl })
         } else {
-          // Fallback: pedir al servidor REST
+          // Fallback: servidor REST
           _get('/api/anime/stream', { url }).then(resolve).catch(() => resolve(null))
         }
       }
 
-      // Registrar el callback que llama MainActivity
-      window._ryokuStreamCapture = (streamUrl) => finish(streamUrl)
+      window._ryokuNativeCb = (id, streamUrl) => {
+        if (id !== cbId) return
+        finish(streamUrl)
+      }
 
-      // Crear iframe oculto apuntando a la URL del servidor de video
-      iframe = document.createElement('iframe')
-      iframe.style.cssText = 'position:fixed;width:1px;height:1px;top:-200px;left:-200px;opacity:0;pointer-events:none;border:none'
-      iframe.sandbox = 'allow-scripts allow-same-origin allow-forms'
-      iframe.src = url
-      document.body.appendChild(iframe)
-
-      // Timeout: si en 18s no captura nada, usar servidor REST
-      setTimeout(() => finish(null), 18000)
+      window._nativeExtractor.extractStream(url, cbId)
     })
   }
 
