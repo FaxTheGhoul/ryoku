@@ -96,24 +96,16 @@ async function loginGoogle() {
   _initFirebase()
   if (!_auth) return null
   try {
-    // Android/web: usar signInWithPopup de Firebase directamente.
-    // La API de Electron (window.api.googleAuth) devuelve { error: 'use-firebase-sdk' }
-    // en entornos no-Electron, así que detectamos si es Electron o no.
     const isElectron = !!(window._apiBridge?.isElectron)
     if (!isElectron) {
       const provider = new firebase.auth.GoogleAuthProvider()
       provider.addScope('profile')
       provider.addScope('email')
-      // Timeout de 60 s — si el popup no responde (Google bloquea WebView sin UA fix)
-      // la promesa se rechaza y el botón vuelve al estado inicial.
-      const timeout = new Promise((_, rej) =>
-        setTimeout(() => rej(new Error('login-timeout')), 60000)
-      )
-      const userCred = await Promise.race([
-        _auth.signInWithPopup(provider),
-        timeout
-      ])
-      return userCred.user
+      // En Android WebView signInWithPopup no funciona (Capacitor no tiene onCreateWindow).
+      // signInWithRedirect redirige la WebView principal a Google y Firebase recoge el
+      // resultado al volver via getRedirectResult() en _checkRedirectResult().
+      await _auth.signInWithRedirect(provider)
+      return null  // la página se recarga; el resultado se procesa en _checkRedirectResult
     }
     // Electron: usar OAuth via IPC nativo
     if (!window.api?.googleAuth) {
@@ -439,22 +431,42 @@ window._cerrarAccountModal = cerrarAccountModal
 
 window._authLoginGoogle = async () => {
   const btn = document.querySelector('.acm-google-btn')
-  if (btn) { btn.disabled = true; btn.textContent = 'Conectando...' }
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirigiendo a Google...' }
   try {
     await loginGoogle()
+    // signInWithRedirect hace navigate — si llegamos aquí es Electron (popup)
   } catch(e) {
     console.warn('[auth] loginGoogle error', e)
-  }
-  // Restaurar botón si el login no se completó
-  if (!_currentUser) {
-    const body = document.getElementById('account-modal-body')
-    if (body) _renderModal(null)
-    // Asegurar que el botón quede habilitado si el modal fue destruido
-    const b2 = document.querySelector('.acm-google-btn')
-    if (b2) { b2.disabled = false; b2.textContent = 'Iniciar sesión con Google' }
+    // Restaurar botón solo si no hubo redirect (Electron)
+    if (!_currentUser) {
+      const body = document.getElementById('account-modal-body')
+      if (body) _renderModal(null)
+      const b2 = document.querySelector('.acm-google-btn')
+      if (b2) { b2.disabled = false; b2.textContent = 'Iniciar sesión con Google' }
+    }
   }
 }
 window._authLogout = async () => { await logout() }
+
+// ─── Recoger resultado del redirect de Google OAuth ───────────────────────────
+// Después de que Google redirige de vuelta a la app, Firebase almacena el
+// resultado pendiente. getRedirectResult() lo recupera en el siguiente load.
+async function _checkRedirectResult() {
+  if (!_auth) return
+  try {
+    const result = await _auth.getRedirectResult()
+    if (result && result.user) {
+      console.log('[auth] redirect login OK:', result.user.email)
+      // onAuthStateChanged ya actualiza _currentUser; solo cerrar el modal si estaba abierto
+      const modal = document.getElementById('account-modal')
+      if (modal && modal.style.display !== 'none') {
+        setTimeout(() => window._cerrarAccountModal?.(), 600)
+      }
+    }
+  } catch(e) {
+    console.warn('[auth] getRedirectResult error', e)
+  }
+}
 
 // ─── Auto-init al cargar (para restaurar sesión sin abrir modal) ──────────────
 document.addEventListener('DOMContentLoaded', function() {
@@ -462,6 +474,8 @@ document.addEventListener('DOMContentLoaded', function() {
   var tryAutoInit = function(attempts) {
     if (window.firebase) {
       _initFirebase()
+      // Verificar si venimos de un redirect de Google OAuth
+      _checkRedirectResult()
     } else if (attempts > 0) {
       setTimeout(function() { tryAutoInit(attempts - 1) }, 300)
     }

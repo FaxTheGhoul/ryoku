@@ -41,11 +41,14 @@ async function cargarRecientes(onDone) {
 
   // ── SLIDER ──────────────────────────────────────────────────────────────
   if (slider && slider.length) {
-    const sliderFiltrado = _filtrarLista(slider)
+    const _isMobileSlider = document.body.classList.contains('mobile-mode')
+    // En mobile limitar a 6 slides para no colapsar los dots
+    const sliderFiltrado = _isMobileSlider
+      ? _filtrarLista(slider).slice(0, 6)
+      : _filtrarLista(slider)
     _sliderTotal = sliderFiltrado.length
     const track = document.getElementById('slider-track')
     const dots  = document.getElementById('slider-dots')
-    const _isMobileSlider = document.body.classList.contains('mobile-mode')
     track.innerHTML = sliderFiltrado.map(s => {
       const esA = s.adulto || _esAdulto(s)
       return `<div class="slider-slide">
@@ -63,7 +66,8 @@ async function cargarRecientes(onDone) {
         </div>
       </div>`
     }).join('')
-    // Mobile: inyectar background-image via JS — más fiable que <img> absoluto en Android WebView
+    // Mobile: background-image via JS (bypasa hotlink protection con no-referrer meta)
+    // + forzar width en cards de continuar via inline style
     if (_isMobileSlider) {
       Array.from(track.children).forEach((slide, i) => {
         const s = sliderFiltrado[i]
@@ -72,6 +76,12 @@ async function cargarRecientes(onDone) {
           if (s.adulto || _esAdulto(s)) slide.style.filter = 'blur(14px)'
         }
       })
+      // Forzar ancho de cards de continuar via inline style (más fuerte que CSS)
+      setTimeout(() => {
+        document.querySelectorAll('#continuar-lista .ac-cont-card').forEach(card => {
+          card.style.cssText += ';width:120px!important;min-width:120px!important;max-width:120px!important;flex:0 0 120px!important;'
+        })
+      }, 200)
     }
     dots.innerHTML = sliderFiltrado.map((_,i) => `<div class="slider-dot ${i===0?'activo':''}" onclick="irSlide(${i})"></div>`).join('')
     irSlide(0)
@@ -279,6 +289,7 @@ async function _continuarCargarPortadas(items, progresos) {
   }
 }
 function _continuarCard(h, progresos) {
+  const _isMobile=document.body.classList.contains('mobile-mode')
   const prog=progresos[h.link]
   const pct=prog?.duration?Math.round((prog.currentTime/prog.duration)*100):0
   const tiempoTexto=prog?.currentTime>0?formatTime(prog.currentTime):''
@@ -288,7 +299,8 @@ function _continuarCard(h, progresos) {
   const animeUrl=h.link?.includes('/ver/')?_epLinkToAnimeUrl(h.link):(h.link||'')
   const imgHtml=h.imagen?`<img class="ac-cont-cover" src="${h.imagen}" onerror="this.style.display='none'" />`:`<div class="ac-cont-cover-ph">${nombre.charAt(0)}</div>`
   const capTexto = visto ? 'Visto ✓' : (epNum ? `Ep ${epNum}${tiempoTexto?' · '+tiempoTexto:''}` : 'Ver anime')
-  return `<div class="ac-cont-card" data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}" data-anime-visto="${visto}" onclick="continuarClickCard(event,this)">${imgHtml}<div class="ac-cont-dots" onclick="continuarDotsClick(event,this)" data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-link="${_esc(h.link)}">⋯</div><div class="ac-cont-info"><div class="ac-cont-title">${nombre}</div><div class="ac-cont-cap">${capTexto}</div><div class="ac-cont-prog"><div class="ac-cont-prog-fill" style="width:${pct}%"></div></div><div class="ac-cont-pct">${pct>0?pct+'%':''}</div></div></div>`
+  const cardStyle=_isMobile?'style="width:120px;min-width:120px;max-width:120px;flex:0 0 120px"':''
+  return `<div class="ac-cont-card" ${cardStyle} data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}" data-anime-visto="${visto}" onclick="continuarClickCard(event,this)">${imgHtml}<div class="ac-cont-dots" onclick="continuarDotsClick(event,this)" data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-link="${_esc(h.link)}">⋯</div><div class="ac-cont-info"><div class="ac-cont-title">${nombre}</div><div class="ac-cont-cap">${capTexto}</div><div class="ac-cont-prog"><div class="ac-cont-prog-fill" style="width:${pct}%"></div></div><div class="ac-cont-pct">${pct>0?pct+'%':''}</div></div></div>`
 }
 let _animeContinuarCtx=null
 document.addEventListener('DOMContentLoaded',()=>{
