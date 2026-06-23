@@ -24,7 +24,7 @@ WORKDIR /app
 
 # Copiar dependencias del servidor
 COPY server/package*.json ./server/
-RUN cd server && npm ci --omit=dev
+RUN cd server && npm install --omit=dev
 
 # Copiar extractores compartidos
 COPY extractors/ ./extractors/
