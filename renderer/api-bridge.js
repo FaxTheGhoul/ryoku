@@ -193,7 +193,39 @@
   if (!IS_ELECTRON) {
     window.api = webApi
     // Activar layout mobile cuando el DOM esté listo
-    const _applyMobile = () => document.body.classList.add('mobile-mode')
+    const _applyMobile = () => {
+      document.body.classList.add('mobile-mode')
+
+      // ── Botón atrás de Android ──────────────────────────────────────────
+      // Capacitor expone el evento 'backButton' via App plugin
+      document.addEventListener('ionBackButton', (ev) => {
+        ev.detail.register(10, () => {
+          // Si hay un overlay abierto, cerrarlo primero
+          const overlays = ['overlay-modulos', 'overlay-perfil', 'account-modal']
+          for (const id of overlays) {
+            const el = document.getElementById(id)
+            if (el && el.style.display !== 'none' && el.style.display !== '') {
+              if (window.cerrarSwitcherModulos && id === 'overlay-modulos') window.cerrarSwitcherModulos()
+              else el.style.display = 'none'
+              return
+            }
+          }
+          // Si estamos en una página de detalle, volver a la anterior
+          const btnVolver = document.getElementById('btn-volver')
+          if (btnVolver && document.getElementById('page-anime')?.classList.contains('activa')) {
+            btnVolver.click(); return
+          }
+          const mangaVolver = document.getElementById('manga-btn-volver')
+          if (mangaVolver && document.getElementById('page-manga-detalle')?.classList.contains('activa')) {
+            mangaVolver.click(); return
+          }
+          // Si estamos en inicio, salir de la app
+          if (window.Capacitor?.Plugins?.App) {
+            window.Capacitor.Plugins.App.exitApp()
+          }
+        })
+      })
+    }
     if (document.body) _applyMobile()
     else document.addEventListener('DOMContentLoaded', _applyMobile)
   }

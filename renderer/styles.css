@@ -6339,3 +6339,16 @@ body.mobile-mode .mn-tend-grid {
   grid-template-columns: repeat(3, 1fr) !important;
   gap: 8px !important;
 }
+
+/* ── Mobile: fix grilla biblioteca (.mnbib-grid) ─────────────────────────── */
+body.mobile-mode .mnbib-grid {
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+}
+body.mobile-mode .mnbib-card {
+  border-radius: 8px !important;
+}
+body.mobile-mode .mnbib-card-title {
+  font-size: 10px !important;
+  -webkit-line-clamp: 2 !important;
+}
