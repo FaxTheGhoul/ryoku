@@ -6177,3 +6177,92 @@ body.mobile-mode .slider-btn-info {
 body.mobile-mode .slider-ep-badge {
   font-size: 8px !important;
 }
+
+/* ── Mobile: página de detalles ──────────────────────────────────────────── */
+
+/* Ocultar botón volver (el usuario usa el gesto del celular) */
+body.mobile-mode .detalle-btn-volver,
+body.mobile-mode .btn-volver,
+body.mobile-mode .mn-btn-volver,
+body.mobile-mode .rl-back { display: none !important; }
+
+/* Hero: imagen de fondo a pantalla completa, info abajo */
+body.mobile-mode .anime-hero { border-radius: 0 !important; margin: 0 !important; min-height: unset !important; }
+body.mobile-mode .anime-hero-info {
+  flex-direction: column !important;
+  padding: 14px !important;
+  gap: 12px !important;
+}
+body.mobile-mode .anime-portada-wrap {
+  width: 100px !important;
+  min-height: 130px !important;
+}
+
+/* Detalle-toprow: esconder padding innecesario */
+body.mobile-mode .detalle-toprow { padding: 10px 14px 0 !important; }
+body.mobile-mode .detalle-toprow-derecha { gap: 6px !important; }
+
+/* Episodios: una columna, más fácil de tocar */
+body.mobile-mode .eps-grid {
+  grid-template-columns: 1fr !important;
+}
+body.mobile-mode .ep-card {
+  display: flex !important;
+  flex-direction: row !important;
+  height: 72px !important;
+  border-radius: 10px !important;
+}
+body.mobile-mode .ep-thumb {
+  width: 110px !important;
+  min-width: 110px !important;
+  height: 72px !important;
+  border-radius: 10px 0 0 10px !important;
+}
+body.mobile-mode .ep-info {
+  padding: 8px 10px !important;
+  justify-content: center !important;
+}
+body.mobile-mode .ep-num { font-size: 11px !important; }
+body.mobile-mode .ep-titulo { font-size: 12px !important; -webkit-line-clamp: 2 !important; }
+
+/* Servidores: botones más grandes para touch */
+body.mobile-mode .srv-btn {
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  min-height: 44px !important;
+}
+
+/* Ocultar botón flotante de retroceder específico */
+body.mobile-mode [id*="volver"],
+body.mobile-mode .mod-overlay-back { display: none !important; }
+body.mobile-mode .mod-overlay-titulo.con-back { padding-left: 14px !important; }
+
+/* ── Mobile: grilla de búsqueda/biblioteca ────────────────────────────────── */
+body.mobile-mode .grilla {
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)) !important;
+  gap: 8px !important;
+}
+body.mobile-mode .mn-tend-grid,
+body.mobile-mode #mn-buscar-grid {
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)) !important;
+  gap: 8px !important;
+}
+body.mobile-mode .cal-grid {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
+  gap: 8px !important;
+}
+body.mobile-mode .mod-grid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
+  gap: 8px !important;
+}
+/* Cards más compactas */
+body.mobile-mode .anime-card .card-title,
+body.mobile-mode .mn-manga-card .mn-card-title {
+  font-size: 10px !important;
+  -webkit-line-clamp: 2 !important;
+}
+body.mobile-mode .anime-card .card-ep,
+body.mobile-mode .card-badge {
+  font-size: 9px !important;
+  padding: 2px 5px !important;
+}
