@@ -1211,7 +1211,10 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     video.play().catch(() => {})
   }
 
-  if (url.includes('.m3u8')) {
+  const _isMobile = document.body.classList.contains('mobile-mode')
+
+  if (url.includes('.m3u8') && !_isMobile) {
+    // PC: HLS.js (necesita MSE, respeta CORS)
     if (!Hls.isSupported()) { spinnerShow(false); return }
     if (hls) { hls.destroy(); hls = null }
     hls = new Hls()
@@ -1225,6 +1228,9 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
       }
     })
   } else {
+    // Mobile: reproducción nativa del elemento <video> (Android soporta HLS
+    // nativamente sin CORS, funciona para .m3u8 y .mp4)
+    if (hls) { hls.destroy(); hls = null }
     video.src = url
     video.oncanplay = onListo
     video.onerror = () => {
@@ -1232,6 +1238,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
       spinnerShow(false)
     }
+    video.load()
   }
 }
 
@@ -1696,6 +1703,24 @@ window.toggleCompletado = async function () {
 function toggleFullscreenPlayer() {
   const shell = document.querySelector('.rp-shell')
   if (!shell) return
+
+  // En mobile usar fullscreen CSS (evita el espacio vacío que deja la API nativa en Android)
+  if (document.body.classList.contains('mobile-mode')) {
+    const isFull = shell.classList.contains('rp-mobile-fullscreen')
+    if (isFull) {
+      shell.classList.remove('rp-mobile-fullscreen')
+      document.body.classList.remove('rp-fs-active')
+      if (screen.orientation?.unlock) screen.orientation.unlock()
+    } else {
+      shell.classList.add('rp-mobile-fullscreen')
+      document.body.classList.add('rp-fs-active')
+      // Intentar orientación landscape
+      if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {})
+    }
+    return
+  }
+
+  // PC: Fullscreen API normal
   if (document.fullscreenElement || document.webkitFullscreenElement) {
     if (document.exitFullscreen) document.exitFullscreen()
     else if (document.webkitExitFullscreen) document.webkitExitFullscreen()

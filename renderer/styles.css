@@ -6504,3 +6504,108 @@ body:not(.mobile-mode) #ryoku-warmup-banner {
   bottom: auto; top: 52px; right: 16px; left: auto; transform: none;
 }
 body:not(.mobile-mode) #ryoku-warmup-banner.visible { transform: none; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE POLISH — Android touch UI
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Eliminar el flash azul/gris al tocar cualquier elemento */
+body.mobile-mode * {
+  -webkit-tap-highlight-color: transparent !important;
+  tap-highlight-color: transparent !important;
+}
+
+/* 2. Deshabilitar efectos :hover en mobile (se quedan pegados al tocar) */
+@media (hover: none) and (pointer: coarse) {
+  .nav-btn:hover,
+  .anime-card:hover,
+  .srv-btn:hover,
+  .rp-vc-btn:hover,
+  .rp-ib-like-btn:hover,
+  .rp-ib-ep-card:hover,
+  .md-btn-primary:hover,
+  .detalle-btn-fav:hover,
+  .filtro-dd-btn:hover,
+  .filtro-dd-item:hover,
+  .sb-hist-item:hover,
+  .mnbib-card:hover,
+  button:hover { background: unset; color: unset; border-color: unset; }
+}
+
+/* 3. Feedback táctil nativo con :active (reemplaza hover) */
+body.mobile-mode .nav-btn:active         { background: var(--bg-3) !important; }
+body.mobile-mode .anime-card:active      { opacity: .8 !important; }
+body.mobile-mode .mnbib-card:active      { opacity: .8 !important; }
+body.mobile-mode .srv-btn:active         { background: var(--bg-3) !important; }
+body.mobile-mode button:active           { opacity: .7 !important; }
+body.mobile-mode .rp-ib-ep-card:active  { background: var(--bg-3) !important; }
+
+/* 4. Cursor normal (no pointer) — en mobile el cursor no existe */
+body.mobile-mode * { cursor: default !important; }
+body.mobile-mode button, body.mobile-mode [onclick] { cursor: default !important; }
+
+/* 5. Fullscreen en mobile: ocultar bottom nav y que el video ocupe toda la pantalla */
+body.mobile-mode .rp-shell:fullscreen,
+body.mobile-mode .rp-shell:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 99999 !important;
+  background: #000 !important;
+}
+
+/* Cuando hay fullscreen nativo, ocultar la bottom nav */
+body.mobile-mode:has(.rp-shell:fullscreen) .sidebar,
+body.mobile-mode:has(.rp-shell:-webkit-full-screen) .sidebar { display: none !important; }
+
+/* 6. Quitar sombras pesadas en mobile (rinden menos y se ven extrañas en Android) */
+body.mobile-mode .anime-card,
+body.mobile-mode .mnbib-card,
+body.mobile-mode .srv-btn,
+body.mobile-mode .slider-slide,
+body.mobile-mode .md-cover-wrap { box-shadow: none !important; }
+
+/* 7. Scrollbars invisibles en mobile */
+body.mobile-mode ::-webkit-scrollbar { display: none !important; }
+body.mobile-mode * { scrollbar-width: none !important; }
+
+/* 8. Selección de texto desactivada en botones y tarjetas */
+body.mobile-mode button,
+body.mobile-mode .anime-card,
+body.mobile-mode .mnbib-card,
+body.mobile-mode .nav-btn,
+body.mobile-mode .srv-btn { user-select: none !important; -webkit-user-select: none !important; }
+
+/* ── Fullscreen mobile (CSS puro, sin API nativa que deja espacio) ─────────── */
+body.rp-fs-active .sidebar { display: none !important; }
+body.rp-fs-active .rp-overlay.activo { z-index: 999999 !important; }
+
+.rp-shell.rp-mobile-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 999999 !important;
+  background: #000 !important;
+  overflow: hidden !important;
+}
+
+.rp-shell.rp-mobile-fullscreen .rp-info-bottom,
+.rp-shell.rp-mobile-fullscreen .rp-col-eps,
+.rp-shell.rp-mobile-fullscreen .rp-col-info { display: none !important; }
+
+.rp-shell.rp-mobile-fullscreen .rp-body { height: 100% !important; }
+
+.rp-shell.rp-mobile-fullscreen .rp-col-video,
+.rp-shell.rp-mobile-fullscreen .rp-video-area {
+  width: 100% !important;
+  height: 100% !important;
+  aspect-ratio: unset !important;
+}
+
+.rp-shell.rp-mobile-fullscreen video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+}
