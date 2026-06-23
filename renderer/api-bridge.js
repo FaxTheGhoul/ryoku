@@ -192,6 +192,10 @@
   // que llama window.api.* funcione sin ningún cambio.
   if (!IS_ELECTRON) {
     window.api = webApi
+    // Activar layout mobile cuando el DOM esté listo
+    const _applyMobile = () => document.body.classList.add('mobile-mode')
+    if (document.body) _applyMobile()
+    else document.addEventListener('DOMContentLoaded', _applyMobile)
   }
 
   // Log de entorno

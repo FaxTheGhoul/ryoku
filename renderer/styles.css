@@ -6062,11 +6062,76 @@ mark.cw-highlight {
   to   { transform: rotate(360deg); }
 }
 
+/* ══════════════════════════════════════════════
+   MOBILE MODE (Android / Web — sin Electron)
+   Se activa cuando body tiene clase .mobile-mode
+══════════════════════════════════════════════ */
+
+/* Ocultar titlebar de escritorio */
+body.mobile-mode .titlebar { display: none !important; }
+body.mobile-mode .layout   { padding-top: 0; height: 100dvh; }
+
+/* Sidebar → bottom nav bar */
+body.mobile-mode .sidebar {
+  position: fixed !important;
+  bottom: 0; left: 0; right: 0; top: auto !important;
+  width: 100% !important;
+  height: 62px;
+  flex-direction: row !important;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 8px !important;
+  gap: 0 !important;
+  border-right: none !important;
+  border-top: 1px solid var(--border);
+  z-index: 500;
+  transform: none !important;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
+  overflow: visible !important;
 }
-.rqo-label {
-  font-size: 12.5px; font-weight: 500;
-  color: rgba(255,255,255,0.45);
-  font-family: 'Inter', sans-serif;
-  letter-spacing: 0.02em;
+
+/* Ocultar logo/switcher de módulos en mobile */
+body.mobile-mode .sidebar-logo { display: none !important; }
+body.mobile-mode .sidebar-bottom { flex-direction: row !important; gap: 0 !important; }
+
+/* Botones de nav más grandes para touch */
+body.mobile-mode .nav-btn {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  flex: 1;
 }
-@keyframes rqo-spin { to { transform: rotate(360deg); } }
+body.mobile-mode .nav-btn svg { width: 24px; height: 24px; }
+
+/* El indicador activo va abajo en vez de a la izquierda */
+body.mobile-mode .nav-btn.activo::before {
+  top: auto; bottom: -2px; left: 50%;
+  transform: translateX(-50%);
+  width: 20px; height: 3px;
+  border-radius: 2px 2px 0 0;
+}
+
+/* Contenido principal: no empujar por sidebar, empujar por bottom nav */
+body.mobile-mode #app-anime,
+body.mobile-mode #app-manga {
+  margin-left: 0 !important;
+  padding-bottom: 70px;
+}
+
+/* Hacer que el layout no tenga padding-left del sidebar */
+body.mobile-mode .layout { padding-left: 0 !important; }
+
+/* Slider más ancho en mobile */
+body.mobile-mode .slider-wrap,
+body.mobile-mode .slider-container { width: 100% !important; }
+
+/* Ocultar controles de ventana (no aplican en mobile) */
+body.mobile-mode .sidebar-trigger { display: none !important; }
+
+/* Grupos de sidebar: ocultar separadores extra, mostrar solo iconos del módulo activo */
+body.mobile-mode #sidebar-anime,
+body.mobile-mode #sidebar-manga {
+  display: contents;
+}
+
+/* Scroll suave en todo */
+body.mobile-mode * { -webkit-overflow-scrolling: touch; }

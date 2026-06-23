@@ -92,9 +92,31 @@ router.get('/stream', async (req, res) => {
   if (!url) return res.status(400).json(null)
 
   try {
-    const result = await extIndex.getStream(url)
-    res.json(result)
+    // Primero intentar con los extractores (devuelven null en servidor por falta de Electron)
+    let result = await extIndex.getStream(url)
+
+    // Si el extractor devolvió null, usar Playwright directamente
+    if (!result) {
+      const { extraerStream } = require('../browser')
+      // Determinar referer según el proveedor
+      const ul = url.toLowerCase()
+      let referer = 'https://latanime.org/'
+      if (ul.includes('mp4upload'))  referer = 'https://www.mp4upload.com/'
+      if (ul.includes('mixdrop') || ul.includes('miixdrop')) referer = 'https://mixdrop.ag/'
+      if (ul.includes('dood') || ul.includes('ds2play'))     referer = 'https://doodstream.com/'
+      if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
+      if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
+
+      const streamUrl = await extraerStream(url, { referer, timeout: 35000 })
+      if (streamUrl) {
+        const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
+        result = { tipo, url: streamUrl }
+      }
+    }
+
+    res.json(result || null)
   } catch(e) {
+    console.error('[STREAM]', e.message)
     res.json(null)
   }
 })
