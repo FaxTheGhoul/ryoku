@@ -107,7 +107,7 @@ router.get('/stream', async (req, res) => {
       if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
       if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
 
-      const streamUrl = await extraerStream(url, { referer, timeout: 35000 })
+      const streamUrl = await extraerStream(url, { referer, timeout: 20000 })
       if (streamUrl) {
         const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
         result = { tipo, url: streamUrl }

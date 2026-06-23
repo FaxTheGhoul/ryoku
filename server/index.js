@@ -97,6 +97,11 @@ app.get('/proxy', async (req, res) => {
 // ── Arrancar ──────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[RYOKU SERVER] corriendo en http://localhost:${PORT}`)
+  // Pre-calentar Playwright en background para que la primera petición sea más rápida
+  setTimeout(() => {
+    const { getBrowser } = require('./browser')
+    getBrowser().then(() => console.log('[RYOKU] Playwright listo')).catch(() => {})
+  }, 3000)
 })
 
 // Limpieza al salir

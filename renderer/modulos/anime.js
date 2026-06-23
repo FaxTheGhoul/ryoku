@@ -713,6 +713,20 @@ async function cargarFavoritos() {
 let _servidores = [], _tituloActual = '', _urlEpisodioActual = ''
 let _pendingEp = null
 
+// Cache de streams pre-fetcheados: { [urlServidor]: Promise<resultado> }
+const _streamCache = {}
+
+function _preFetchServidores(lista) {
+  // Pre-fetchear los primeros N servidores en paralelo mientras el usuario decide
+  const MAX_PREFETCH = 3
+  let count = 0
+  for (const s of lista) {
+    if (!s?.url || _streamCache[s.url]) continue
+    _streamCache[s.url] = window.api.getStream(s.url).catch(() => null)
+    if (++count >= MAX_PREFETCH) break
+  }
+}
+
 async function abrirSelector(url, titulo) {
   _tituloActual = titulo
   _urlEpisodioActual = url
@@ -761,6 +775,10 @@ async function abrirSelector(url, titulo) {
       <span class="srv-nombre">${s.nombre}</span>
     </button>`
   }).join('')
+
+  // Pre-fetch en background: los primeros funcionales primero, luego el resto
+  const ordenPrefetch = [..._indexados].sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
+  _preFetchServidores(ordenPrefetch)
 }
 
 async function pedirServidorEp(url, titulo) {
@@ -790,10 +808,16 @@ async function pedirServidorEp(url, titulo) {
       <span class="srv-nombre">${s.nombre}</span>
     </button>`
   }).join('')
+
+  // Pre-fetch en background
+  const ordenPrefetch2 = [..._indexados2].sort((a, b) => _esFuncional2(b.nombre) - _esFuncional2(a.nombre))
+  _preFetchServidores(ordenPrefetch2)
 }
 
 document.getElementById('srv-cerrar').addEventListener('click', () => {
   _pendingEp = null
+  // Limpiar cache al cerrar sin elegir servidor
+  for (const k in _streamCache) delete _streamCache[k]
   document.getElementById('overlay-servidor').classList.remove('activo')
 })
 
@@ -823,8 +847,11 @@ async function elegirServidor(idx) {
     if (dot) dot.className = 'srv-dot srv-dot-checking'
   }
 
-  // Intentar obtener el stream ANTES de abrir el player
-  const resultado = await window.api.getStream(s.url)
+  // Usar stream pre-fetcheado si ya está en cache, si no pedirlo ahora
+  const _streamPromise = _streamCache[s.url] || window.api.getStream(s.url)
+  const resultado = await _streamPromise
+  // Limpiar del cache una vez consumido
+  delete _streamCache[s.url]
 
   if (!resultado?.url) {
     // Falló — tachado + pill rojo

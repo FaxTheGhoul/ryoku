@@ -157,9 +157,9 @@ async function extraerStream(pageUrl, { referer = null, timeout = 30000 } = {}) 
       document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){} })
     }).catch(() => {})
 
-    // Esperar hasta 12s comprobando cada 800ms
-    for (let i = 0; i < 15; i++) {
-      await page.waitForTimeout(800)
+    // Esperar hasta 8s comprobando cada 500ms (reducido para respuesta más rápida)
+    for (let i = 0; i < 16; i++) {
+      await page.waitForTimeout(500)
       if (capturedUrl) break
       try {
         const url = await page.evaluate(EXTRACT_JS)
