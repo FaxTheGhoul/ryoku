@@ -7,6 +7,18 @@ const { EventEmitter } = require('events')
 
 let _browser = null
 
+// Semáforo: solo 1 extracción Playwright activa a la vez (Render free = 512MB RAM)
+let _extractSlots = 1
+const _extractQueue = []
+function _acquireSlot() {
+  if (_extractSlots > 0) { _extractSlots--; return Promise.resolve() }
+  return new Promise(r => _extractQueue.push(r))
+}
+function _releaseSlot() {
+  if (_extractQueue.length) { _extractQueue.shift()() }
+  else { _extractSlots++ }
+}
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 const AD_DOMAINS = [
@@ -131,65 +143,56 @@ async function extraerStream(pageUrl, { referer = null, timeout = 20000 } = {}) 
     ignoreHTTPSErrors: true,
   })
 
-  // Resolver en cuanto tengamos la URL — no esperar al timeout
-  let _resolve
-  const found = new Promise(r => { _resolve = r })
-
+  let capturedUrl = null
   const fake = ['thumb','poster','preview','advert','placeholder']
-  const _isVideoUrl = (u) => {
-    try {
-      const path = new URL(u).pathname.toLowerCase()
-      return path.includes('.m3u8') ||
-        (path.includes('.mp4') && !path.endsWith('.html') && !fake.some(f => path.includes(f)))
-    } catch(e) { return false }
-  }
 
-  // Interceptar requests — resolve inmediatamente al primer hit de video
+  // Interceptar requests — captura la URL de video en el momento que llega
   await ctx.route('**/*', (route) => {
     const u = route.request().url()
     const ul = u.toLowerCase()
     if (AD_DOMAINS.some(d => ul.includes(d))) return route.abort()
-    if (_isVideoUrl(u)) _resolve(u)
+    if (!capturedUrl) {
+      try {
+        const path = new URL(u).pathname.toLowerCase()
+        if (path.includes('.m3u8') ||
+           (path.includes('.mp4') && !path.endsWith('.html') && !fake.some(f => path.includes(f)))) {
+          capturedUrl = u
+        }
+      } catch(e) {}
+    }
     route.continue()
-  })
-
-  // También escuchar respuestas de red (algunos servers redirigen)
-  ctx.on('response', (resp) => {
-    const u = resp.url()
-    if (_isVideoUrl(u)) _resolve(u)
   })
 
   const page = await ctx.newPage()
   try {
-    // Navegar y activar el player en paralelo con la captura
-    const gotoPromise = page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: timeout - 2000 })
-      .then(async () => {
-        // Activar player
-        await page.evaluate(() => {
-          try { jwplayer().play() } catch(e) {}
-          document.querySelectorAll('[class*=play],[id*=play],button').forEach(b => { try{b.click()}catch(e){} })
-          document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){} })
-        }).catch(() => {})
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: timeout - 3000 })
 
-        // Polling rápido como fallback al DOM (cada 300ms, hasta 8s)
-        for (let i = 0; i < 27; i++) {
-          await page.waitForTimeout(300)
-          try {
-            const url = await page.evaluate(EXTRACT_JS)
-            if (url?.startsWith('http')) { _resolve(url); break }
-          } catch(e) {}
-        }
-        _resolve(null)  // timeout — resolver con null
-      })
-      .catch(() => { _resolve(null) })
+    // Activar player
+    await page.evaluate(() => {
+      try { jwplayer().play() } catch(e) {}
+      document.querySelectorAll('[class*=play],[id*=play],button').forEach(b => { try{b.click()}catch(e){} })
+      document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){} })
+    }).catch(() => {})
 
-    // Esperar lo que llegue primero: URL capturada o timeout global
-    const timeoutPromise = new Promise(r => setTimeout(() => r(null), timeout))
-    const capturedUrl = await Promise.race([found, timeoutPromise])
+    // Polling cada 300ms — sale en cuanto la ruta ya capturó la URL o la encuentra en DOM
+    const polls = Math.floor((timeout - 3000) / 300)
+    for (let i = 0; i < polls; i++) {
+      if (capturedUrl) break
+      await page.waitForTimeout(300)
+      if (capturedUrl) break
+      try {
+        const url = await page.evaluate(EXTRACT_JS)
+        if (url?.startsWith('http')) { capturedUrl = url; break }
+      } catch(e) {}
+    }
+
+    if (!capturedUrl) {
+      try { capturedUrl = await page.evaluate(EXTRACT_JS) } catch(e) {}
+    }
 
     return capturedUrl || null
   } finally {
-    await ctx.close().catch(() => {})
+    await ctx.close()
   }
 }
 
