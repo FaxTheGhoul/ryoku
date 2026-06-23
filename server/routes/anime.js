@@ -92,7 +92,7 @@ router.get('/stream', async (req, res) => {
   if (!url) return res.status(400).json(null)
 
   try {
-    const { extraerStream } = require('../browser')
+    const { extraerStreamHttp, extraerStream } = require('../browser')
     const ul = url.toLowerCase()
     let referer = 'https://latanime.org/'
     if (ul.includes('mp4upload'))  referer = 'https://www.mp4upload.com/'
@@ -101,15 +101,16 @@ router.get('/stream', async (req, res) => {
     if (ul.includes('voe') || ul.includes('jessicayeah'))  referer = 'https://latanime.org/'
     if (ul.includes('streamtape') || ul.includes('streamta.pe')) referer = 'https://streamtape.com/'
 
-    // Playwright con event-driven capture (resuelve al instante al detectar el video)
-    // Retry una vez si falla
-    let streamUrl = null
-    for (let _try = 0; _try < 2 && !streamUrl; _try++) {
-      try {
-        streamUrl = await extraerStream(url, { referer, timeout: 20000 })
-      } catch(e) {
-        console.error(`[STREAM] intento ${_try + 1}:`, e.message)
-      }
+    // 1er intento: HTTP puro (rápido, sin RAM extra)
+    let streamUrl = await extraerStreamHttp(url, { referer }).catch(() => null)
+    console.log(`[STREAM] HTTP: ${streamUrl ? 'OK' : 'null'} — ${url}`)
+
+    // 2do intento: Playwright si HTTP no encontró nada
+    if (!streamUrl) {
+      streamUrl = await extraerStream(url, { referer, timeout: 20000 }).catch(e => {
+        console.error('[STREAM] Playwright:', e.message); return null
+      })
+      console.log(`[STREAM] Playwright: ${streamUrl ? 'OK' : 'null'}`)
     }
 
     const result = streamUrl

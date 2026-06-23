@@ -124,6 +124,55 @@ async function closeBrowser() {
   if (_browser) { await _browser.close(); _browser = null }
 }
 
+// ── Extractor rápido HTTP (sin navegador) ────────────────────────────────────
+// Intenta extraer la URL del stream con solo una petición HTTP + regex.
+// Mucho más rápido y liviano que Playwright. Funciona para la mayoría de servers.
+async function extraerStreamHttp(pageUrl, { referer = null } = {}) {
+  const axios = require('axios')
+  let html
+  try {
+    const resp = await axios.get(pageUrl, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': UA,
+        'Referer':    referer || pageUrl,
+        'Accept':     'text/html,application/xhtml+xml,*/*',
+      },
+      maxRedirects: 5,
+    })
+    html = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data)
+  } catch(e) { return null }
+
+  // 1. atob() con URL directa o file: dentro
+  const atobMatches = [...html.matchAll(/atob\(["']([A-Za-z0-9+\/=]{20,})["']\)/g)]
+  for (const m of atobMatches) {
+    try {
+      const dec = Buffer.from(m[1], 'base64').toString('utf-8')
+      if (dec.startsWith('http') && (dec.includes('.m3u8') || dec.includes('.mp4'))) return dec
+      const fm = dec.match(/file\s*:\s*["']([^"']+\.(?:mp4|m3u8)[^"']*)/i)
+      if (fm) return fm[1]
+    } catch(e) {}
+  }
+
+  // 2. .m3u8 directo en el HTML
+  const m3u8 = html.match(/(https?:\/\/[^"'\s\\]{15,}\.m3u8[^"'\s\\]*)/i)
+  if (m3u8) return m3u8[1]
+
+  // 3. Variables JS conocidas
+  const varM = html.match(/(?:wurl|hls|video_url|stream_url|source)\s*[=:]\s*["'](https?:\/\/[^"']{10,}\.(?:mp4|m3u8)[^"']*)/i)
+  if (varM) return varM[1]
+
+  // 4. sources array / jwplayer setup
+  const srcM = html.match(/['"](https?:\/\/[^"']{10,}\.(?:mp4|m3u8)[^"']*)['"]/i)
+  if (srcM && (srcM[1].includes('.m3u8') || srcM[1].includes('.mp4'))) return srcM[1]
+
+  // 5. //cdn... pattern (protocol-relative)
+  const protoM = html.match(/(?:file|src|hls)\s*[=:]\s*["'](\/\/[^"']{10,}\.(?:mp4|m3u8)[^"']*)/i)
+  if (protoM) return 'https:' + protoM[1]
+
+  return null
+}
+
 // ── Extractor de stream para el servidor (reemplaza BrowserWindow de Electron) ─
 // Intercepta requests de red con Playwright para capturar URLs de video (.m3u8/.mp4)
 const EXTRACT_JS = `(function() {
@@ -205,4 +254,4 @@ async function _extraerStreamInterno(pageUrl, { referer = null, timeout = 20000 
   }
 }
 
-module.exports = { getBrowser, browserGetHTML, browserCapture, browserEvalJS, extraerStream, closeBrowser, UA, AD_DOMAINS }
+module.exports = { getBrowser, browserGetHTML, browserCapture, browserEvalJS, extraerStream, extraerStreamHttp, closeBrowser, UA, AD_DOMAINS }
