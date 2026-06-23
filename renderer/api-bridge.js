@@ -43,6 +43,43 @@
   const _localConfig = JSON.parse(localStorage.getItem('ryoku-config') || '{}')
   function _saveConfig() { localStorage.setItem('ryoku-config', JSON.stringify(_localConfig)) }
 
+  // ── Extractor de stream local (iframe oculto + intercepción nativa Android) ──
+  // MainActivity.java intercepta requests .m3u8/.mp4 del iframe y llama a
+  // window._ryokuStreamCapture(url). Fallback al servidor REST si no captura nada.
+  function _getStreamLocal(url) {
+    return new Promise((resolve) => {
+      let done = false
+      let iframe = null
+
+      const finish = (streamUrl) => {
+        if (done) return
+        done = true
+        window._ryokuStreamCapture = null
+        if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        if (streamUrl) {
+          const tipo = streamUrl.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4'
+          resolve({ tipo, url: streamUrl })
+        } else {
+          // Fallback: pedir al servidor REST
+          _get('/api/anime/stream', { url }).then(resolve).catch(() => resolve(null))
+        }
+      }
+
+      // Registrar el callback que llama MainActivity
+      window._ryokuStreamCapture = (streamUrl) => finish(streamUrl)
+
+      // Crear iframe oculto apuntando a la URL del servidor de video
+      iframe = document.createElement('iframe')
+      iframe.style.cssText = 'position:fixed;width:1px;height:1px;top:-200px;left:-200px;opacity:0;pointer-events:none;border:none'
+      iframe.sandbox = 'allow-scripts allow-same-origin allow-forms'
+      iframe.src = url
+      document.body.appendChild(iframe)
+
+      // Timeout: si en 18s no captura nada, usar servidor REST
+      setTimeout(() => finish(null), 18000)
+    })
+  }
+
   // ── API web/Android (llama al servidor REST) ───────────────────────────────
   const webApi = {
     // Anime
@@ -50,7 +87,7 @@
     buscar:            (q, filtros)   => _get('/api/anime/buscar',     { q, source: _getAnimeSource(), ...filtros }),
     getAnime:          (url)          => _get('/api/anime/detalle',    { url, source: _getAnimeSource() }),
     getServidores:     (url)          => _get('/api/anime/servidores', { url, source: _getAnimeSource() }),
-    getStream:         (url)          => _get('/api/anime/stream',     { url }),
+    getStream:         (url)          => _getStreamLocal(url),
     getCalendario:     ()             => _get('/api/anime/calendario', { source: _getAnimeSource() }),
     getAnimeBiblioteca:(params)       => _get('/api/anime/biblioteca', { source: _getAnimeSource(), ...params }),
     checkServidores:   (servidores)   => _post('/api/anime/check-servidores', { servidores }),
