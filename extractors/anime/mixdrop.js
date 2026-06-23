@@ -1,6 +1,7 @@
 // ─── extractors/mixdrop.js ───────────────────────────────────────────────────
 'use strict'
-const { BrowserWindow } = require('electron')
+let BrowserWindow = null
+try { ({ BrowserWindow } = require('electron')) } catch(e) {}
 const { UA, AD_DOMAINS, MIXDROP_LEGIT } = require('./_base')
 
 // Dominios falsos que redirigen a anuncios en vez de al video real
@@ -231,7 +232,4 @@ async function getStream(serverUrl) {
         userAgent: UA,
         extraHeaders: `Referer: ${ref}\nOrigin: ${ref.slice(0, -1)}\n`
       })
-    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
-  })
-}
-module.exports = { getStream }
+    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) }

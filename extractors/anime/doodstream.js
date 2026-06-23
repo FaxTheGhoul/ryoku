@@ -1,6 +1,7 @@
 // ─── extractors/doodstream.js ────────────────────────────────────────────────
 'use strict'
-const { BrowserWindow, net, session: electronSession } = require('electron')
+let BrowserWindow = null, net = null, electronSession = null
+try { ({ BrowserWindow, net, session: electronSession } = require('electron')) } catch(e) {}
 const { UA, AD_DOMAINS } = require('./_base')
 
 // Fetch pass_md5 con net.request usando las cookies de la sesión persistente
@@ -157,8 +158,4 @@ async function getStream(serverUrl) {
           })
         })
 
-    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
-  })
-}
-
-module.exports = { getStream }
+    } catch(e) { if (!done) { done

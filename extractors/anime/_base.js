@@ -2,7 +2,8 @@
 // Helpers compartidos por todos los extractores
 'use strict'
 
-const { BrowserWindow } = require('electron')
+let BrowserWindow = null
+try { ({ BrowserWindow } = require('electron')) } catch(e) {}
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
@@ -175,4 +176,4 @@ function extraer(serverUrl, referer, timeout = 25000) {
   })
 }
 
-module.exports = { UA, AD_DOMAINS, MIXDROP_LEGIT, crearWin, interceptarVideo, EXTRACT_JS, extraer }
+module.exports = { UA, AD_DOMAINS, MIXDROP_LEGIT, crearWin,

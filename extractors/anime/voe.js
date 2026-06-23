@@ -1,6 +1,7 @@
 // ─── extractors/voe.js ───────────────────────────────────────────────────────
 'use strict'
-const { BrowserWindow } = require('electron')
+let BrowserWindow = null
+try { ({ BrowserWindow } = require('electron')) } catch(e) {}
 const { UA, AD_DOMAINS } = require('./_base')
 
 async function getStream(serverUrl) {
@@ -140,8 +141,4 @@ async function getStream(serverUrl) {
         userAgent: UA,
         extraHeaders: 'Referer: https://latanime.org/\nOrigin: https://latanime.org\n'
       })
-    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } }
-  })
-}
-
-module.exports = { getStream }
+    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } 

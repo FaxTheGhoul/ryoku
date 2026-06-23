@@ -1,6 +1,7 @@
 // ─── extractors/mp4upload.js ──────────────────────────────────────────────────
 'use strict'
-const { BrowserWindow } = require('electron')
+let BrowserWindow = null
+try { ({ BrowserWindow } = require('electron')) } catch(e) {}
 const { UA, AD_DOMAINS } = require('./_base')
 const axios = require('axios')
 
@@ -140,8 +141,4 @@ async function getStream(serverUrl) {
 
       win.loadURL(serverUrl, { userAgent: UA })
 
-    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } }
-  })
-}
-
-module.exports = { getStream }
+    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) }
