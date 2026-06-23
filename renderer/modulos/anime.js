@@ -1710,12 +1710,21 @@ function toggleFullscreenPlayer() {
     if (isFull) {
       shell.classList.remove('rp-mobile-fullscreen')
       document.body.classList.remove('rp-fs-active')
-      if (screen.orientation?.unlock) screen.orientation.unlock()
+      // Salir de fullscreen nativo (restaura barras del sistema + orientación libre)
+      if (window._nativeExtractor?.exitFullscreen) {
+        window._nativeExtractor.exitFullscreen()
+      } else if (screen.orientation?.unlock) {
+        screen.orientation.unlock()
+      }
     } else {
       shell.classList.add('rp-mobile-fullscreen')
       document.body.classList.add('rp-fs-active')
-      // Intentar orientación landscape
-      if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {})
+      // Entrar en fullscreen nativo: rota a landscape y oculta barras del sistema
+      if (window._nativeExtractor?.enterFullscreen) {
+        window._nativeExtractor.enterFullscreen()
+      } else if (screen.orientation?.lock) {
+        screen.orientation.lock('landscape').catch(() => {})
+      }
     }
     return
   }

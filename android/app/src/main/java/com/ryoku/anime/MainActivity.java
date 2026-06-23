@@ -2,9 +2,12 @@ package com.ryoku.anime;
 
 import com.getcapacitor.BridgeActivity;
 import android.annotation.SuppressLint;
+import android.content.pm.ActivityInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -44,6 +47,7 @@ public class MainActivity extends BridgeActivity {
     @SuppressLint("SetJavaScriptEnabled")
     class StreamExtractorInterface {
 
+        // ── Extracción de streams ────────────────────────────────────────────────
         @JavascriptInterface
         public void extractStream(final String pageUrl, final String callbackId) {
             mainHandler.post(() -> {
@@ -120,6 +124,63 @@ public class MainActivity extends BridgeActivity {
                         bg.destroy();
                     });
                 }, 20000);
+            });
+        }
+
+        // ── Control de pantalla completa nativa ──────────────────────────────────
+        // Llamado desde JS al entrar en pantalla completa del reproductor.
+        // Rota a landscape Y oculta status bar + barra de nav del sistema.
+        @JavascriptInterface
+        public void enterFullscreen() {
+            mainHandler.post(() -> {
+                // Rotar a landscape
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+
+                // Modo inmersivo: ocultar status bar y nav bar del sistema
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.view.WindowInsetsController wic =
+                        getWindow().getInsetsController();
+                    if (wic != null) {
+                        wic.hide(android.view.WindowInsets.Type.systemBars());
+                        wic.setSystemBarsBehavior(
+                            android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        );
+                    }
+                } else {
+                    //noinspection deprecation
+                    getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    );
+                }
+            });
+        }
+
+        // Llamado desde JS al salir de pantalla completa.
+        // Devuelve orientación libre y restaura las barras del sistema.
+        @JavascriptInterface
+        public void exitFullscreen() {
+            mainHandler.post(() -> {
+                // Volver a orientación libre
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+
+                // Restaurar barras del sistema
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.view.WindowInsetsController wic =
+                        getWindow().getInsetsController();
+                    if (wic != null) {
+                        wic.show(android.view.WindowInsets.Type.systemBars());
+                    }
+                } else {
+                    //noinspection deprecation
+                    getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_VISIBLE
+                    );
+                }
             });
         }
     }
