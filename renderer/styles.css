@@ -6135,3 +6135,45 @@ body.mobile-mode #sidebar-manga {
 
 /* Scroll suave en todo */
 body.mobile-mode * { -webkit-overflow-scrolling: touch; }
+
+/* ── Mobile: slider/banner fixes ──────────────────────────────────────────── */
+body.mobile-mode .home-hero-layout {
+  grid-template-columns: 1fr !important;
+}
+body.mobile-mode .home-hero-continuar {
+  display: none !important;
+}
+body.mobile-mode .home-hero-banner .slider-wrap {
+  height: clamp(200px, 55vw, 320px) !important;
+  border-radius: 10px !important;
+}
+body.mobile-mode .slider-slide-img {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+body.mobile-mode .slider-slide::before {
+  background:
+    linear-gradient(to top, var(--bg-0) 0%, rgba(8,12,20,0.75) 45%, transparent 70%),
+    linear-gradient(to right, rgba(8,12,20,0.6) 0%, transparent 60%) !important;
+}
+body.mobile-mode .slider-info {
+  left: 14px !important;
+  bottom: 14px !important;
+  max-width: 85% !important;
+}
+body.mobile-mode .slider-info h2 {
+  font-size: 15px !important;
+}
+body.mobile-mode .slider-desc {
+  display: none !important;
+}
+body.mobile-mode .slider-btn-ver {
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+}
+body.mobile-mode .slider-btn-info {
+  display: none !important;
+}
+body.mobile-mode .slider-ep-badge {
+  font-size: 8px !important;
+}

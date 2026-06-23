@@ -19,6 +19,7 @@ async function getBrowser() {
   if (_browser && _browser.isConnected()) return _browser
   const { chromium } = require('playwright-core')
   _browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium',
     headless: true,
     args: [
       '--no-sandbox',
@@ -27,6 +28,7 @@ async function getBrowser() {
       '--disable-gpu',
       '--no-first-run',
       '--disable-extensions',
+      '--single-process',
     ]
   })
   return _browser
