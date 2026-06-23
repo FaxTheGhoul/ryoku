@@ -50,6 +50,30 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
+    // ── Gesto/botón volver de Android ───────────────────────────────────────────
+    // No usamos @capacitor/app (no está instalado). En su lugar llamamos directamente
+    // a window._ryokuHandleBack() en JS. Si retorna true = el JS lo manejó.
+    // Si retorna false/null = salir de la app (comportamiento por defecto).
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        getBridge().getWebView().evaluateJavascript(
+            "!!(window._ryokuHandleBack && window._ryokuHandleBack())",
+            result -> {
+                if (!"true".equals(result)) {
+                    mainHandler.post(this::defaultBack);
+                }
+            }
+        );
+    }
+
+    // Llamado desde el lambda — super.onBackPressed() no se puede llamar
+    // directamente dentro de una lambda en Java, por eso usamos este helper.
+    @SuppressWarnings("deprecation")
+    private void defaultBack() {
+        super.onBackPressed();
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     class StreamExtractorInterface {
 

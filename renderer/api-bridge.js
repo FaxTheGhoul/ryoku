@@ -222,35 +222,73 @@
     const _applyMobile = () => {
       document.body.classList.add('mobile-mode')
 
-      // ── Botón atrás de Android ──────────────────────────────────────────
-      // Capacitor expone el evento 'backButton' via App plugin
-      document.addEventListener('ionBackButton', (ev) => {
-        ev.detail.register(10, () => {
-          // Si hay un overlay abierto, cerrarlo primero
-          const overlays = ['overlay-modulos', 'overlay-perfil', 'account-modal']
-          for (const id of overlays) {
-            const el = document.getElementById(id)
-            if (el && el.style.display !== 'none' && el.style.display !== '') {
-              if (window.cerrarSwitcherModulos && id === 'overlay-modulos') window.cerrarSwitcherModulos()
-              else el.style.display = 'none'
-              return
-            }
+      // ── Botón atrás / gesto de volver de Android ───────────────────────
+      // MainActivity.java llama window._ryokuHandleBack() directamente desde
+      // onBackPressed() — sin depender de @capacitor/app.
+      // Devuelve true si el JS manejó el evento (no cerrar la app),
+      // false para que Android ejecute el comportamiento por defecto (salir).
+      window._ryokuHandleBack = () => {
+        // 1. Fullscreen mobile activo → salir del fullscreen
+        const shell = document.querySelector('.rp-shell.rp-mobile-fullscreen')
+        if (shell) {
+          shell.classList.remove('rp-mobile-fullscreen')
+          document.body.classList.remove('rp-fs-active')
+          // Restaurar orientación y barras del sistema vía nativo
+          if (window._nativeExtractor?.exitFullscreen) {
+            window._nativeExtractor.exitFullscreen()
+          } else if (screen.orientation?.unlock) {
+            screen.orientation.unlock()
           }
-          // Si estamos en una página de detalle, volver a la anterior
-          const btnVolver = document.getElementById('btn-volver')
-          if (btnVolver && document.getElementById('page-anime')?.classList.contains('activa')) {
-            btnVolver.click(); return
+          return true
+        }
+
+        // 2. Player abierto → cerrar el player
+        const playerOverlay = document.getElementById('overlay-player')
+        if (playerOverlay?.classList.contains('activo')) {
+          if (window.cerrarReproductor) window.cerrarReproductor()
+          else playerOverlay.classList.remove('activo')
+          return true
+        }
+
+        // 3. Selector de servidor abierto → cerrarlo
+        const srvOverlay = document.getElementById('overlay-servidor')
+        if (srvOverlay?.classList.contains('activo')) {
+          srvOverlay.classList.remove('activo')
+          return true
+        }
+
+        // 4. Overlays generales (módulos, perfil, cuenta)
+        const overlays = ['overlay-modulos', 'overlay-perfil', 'account-modal']
+        for (const id of overlays) {
+          const el = document.getElementById(id)
+          if (el && el.style.display !== 'none' && el.style.display !== '') {
+            if (window.cerrarSwitcherModulos && id === 'overlay-modulos') window.cerrarSwitcherModulos()
+            else el.style.display = 'none'
+            return true
           }
-          const mangaVolver = document.getElementById('manga-btn-volver')
-          if (mangaVolver && document.getElementById('page-manga-detalle')?.classList.contains('activa')) {
-            mangaVolver.click(); return
-          }
-          // Si estamos en inicio, salir de la app
-          if (window.Capacitor?.Plugins?.App) {
-            window.Capacitor.Plugins.App.exitApp()
-          }
-        })
-      })
+        }
+
+        // 5. Página de detalle anime → volver
+        const btnVolver = document.getElementById('btn-volver')
+        if (btnVolver && document.getElementById('page-anime')?.classList.contains('activa')) {
+          btnVolver.click(); return true
+        }
+
+        // 6. Página de detalle manga → volver
+        const mangaVolver = document.getElementById('manga-btn-volver')
+        if (mangaVolver && document.getElementById('page-manga-detalle')?.classList.contains('activa')) {
+          mangaVolver.click(); return true
+        }
+
+        // 7. Lector de manga → volver
+        const lectorVolver = document.getElementById('mn-lector-volver')
+        if (lectorVolver && document.getElementById('page-manga-lector')?.classList.contains('activa')) {
+          lectorVolver.click(); return true
+        }
+
+        // 8. Inicio → false para que MainActivity llame super.onBackPressed() (sale de la app)
+        return false
+      }
     }
     if (document.body) _applyMobile()
     else document.addEventListener('DOMContentLoaded', _applyMobile)
