@@ -136,6 +136,15 @@ const EXTRACT_JS = `(function() {
 })()`
 
 async function extraerStream(pageUrl, { referer = null, timeout = 20000 } = {}) {
+  await _acquireSlot()
+  try {
+    return await _extraerStreamInterno(pageUrl, { referer, timeout })
+  } finally {
+    _releaseSlot()
+  }
+}
+
+async function _extraerStreamInterno(pageUrl, { referer = null, timeout = 20000 } = {}) {
   const browser = await getBrowser()
   const ctx = await browser.newContext({
     userAgent: UA,

@@ -719,10 +719,11 @@ const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','doodstream','
 const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
 
 function _preFetchServidores(lista) {
-  // Pre-fetchear todos los servidores en paralelo (el servidor maneja la concurrencia)
+  // Solo pre-fetchear 1 servidor (el primero funcional) para no saturar la RAM de Render
   for (const s of lista) {
     if (!s?.url || _streamCache[s.url]) continue
     _streamCache[s.url] = window.api.getStream(s.url).catch(() => null)
+    break  // solo 1 a la vez
   }
 }
 
