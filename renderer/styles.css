@@ -6352,3 +6352,116 @@ body.mobile-mode .mnbib-card-title {
   font-size: 10px !important;
   -webkit-line-clamp: 2 !important;
 }
+
+/* ── Mobile: reproductor de video ──────────────────────────────────────────── */
+
+/* El overlay ocupa toda la pantalla (no hay titlebar en mobile) */
+body.mobile-mode .rp-overlay.activo {
+  top: 0 !important;
+}
+
+/* rp-body en columna (video arriba, info abajo) */
+body.mobile-mode .rp-body {
+  flex-direction: column !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* La columna de video ocupa el ancho completo con altura fija */
+body.mobile-mode .rp-col-video {
+  width: 100% !important;
+  flex-shrink: 0 !important;
+}
+
+/* Área de video: aspect ratio 16:9 */
+body.mobile-mode .rp-video-area {
+  position: relative !important;
+  width: 100% !important;
+  aspect-ratio: 16 / 9 !important;
+  height: auto !important;
+}
+body.mobile-mode .rp-video-area video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+}
+
+/* Controles de video: ajustar para touch */
+body.mobile-mode .rp-video-controls {
+  position: absolute !important;
+  bottom: 0 !important; left: 0 !important; right: 0 !important;
+  padding-bottom: 6px !important;
+}
+
+/* Barra de progreso más alta para touch */
+body.mobile-mode .rp-vc-track {
+  height: 5px !important;
+  cursor: pointer !important;
+}
+
+/* Botones de controles más grandes */
+body.mobile-mode .rp-vc-btn {
+  width: 36px !important;
+  height: 36px !important;
+}
+
+/* Ocultar slider de volumen (usar botones físicos del celular) */
+body.mobile-mode .rp-vc-vol-slider { display: none !important; }
+
+/* Ocultar PiP (no funciona bien en Android) */
+body.mobile-mode #rp-pip-btn { display: none !important; }
+
+/* Ocultar share y chat en player mobile para no saturar controles */
+body.mobile-mode #rp-share-btn { display: none !important; }
+body.mobile-mode #rp-chat-btn  { display: none !important; }
+
+/* Info-bottom en columna única y scrollable */
+body.mobile-mode .rp-info-bottom {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: unset !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
+body.mobile-mode .rp-ib-left {
+  border-right: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 12px 16px !important;
+}
+
+body.mobile-mode .rp-ib-right {
+  padding: 12px 16px !important;
+}
+
+/* Sinopsis visible completa en mobile (no truncar) */
+body.mobile-mode .rp-ib-synopsis {
+  -webkit-line-clamp: unset !important;
+  overflow: visible !important;
+  display: block !important;
+}
+
+/* Título visible en area del video (topbar) */
+body.mobile-mode .rp-topbar { display: none !important; }
+body.mobile-mode .rp-vtitle { display: block !important; }
+
+/* main-col ocupa todo */
+body.mobile-mode .rp-main-col {
+  width: 100% !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+}
+
+/* rp-shell también en column */
+body.mobile-mode .rp-shell {
+  flex-direction: column !important;
+}
+
+/* Ocultar columna de chat lateral si existe */
+body.mobile-mode .rp-col-chat { display: none !important; }
