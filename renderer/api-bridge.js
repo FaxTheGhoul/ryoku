@@ -230,6 +230,52 @@
     else document.addEventListener('DOMContentLoaded', _applyMobile)
   }
 
+  // Warmup: despertar el servidor y mostrar banner mientras espera
+  if (!IS_ELECTRON) {
+    const _warmup = () => {
+      let _banner = null
+
+      const _showBanner = () => {
+        if (_banner) return
+        _banner = document.createElement('div')
+        _banner.id = 'ryoku-warmup-banner'
+        _banner.innerHTML = `
+          <div class="ryoku-warmup-inner">
+            <div class="ryoku-warmup-dot"></div>
+            <span>Conectando con el servidor…</span>
+          </div>`
+        document.body.appendChild(_banner)
+        // Animar entrada
+        requestAnimationFrame(() => _banner.classList.add('visible'))
+      }
+
+      const _hideBanner = () => {
+        if (!_banner) return
+        _banner.classList.remove('visible')
+        setTimeout(() => { _banner?.remove(); _banner = null }, 400)
+      }
+
+      // Mostrar banner si el primer ping tarda más de 1.5s
+      const _bannerTimer = setTimeout(_showBanner, 1500)
+
+      const _ping = () => fetch(SERVER_URL + '/health', { cache: 'no-store' })
+        .then(() => {
+          clearTimeout(_bannerTimer)
+          _hideBanner()
+        })
+        .catch(() => {
+          // Servidor dormido — mostrar banner y reintentar
+          _showBanner()
+          setTimeout(_ping, 6000)
+        })
+
+      _ping()
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _warmup)
+    else _warmup()
+  }
+
   // Log de entorno
   console.log('[api-bridge] modo:', IS_ELECTRON ? 'Electron (IPC)' : `Web → ${SERVER_URL}`)
 })()

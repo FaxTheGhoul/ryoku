@@ -6465,3 +6465,42 @@ body.mobile-mode .rp-shell {
 
 /* Ocultar columna de chat lateral si existe */
 body.mobile-mode .rp-col-chat { display: none !important; }
+
+/* ── Banner warmup servidor ─────────────────────────────────────────────────── */
+#ryoku-warmup-banner {
+  position: fixed;
+  bottom: 80px; /* encima de la bottom nav en mobile */
+  left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 16px;
+  z-index: 99999;
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+#ryoku-warmup-banner.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.ryoku-warmup-inner {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--text-2);
+}
+.ryoku-warmup-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--primary);
+  animation: warmup-pulse 1s ease-in-out infinite;
+}
+@keyframes warmup-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: .4; transform: scale(.7); }
+}
+/* En desktop el banner va arriba a la derecha */
+body:not(.mobile-mode) #ryoku-warmup-banner {
+  bottom: auto; top: 52px; right: 16px; left: auto; transform: none;
+}
+body:not(.mobile-mode) #ryoku-warmup-banner.visible { transform: none; }
