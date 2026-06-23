@@ -59,6 +59,9 @@
     "electron-builder": "^24.0.0"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
     "axios": "^0.27.2",
     "cheerio": "^1.0.0-rc.12",
     "discord-rpc": "^4.0.1",

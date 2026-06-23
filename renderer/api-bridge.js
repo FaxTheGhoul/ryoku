@@ -188,6 +188,5 @@
     serverUrl:  SERVER_URL,
   }
 
-  // Log de entorno
-  console.log('[api-bridge] modo:', IS_ELECTRON ? 'Electron (IPC)' : `Web → ${SERVER_URL}`)
-})()
+  // En Android/Web: exponer webApi como window.api para que el código existente
+  // que llama window.api.* funcione 

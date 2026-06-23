@@ -1690,6 +1690,8 @@
     <div id="fw-add-msg" class="fw-add-msg"></div>
   </div>
 
+  <!-- API Bridge: detecta Electron vs Android/Web -->
+  <script src="api-bridge.js"></script>
   <script src="modulos/utils.js"></script>
   <script src="modulos/core.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
@@ -1782,15 +1784,6 @@
         delete status.dataset.checking
       }
     })
-    window.api.getAppVersion().then((v) => {
-      var badge = document.getElementById('app-version-badge')
-      if (badge) badge.textContent = 'v' + v
-    })
   </script>
-
-  <div id="ryoku-quit-overlay">
-    <div class="rqo-spinner"></div>
-    <div class="rqo-label">Guardando datos…</div>
-  </div>
 </body>
 </html>
