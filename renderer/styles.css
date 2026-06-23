@@ -6028,24 +6028,40 @@ mark.cw-highlight {
 .pf-name-input  { font-size: 18px; font-weight: 700; width: 100%; }
 .pf-uname-input { font-size: 12px; width: 120px; }
 
-/* ── Overlay de cierre ────────────────────────────────────────────────────── */
+/* ── Overlay guardar al cerrar ───────────────────────────────────────────── */
 #ryoku-quit-overlay {
-  position: fixed; inset: 0; z-index: 99999;
-  background: rgba(13,21,37,0.78);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 14px;
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.2s ease;
-  -webkit-app-region: no-drag;
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0,0,0,.75);
+  backdrop-filter: blur(6px);
+  align-items: center;
+  justify-content: center;
 }
-#ryoku-quit-overlay.visible { opacity: 1; pointer-events: all; }
-.rqo-spinner {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: 2.5px solid rgba(255,255,255,0.12);
-  border-top-color: #2563EB;
-  animation: rqo-spin 0.75s linear infinite;
+#ryoku-quit-overlay.visible {
+  display: flex;
+}
+.ryoku-quit-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-primary, #fff);
+  font-size: 15px;
+  font-weight: 500;
+}
+.ryoku-quit-spin {
+  animation: spin 1s linear infinite;
+  color: var(--accent, #e94560);
+  width: 40px;
+  height: 40px;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 }
 .rqo-label {
   font-size: 12.5px; font-weight: 500;
