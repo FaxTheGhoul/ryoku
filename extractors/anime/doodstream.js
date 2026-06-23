@@ -158,4 +158,8 @@ async function getStream(serverUrl) {
           })
         })
 
-    } catch(e) { if (!done) { done
+    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
+  })
+}
+
+module.exports = { getStream }

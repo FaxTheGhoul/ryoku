@@ -232,4 +232,7 @@ async function getStream(serverUrl) {
         userAgent: UA,
         extraHeaders: `Referer: ${ref}\nOrigin: ${ref.slice(0, -1)}\n`
       })
-    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) }
+    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
+  })
+}
+module.exports = { getStream }

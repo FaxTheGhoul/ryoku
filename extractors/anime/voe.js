@@ -141,4 +141,9 @@ async function getStream(serverUrl) {
         userAgent: UA,
         extraHeaders: 'Referer: https://latanime.org/\nOrigin: https://latanime.org\n'
       })
-    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } 
+    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } }
+  })
+}
+
+module.exports = { getStream }
+

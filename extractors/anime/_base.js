@@ -176,4 +176,4 @@ function extraer(serverUrl, referer, timeout = 25000) {
   })
 }
 
-module.exports = { UA, AD_DOMAINS, MIXDROP_LEGIT, crearWin,
+module.exports = { UA, AD_DOMAINS, MIXDROP_LEGIT, crearWin, interceptarVideo, EXTRACT_JS, extraer }

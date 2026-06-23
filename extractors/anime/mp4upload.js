@@ -141,4 +141,8 @@ async function getStream(serverUrl) {
 
       win.loadURL(serverUrl, { userAgent: UA })
 
-    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) }
+    } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } }
+  })
+}
+
+module.exports = { getStream }
