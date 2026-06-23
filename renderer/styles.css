@@ -6266,3 +6266,76 @@ body.mobile-mode .card-badge {
   font-size: 9px !important;
   padding: 2px 5px !important;
 }
+
+/* ══ Mobile: página de detalles (md-layout) ══════════════════════════════════ */
+
+/* Layout: 3 cols → 1 col */
+body.mobile-mode .md-layout {
+  grid-template-columns: 1fr !important;
+  padding: 0 12px 80px !important;
+  gap: 0 !important;
+}
+
+/* Columna izquierda: portada + botón CTA en fila horizontal */
+body.mobile-mode .md-col-cover {
+  position: static !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 14px !important;
+  margin-bottom: 14px !important;
+}
+body.mobile-mode .md-cover-wrap {
+  width: 110px !important;
+  min-width: 110px !important;
+  flex-shrink: 0 !important;
+}
+body.mobile-mode .md-cta-btns {
+  flex: 1 !important;
+  justify-content: flex-start !important;
+  padding-top: 4px !important;
+}
+body.mobile-mode .md-btn-primary {
+  width: 100% !important;
+  padding: 10px 12px !important;
+}
+
+/* Columna central: full width */
+body.mobile-mode .md-col-main { width: 100% !important; }
+
+/* Columna derecha (info panel): ocultar en mobile — info no esencial */
+body.mobile-mode .md-col-panel { display: none !important; }
+
+/* Título más compacto */
+body.mobile-mode .md-titulo {
+  font-size: 18px !important;
+  margin-bottom: 8px !important;
+}
+
+/* Sinopsis: menos líneas en mobile */
+body.mobile-mode .md-sinopsis-texto {
+  -webkit-line-clamp: 3 !important;
+}
+
+/* Botones flotantes: ocultar "volver", mantener fav y completado */
+body.mobile-mode .detalle-btn-volver { display: none !important; }
+body.mobile-mode .detalle-floating-btns {
+  bottom: 76px !important;
+  right: 14px !important;
+  gap: 8px !important;
+}
+body.mobile-mode .detalle-btn-fav,
+body.mobile-mode .detalle-btn-completado {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+/* Episodios lista: más compacta */
+body.mobile-mode .md-caps-lista { gap: 4px !important; }
+
+/* Grilla biblioteca: 3 columnas */
+body.mobile-mode .grilla,
+body.mobile-mode #mn-buscar-grid,
+body.mobile-mode .mn-tend-grid {
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+}
