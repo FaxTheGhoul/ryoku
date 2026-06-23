@@ -10,7 +10,7 @@
 
 ;(function() {
   const IS_ELECTRON = !!(window.api && window.api.getRecientes)
-  const SERVER_URL   = window._RYOKU_SERVER || 'https://ryoku-server.up.railway.app'
+  const SERVER_URL   = window._RYOKU_SERVER || 'https://ryoku.onrender.com'
 
   // ── Helper fetch ─────────────────────────────────────────────────────────────
   async function _get(path, params = {}) {
@@ -189,4 +189,11 @@
   }
 
   // En Android/Web: exponer webApi como window.api para que el código existente
-  // que llama window.api.* funcione 
+  // que llama window.api.* funcione sin ningún cambio.
+  if (!IS_ELECTRON) {
+    window.api = webApi
+  }
+
+  // Log de entorno
+  console.log('[api-bridge] modo:', IS_ELECTRON ? 'Electron (IPC)' : `Web → ${SERVER_URL}`)
+})()
