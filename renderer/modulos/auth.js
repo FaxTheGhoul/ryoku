@@ -1,5 +1,18 @@
 'use strict'
 
+// ─── Debug helper (temporal) ─────────────────────────────────────────────────
+function _d(msg) {
+  try {
+    var el = document.getElementById('_dbg')
+    if (!el) return
+    var d = document.createElement('div')
+    d.style.color = '#0ff'
+    d.textContent = new Date().toISOString().slice(11,19) + ' ' + msg
+    el.appendChild(d)
+    el.scrollTop = el.scrollHeight
+  } catch(e) {}
+}
+
 // ─── Firebase config ──────────────────────────────────────────────────────────
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyBJHAIT0LWoapssUbvUKzlYeB82ud54-HA",
@@ -51,6 +64,7 @@ function _initFirebase() {
     _auth.onAuthStateChanged(user => {
       _currentUser = user
       _authReady   = true
+      _d('[auth] onAuthStateChanged: ' + (user ? user.email : 'null'))
 
       // Cancelar listener anterior del documento de usuario
       if (_userDocUnsub) { _userDocUnsub(); _userDocUnsub = null }
@@ -77,6 +91,7 @@ function _initFirebase() {
         _avatarURL  = null
       }
 
+      _d('[auth] listeners.forEach count=' + _listeners.length + ' user=' + (user ? user.email : 'null'))
       _listeners.forEach(fn => fn(user))
       _actualizarUI(user)
       // Si el modal está abierto, actualizarlo con el nuevo estado

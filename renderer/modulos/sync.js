@@ -1,5 +1,18 @@
 'use strict'
 
+// ─── Debug helper (temporal) ─────────────────────────────────────────────────
+function _d(msg) {
+  try {
+    var el = document.getElementById('_dbg')
+    if (!el) return
+    var d = document.createElement('div')
+    d.style.color = '#0ff'
+    d.textContent = new Date().toISOString().slice(11,19) + ' ' + msg
+    el.appendChild(d)
+    el.scrollTop = el.scrollHeight
+  } catch(e) {}
+}
+
 // ─── Sync Firestore ───────────────────────────────────────────────────────────
 let _syncInited   = false
 let _autoSaveTimer = null
@@ -11,7 +24,7 @@ async function _getDoc(uid, col) {
   try {
     const snap = await _getDb().collection('users').doc(uid).collection('data').doc(col).get()
     return snap.exists ? snap.data() : null
-  } catch(e) { console.warn('[sync] getDoc error', col, e); return null }
+  } catch(e) { _d('[sync] getDoc ERROR ' + col + ': ' + String(e)); console.warn('[sync] getDoc error', col, e); return null }
 }
 
 async function _setDoc(uid, col, data) {
@@ -88,35 +101,80 @@ async function guardarEnCloud() {
 }
 
 // ─── Cargar desde Firestore (CARGAR) ─────────────────────────────────────────
+// ─── Helpers de merge ────────────────────────────────────────────────────────
+function _mergeFavs(local, cloud) {
+  // Unión por url: si está en cualquiera de los dos, se incluye
+  const map = {}
+  // Cloud primero, luego local sobreescribe (local tiene prioridad para orden)
+  ;(cloud || []).forEach(f => { if (f?.url) map[f.url] = f })
+  ;(local || []).forEach(f => { if (f?.url) map[f.url] = f })
+  return Object.values(map)
+}
+
+function _mergeHist(local, cloud) {
+  // Unión por link, más recientes primero (local tiene prioridad)
+  const map = {}
+  ;(cloud || []).forEach(h => { if (h?.link) map[h.link] = h })
+  ;(local || []).forEach(h => { if (h?.link) map[h.link] = h })
+  return Object.values(map).slice(0, 500)
+}
+
+function _mergeProg(local, cloud) {
+  // Por link: gana el que tenga mayor currentTime
+  const merged = Object.assign({}, cloud || {})
+  for (const [link, lp] of Object.entries(local || {})) {
+    const cp = merged[link]
+    if (!cp || (lp?.currentTime || 0) >= (cp?.currentTime || 0)) {
+      merged[link] = lp
+    }
+  }
+  return merged
+}
+
 async function cargarDesdeCloud() {
   const user = _getUser()
-  if (!user || !_getDb()) { _setStatus('Sin sesión', 'error'); return }
+  _d('[sync] cargarDesdeCloud user=' + (user ? user.email : 'null') + ' db=' + !!_getDb())
+  if (!user || !_getDb()) { _setStatus('Sin sesión', 'error'); _d('[sync] abort: sin sesion/db'); return }
 
   _setStatus('Cargando...', 'loading')
   try {
-    // Anime favs → main process
-    const favDoc = await _getDoc(user.uid, 'anime_favoritos')
-    if (favDoc?.lista && Array.isArray(favDoc.lista)) {
-      await window.api?.restoreFavs?.(favDoc.lista)
+    // ── Favs: merge cloud + local ──────────────────────────────────────────
+    const favDoc   = await _getDoc(user.uid, 'anime_favoritos')
+    const localFavs = await window.api?.getFavs?.() || []
+    const cloudFavs = favDoc?.lista && Array.isArray(favDoc.lista) ? favDoc.lista : []
+    _d('[sync] favs local=' + localFavs.length + ' cloud=' + cloudFavs.length)
+    const mergedFavs = _mergeFavs(localFavs, cloudFavs)
+    if (mergedFavs.length > 0) {
+      await window.api?.restoreFavs?.(mergedFavs)
+      _d('[sync] favs merged=' + mergedFavs.length)
     }
 
-    // Anime historial → main process
-    const histDoc = await _getDoc(user.uid, 'anime_historial')
-    if (histDoc?.lista && Array.isArray(histDoc.lista)) {
-      await window.api?.restoreHistorial?.(histDoc.lista)
+    // ── Historial: merge cloud + local ─────────────────────────────────────
+    const histDoc    = await _getDoc(user.uid, 'anime_historial')
+    const localHist  = await window.api?.getHistorial?.() || []
+    const cloudHist  = histDoc?.lista && Array.isArray(histDoc.lista) ? histDoc.lista : []
+    _d('[sync] hist local=' + localHist.length + ' cloud=' + cloudHist.length)
+    const mergedHist = _mergeHist(localHist, cloudHist)
+    if (mergedHist.length > 0) {
+      await window.api?.restoreHistorial?.(mergedHist)
+      _d('[sync] hist merged=' + mergedHist.length)
     }
 
-    // Anime progresos → main process
-    const progDoc = await _getDoc(user.uid, 'anime_progresos')
-    if (progDoc?.datos && typeof progDoc.datos === 'object') {
-      await window.api?.restoreProgresos?.(progDoc.datos)
+    // ── Progreso: merge cloud + local ──────────────────────────────────────
+    const progDoc    = await _getDoc(user.uid, 'anime_progresos')
+    const localProg  = await window.api?.getTodosProgresos?.() || {}
+    const cloudProg  = progDoc?.datos && typeof progDoc.datos === 'object' ? progDoc.datos : {}
+    const mergedProg = _mergeProg(localProg, cloudProg)
+    if (Object.keys(mergedProg).length > 0) {
+      await window.api?.restoreProgresos?.(mergedProg)
+      _d('[sync] prog merged=' + Object.keys(mergedProg).length)
     }
 
-    // Manga → localStorage
+    // ── Manga → localStorage ───────────────────────────────────────────────
     const mangaDoc = await _getDoc(user.uid, 'manga_data')
     if (mangaDoc?.datos) _setMangaLocalStorage(mangaDoc.datos)
 
-    // Configuración
+    // ── Configuración ──────────────────────────────────────────────────────
     const cfgDoc = await _getDoc(user.uid, 'config')
     if (cfgDoc?.data) {
       const claves = ['app-modo', 'app-accent', 'app-18', 'sidebar-autohide']
@@ -125,20 +183,38 @@ async function cargarDesdeCloud() {
       }
     }
 
-    _setStatus('Cargado ✓', 'ok')
+    // ── Subir el merge a Firestore para que otros dispositivos lo tengan ───
+    await _subirMerge(user, mergedFavs, mergedHist, mergedProg)
+
+    _setStatus('Sincronizado ✓', 'ok')
     console.log('[sync] datos cargados desde cloud')
     setTimeout(() => _setStatus('Listo', ''), 3000)
   } catch(e) {
     console.warn('[sync] error cargando', e)
-    _setStatus('Error al cargar', 'error')
+    _d('[sync] ERROR: ' + String(e))
+    _setStatus('Error al sincronizar', 'error')
   }
+}
+
+// Sube el resultado del merge a Firestore (solo si hay algo que subir)
+async function _subirMerge(user, favs, hist, prog) {
+  try {
+    if (favs.length > 0)               await _setDoc(user.uid, 'anime_favoritos', { lista: favs })
+    if (hist.length > 0)               await _setDoc(user.uid, 'anime_historial',  { lista: hist })
+    if (Object.keys(prog).length > 0)  await _setDoc(user.uid, 'anime_progresos',  { datos: prog })
+  } catch(e) { console.warn('[sync] error subiendo merge', e) }
 }
 
 // ─── Auto-save periódico (cada 5 minutos mientras hay sesión) ─────────────────
 function _iniciarAutoSave() {
   if (_autoSaveTimer) clearInterval(_autoSaveTimer)
-  _autoSaveTimer = setInterval(() => {
-    if (_getUser()) guardarEnCloud()
+  _autoSaveTimer = setInterval(async () => {
+    if (!_getUser()) return
+    // No auto-guardar si no hay datos locales — evita sobrescribir cloud con vacíos
+    const hist = await window.api?.getHistorial?.() || []
+    const favs = await window.api?.getFavs?.() || []
+    if (!hist.length && !favs.length) { console.log('[sync] auto-save omitido: sin datos locales'); return }
+    guardarEnCloud()
   }, 5 * 60 * 1000)
 }
 
@@ -157,16 +233,22 @@ function _setStatus(texto, tipo) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function initSync() {
+  _d('[sync] initSync called')
   if (_syncInited) return
   _syncInited = true
 
   const _wait = setInterval(() => {
     if (typeof onAuthChange === 'function') {
       clearInterval(_wait)
+      _d('[sync] onAuthChange found, registering')
       onAuthChange(async user => {
+        _d('[sync] callback fired user=' + (user ? user.email : 'null'))
         if (user) {
           await cargarDesdeCloud()
+          _d('[sync] cargarDesdeCloud done')
           _iniciarAutoSave()
+          if (typeof cargarContinuarViendo === 'function') cargarContinuarViendo()
+          if (typeof cargarFavoritos === 'function') cargarFavoritos()
         } else {
           _detenerAutoSave()
           _setStatus('Listo', '')
