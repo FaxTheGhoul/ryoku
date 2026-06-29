@@ -137,10 +137,13 @@ router.get('/calendario', async (req, res) => {
 router.get('/biblioteca', async (req, res) => {
   const srcId  = req.query.source || 'latanime'
   const params = {
-    page:   parseInt(req.query.page) || 1,
-    genero: req.query.genero || '',
-    tipo:   req.query.tipo   || '',
-    estado: req.query.estado || '',
+    page:     parseInt(req.query.page) || 1,
+    query:    req.query.query    || '',
+    genero:   req.query.genero   || '',
+    categoria:req.query.categoria|| '',
+    tipo:     req.query.tipo     || '',
+    estado:   req.query.estado   || '',
+    emision:  req.query.emision === 'true',
   }
   try {
     const result = srcId === 'animeflv'
