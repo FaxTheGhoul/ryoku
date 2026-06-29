@@ -127,6 +127,9 @@ async function getRecientes() {
 
   // ── SERIES RECIENTES ──────────────────────────────────────────────────────
   $('a[href*="/anime/"][href*="-sub-espanol"]').each((_, el) => {
+    // Saltar botones "Más info" del slider
+    if (/m.s info/i.test($(el).text())) return
+
     const link = $(el).attr('href') || ''
     const fullLink = link.startsWith('http') ? link : BASE + link
 
@@ -136,7 +139,8 @@ async function getRecientes() {
       // Texto duplica el título: "Neko to Ryū anime Neko to Ryū" → tomar primera parte
       titulo = raw.split(/\s+anime\s+/i)[0].trim()
     }
-    if (!titulo) return
+    // Saltar si el título sigue siendo "Más info" u otros textos de botón
+    if (!titulo || /^(m.s info|ver ahora|info)$/i.test(titulo)) return
     if (series.some(s => s.link === fullLink)) return
 
     const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || ''
