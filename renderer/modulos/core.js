@@ -31,6 +31,17 @@ function navegar(pagina) {
   if (pagina === 'manga-historial') cargarMangaHistorial()
 }
 
+// Ajusta la altura del panel al paso visible para evitar espacio vacío
+function _syncModHeight() {
+  const track = document.getElementById('mod-ov-track')
+  if (!track) return
+  const views = track.parentElement  // .mod-ov-views
+  if (!views) return
+  const idx = track.classList.contains('paso-3') ? 2 : track.classList.contains('paso-2') ? 1 : 0
+  const viewEl = track.children[idx]
+  if (viewEl) views.style.height = viewEl.scrollHeight + 'px'
+}
+
 function abrirSwitcherModulos() {
   const sw = document.querySelector('.sidebar-logo.mod-switcher')
   if (sw) { sw.classList.remove('clicked'); void sw.offsetWidth; sw.classList.add('clicked'); setTimeout(() => sw.classList.remove('clicked'), 580) }
@@ -41,6 +52,7 @@ function abrirSwitcherModulos() {
   ov.style.display = 'block'
   ov.classList.remove('closing')
   ov.classList.add('opening')
+  requestAnimationFrame(_syncModHeight)
   // Cerrar chat y amigos al abrir el switcher
   if (window._chatClose)    window._chatClose()
   if (window._friendsClose) window._friendsClose()
@@ -60,10 +72,12 @@ function cerrarSwitcherModulos() {
 function abrirSeleccionFuenteManga() {
   _syncModOverlaySrc()
   document.getElementById('mod-ov-track')?.classList.add('paso-2')
+  requestAnimationFrame(_syncModHeight)
 }
 
 function modOverlayBack() {
   document.getElementById('mod-ov-track')?.classList.remove('paso-2')
+  requestAnimationFrame(_syncModHeight)
 }
 
 async function seleccionarFuenteManga(id) {
@@ -91,11 +105,11 @@ async function _syncModOverlaySrc(idOverride) {
 // ── Fuente anime ──────────────────────────────────────────────────────────
 async function _syncAnimeOverlaySrc(idOverride) {
   const id = idOverride !== undefined ? idOverride : (await window.api?.getAnimeSource?.())
-  const srcMap = { latanime: 'latanime.org', animeflv: 'animeflv.net' }
+  const srcMap = { latanime: 'latanime.org', animeflv: 'animeflv.net', monoschinos: 'monoschinos.st' }
   const effectiveId = id || 'latanime'
   const srcEl = document.getElementById('modcard-anime-src')
   if (srcEl) srcEl.textContent = srcMap[effectiveId] || effectiveId
-  ;['latanime','animeflv'].forEach(s => {
+  ;['latanime','animeflv','monoschinos'].forEach(s => {
     document.getElementById('modcard-src-' + s)?.classList.toggle('activo', s === effectiveId)
   })
   // Reflect on the parent anime card too
@@ -106,10 +120,12 @@ function abrirSeleccionFuenteAnime() {
   _syncModOverlaySrc()
   const track = document.getElementById('mod-ov-track')
   if (track) { track.classList.remove('paso-2'); track.classList.add('paso-3') }
+  requestAnimationFrame(_syncModHeight)
 }
 
 function modOverlayAnimeBack() {
   document.getElementById('mod-ov-track')?.classList.remove('paso-3')
+  requestAnimationFrame(_syncModHeight)
 }
 
 async function seleccionarFuenteAnime(id) {
@@ -356,12 +372,14 @@ function setAppModo(modo) {
   const _modos = { oscuro:'#0F172A', claro:'#F1F5F9', oled:'#000000' }
   if (window.api?.setWinBg) window.api.setWinBg(_modos[_appModo] || '#0F172A')
   document.querySelectorAll('.cfg-mode-btn').forEach(b => b.classList.toggle('activo', b.id === `cfg-modo-${modo}`))
+  if (typeof window._syncGuardar === 'function') window._syncGuardar()
 }
 function setAppAccent(accent) {
   _appAccent = accent
   window.api.configSet('app-accent', accent)
   _aplicarTema()
   document.querySelectorAll('.cfg-color').forEach(b => b.classList.toggle('activo', b.dataset.accent === accent))
+  if (typeof window._syncGuardar === 'function') window._syncGuardar()
 }
 function setConfig18(val) {
   _app18 = val
@@ -697,28 +715,4 @@ async function initConfig() {
     const _modosBg = { oscuro: '#0F172A', claro: '#F1F5F9', oled: '#000000' }
     if (window.api?.setWinBg) window.api.setWinBg(_modosBg[_appModo] || '#0F172A')
 
-    document.body.classList.toggle('show-18', _app18)
-    _aplicarSidebarAutohide()
-    document.body.classList.toggle('searchbar-autohide', _searchbarAutohide)
-    document.body.classList.toggle('sidebar-neon', _sidebarNeon)
-
-    // Cargar fondo guardado
-    if (window.api?.bgGet) {
-      _appBgImage = await window.api.bgGet()
-      _aplicarBg()
-    }
-
-  } catch(e) { console.error('[initConfig]', e) }
-
-  // Restaurar módulo activo (se guarda en activarModulo)
-  try {
-    const cfg2 = (await window.api?.configGet?.()) || {}
-    const lastModulo = cfg2['lastModulo']
-    if (lastModulo === 'manga') {
-      const src = await window.api?.getMangaSource?.()
-      if (src) activarModulo('manga')
-    }
-  } catch(e) {}
-}
-
-initConfig()
+    document.body.classList.toggle('show

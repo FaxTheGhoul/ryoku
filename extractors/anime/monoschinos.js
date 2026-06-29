@@ -56,9 +56,45 @@ function _slugFromEpUrl(url) {
 async function getRecientes() {
   const html = await _fetch(BASE)
   const $ = cheerio.load(html)
-  const lista = []
+  const slider = []
+  const lista  = []
+  const series = []
 
-  // Últimos capítulos: cada item es un <a> apuntando a /ver/
+  // ── SLIDER: botones "Ver ahora" solo están en el hero carousel ───────────
+  $('a').filter((_, el) => /ver ahora/i.test($(el).text())).each((_, el) => {
+    const verLink = $(el).attr('href') || ''
+    if (!verLink.includes('/ver/')) return
+
+    // Sube buscando el contenedor que tiene un h1/h2
+    let container = $(el).parent()
+    for (let i = 0; i < 8 && container.length; i++) {
+      if (container.find('h1').length) break
+      container = container.parent()
+    }
+
+    const titulo = container.find('h1').first().text().trim()
+    if (!titulo) return
+
+    const infoHref = container.find('a[href*="/anime/"]').attr('href') || ''
+    const link = infoHref
+      ? (infoHref.startsWith('http') ? infoHref : BASE + infoHref)
+      : (verLink.startsWith('http') ? verLink : BASE + verLink)
+
+    let imagen = ''
+    container.find('img').each((_, img) => {
+      const src = $(img).attr('src') || $(img).attr('data-src') || ''
+      if (src.includes('/portada/') || src.includes('/serie/')) { imagen = src; return false }
+    })
+    if (!imagen) imagen = container.find('img[src]').first().attr('src') || ''
+
+    const desc = container.find('p').filter((_, p) => $(p).text().length > 30).first().text().trim()
+
+    if (!slider.some(s => s.titulo === titulo)) {
+      slider.push({ titulo, link, imagen: _img(imagen), desc })
+    }
+  })
+
+  // ── LISTA: "últimos capítulos" — <a href="/ver/..."> con episodio ────────
   $('a[href*="/ver/"]').each((_, el) => {
     const link = $(el).attr('href') || ''
     if (!link.includes('-episodio-')) return
@@ -66,26 +102,40 @@ async function getRecientes() {
     const num = _epNum(fullLink)
     if (!num) return
 
-    // Imagen: puede estar en data-src o src
-    const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || ''
-
-    // Título: texto del anchor o del primer h3/h2
-    let titulo = $(el).find('h3, h2, .titulo, .title').first().text().trim()
-    if (!titulo) titulo = $(el).text().replace(/\d+/g, '').trim()
+    // h2 puede ser hijo del <a> o hermano dentro del <li>
+    let titulo = $(el).find('h2, h3').first().text().trim()
+    if (!titulo) titulo = $(el).parent().find('h2, h3').first().text().trim()
+    // Fallback: extraer del texto antes de " capitulo"
+    if (!titulo) titulo = $(el).text().split(/\s+capitulo\s+/i)[0].trim()
     if (!titulo) return
 
-    // Evitar duplicados
-    if (lista.find(x => x.link === fullLink)) return
+    const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') ||
+                $(el).parent().find('img').attr('data-src') || $(el).parent().find('img').attr('src') || ''
 
-    lista.push({
-      titulo: `${titulo} - Ep ${num}`,
-      link: fullLink,
-      imagen: _img(img),
-      num,
-    })
+    if (lista.some(x => x.link === fullLink)) return
+
+    lista.push({ titulo, link: fullLink, imagen: _img(img), ep: `Ep ${num}`, idioma: '', fecha: '' })
   })
 
-  return { slider: [], lista: lista.slice(0, 24), series: [] }
+  // ── SERIES RECIENTES ──────────────────────────────────────────────────────
+  $('a[href*="/anime/"][href*="-sub-espanol"]').each((_, el) => {
+    const link = $(el).attr('href') || ''
+    const fullLink = link.startsWith('http') ? link : BASE + link
+
+    let titulo = $(el).find('h2, h3, .titulo').first().text().trim()
+    if (!titulo) {
+      const raw = $(el).text().trim()
+      // Texto duplica el título: "Neko to Ryū anime Neko to Ryū" → tomar primera parte
+      titulo = raw.split(/\s+anime\s+/i)[0].trim()
+    }
+    if (!titulo) return
+    if (series.some(s => s.link === fullLink)) return
+
+    const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || ''
+    series.push({ titulo, link: fullLink, imagen: _img(img) })
+  })
+
+  return { slider: slider.slice(0, 8), lista: lista.slice(0, 24), series: series.slice(0, 12) }
 }
 
 // ── BUSCAR ────────────────────────────────────────────────────────────────────

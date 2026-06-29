@@ -432,8 +432,8 @@ body.is-fullscreen #app-manga.activo:has(#page-manga-lector.activa) { height: 10
 .continuar-ver-vistos-link { font-size:11px; font-weight:500; color:var(--primary); cursor:pointer; transition:opacity 0.15s; }
 .continuar-ver-vistos-link:hover { opacity:0.75; }
 .continuar-sin-pendientes { font-size:12px; color:var(--text-muted,#64748b); font-style:italic; text-align:center; display:block; padding:10px 0 4px; }
-#continuar-ctx-menu { position:fixed; background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px; padding:4px; z-index:9999; min-width:160px; box-shadow:0 8px 28px rgba(0,0,0,0.6); display:none; }
-#continuar-ctx-menu.visible { display:block; }
+#continuar-ctx-menu, #hist-ctx-menu { position:fixed; background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px; padding:4px; z-index:9999; min-width:160px; box-shadow:0 8px 28px rgba(0,0,0,0.6); display:none; }
+#continuar-ctx-menu.visible, #hist-ctx-menu.visible { display:block; }
 .continuar-menu-item { width:100%; display:flex; align-items:center; gap:8px; padding:9px 11px; border-radius:7px; background:none; border:none; color:var(--text-1); font-size:12px; font-family:Inter,sans-serif; cursor:pointer; text-align:left; transition:background 0.12s; }
 .continuar-menu-item:hover { background:var(--bg-card); }
 .continuar-menu-item.danger { color:#f87171; }
@@ -2315,9 +2315,9 @@ body.is-fullscreen.player-activo .sidebar-trigger { display: none !important; }
 .mod-overlay-chevron { color: var(--text-muted); flex-shrink: 0; margin-left: auto; }
 
 /* ── OVERLAY MÓDULOS — DOS PASOS ──────────────────────────────────────── */
-.mod-ov-views { overflow: hidden; }
+.mod-ov-views { overflow: hidden; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .mod-ov-track {
-  display: flex; width: 300%;
+  display: flex; width: 300%; align-items: flex-start;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .mod-ov-track.paso-2 { transform: translateX(-33.333%); }
@@ -6091,7 +6091,10 @@ body.mobile-mode .sidebar {
   padding-right: 8px !important;
   gap: 0 !important;
   border-right: none !important;
-  border-top: 1px solid var(--border);
+  border-top: none !important;
+  border-radius: 20px 20px 0 0 !important;
+  background: var(--bg-1, var(--bg-secondary)) !important;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.3) !important;
   z-index: 500;
   transform: none !important;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
@@ -6166,12 +6169,12 @@ body.mobile-mode #sidebar-manga {
 /* Scroll suave en todo */
 body.mobile-mode * { -webkit-overflow-scrolling: touch; }
 
-/* ── Mobile: slider/banner fixes ──────────────────────────────────────────── */
+/* ── Mobile: slider/banner — oculto en Android ────────────────────────────── */
+body.mobile-mode .home-hero-banner {
+  display: none !important;
+}
 body.mobile-mode .home-hero-layout {
   grid-template-columns: 1fr !important;
-}
-body.mobile-mode .home-hero-continuar {
-  display: none !important;
 }
 body.mobile-mode .home-hero-banner .slider-wrap {
   height: clamp(200px, 55vw, 320px) !important;
@@ -6712,10 +6715,11 @@ body.mobile-mode #app-manga {
 /* ── 4. Slider: borde azul, más alto, badge visible ── */
 body.mobile-mode .home-hero-banner .slider-wrap {
   height: clamp(280px, 55vh, 440px) !important;
-  border-radius: 16px !important;
-  margin: 12px 12px 0 !important;
-  border: 2px solid rgba(37,99,235,0.45) !important;
-  box-shadow: 0 0 24px rgba(37,99,235,0.18) !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  border-bottom: 2px solid rgba(37,99,235,0.35) !important;
+  box-shadow: none !important;
   overflow: hidden !important;
 }
 body.mobile-mode .slider-arrow { display: none !important; }
@@ -6817,7 +6821,7 @@ body.mobile-mode .home-hero-layout {
 }
 body.mobile-mode .home-hero-banner  { order: 1; }
 body.mobile-mode .home-hero-continuar {
-  display: flex !important;
+  /* display lo controla el JS: flex cuando hay items, none cuando no hay */
   flex-direction: column !important;
   order: 2 !important;
   margin-top: 0 !important;
@@ -6854,79 +6858,82 @@ body.mobile-mode .continuar-ver-vistos-link {
   color: var(--primary) !important;
 }
 
-/* Grid horizontal */
+/* Grid horizontal — Propuesta A: tarjetas 16:9 paisaje */
 body.mobile-mode .ac-cont-grid {
   display: flex !important;
   flex-direction: row !important;
   flex-wrap: nowrap !important;
   overflow-x: auto !important;
   gap: 10px !important;
-  padding: 4px 16px 8px !important;
+  padding: 4px 12px 8px !important;
   scroll-snap-type: x mandatory !important;
 }
 
-/* Cards retrato */
+/* Cards 16:9, ~180px de ancho */
 body.mobile-mode .ac-cont-card {
   flex-direction: column !important;
-  min-width: 120px !important;
-  width: 120px !important;
-  flex-shrink: 0 !important;
+  min-width: 180px !important;
+  width: 180px !important;
+  max-width: 180px !important;
+  flex: 0 0 180px !important;
   margin-right: 0 !important;
   scroll-snap-align: start !important;
   position: relative !important;
+  background: var(--bg-card, #1c1c1e) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
 }
 body.mobile-mode .ac-cont-card .ac-cont-cover {
   width: 100% !important;
-  aspect-ratio: 2/3 !important;
+  aspect-ratio: 16/9 !important;
   display: block !important;
+  object-fit: cover !important;
   flex-shrink: 0 !important;
 }
 body.mobile-mode .ac-cont-card .ac-cont-cover-ph {
   width: 100% !important;
-  aspect-ratio: 2/3 !important;
+  aspect-ratio: 16/9 !important;
   flex-shrink: 0 !important;
 }
-/* Barra de progreso + % sobre la imagen */
+/* Barra de progreso — flujo normal bajo la imagen */
 body.mobile-mode .ac-cont-card .ac-cont-prog {
-  position: absolute !important;
-  left: 0 !important; right: 0 !important;
-  bottom: 44px !important; /* alto del bloque .ac-cont-info */
+  position: relative !important;
+  left: auto !important; right: auto !important;
+  bottom: auto !important;
   height: 3px !important;
-  background: rgba(255,255,255,0.22) !important;
-  z-index: 3 !important;
-  margin: 0 !important;
+  background: rgba(255,255,255,0.18) !important;
+  z-index: auto !important;
+  margin: 0 0 3px !important;
 }
 body.mobile-mode .ac-cont-card .ac-cont-pct {
-  position: absolute !important;
-  bottom: 47px !important;
-  right: 6px !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  color: #fff !important;
-  text-align: right !important;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important;
+  position: static !important;
+  bottom: auto !important;
+  right: auto !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  color: var(--text-muted) !important;
+  text-align: left !important;
+  text-shadow: none !important;
   margin: 0 !important;
-  z-index: 3 !important;
+  z-index: auto !important;
 }
 /* Info bajo la imagen */
 body.mobile-mode .ac-cont-card .ac-cont-info {
-  padding: 5px 7px 7px !important;
-  height: 44px !important;
+  padding: 6px 8px 8px !important;
+  height: auto !important;
 }
 body.mobile-mode .ac-cont-card .ac-cont-title {
-  font-size: 10px !important;
+  font-size: 11px !important;
   font-weight: 700 !important;
-  white-space: normal !important;
-  display: -webkit-box !important;
-  -webkit-line-clamp: 1 !important;
-  -webkit-box-orient: vertical !important;
+  white-space: nowrap !important;
   overflow: hidden !important;
+  text-overflow: ellipsis !important;
   margin-bottom: 2px !important;
 }
 body.mobile-mode .ac-cont-card .ac-cont-cap {
   font-size: 10px !important;
   color: var(--text-muted) !important;
-  margin: 0 !important;
+  margin: 0 0 4px !important;
 }
 /* Ocultar los ⋯ en mobile (no hay hover) */
 body.mobile-mode .ac-cont-dots { opacity: 0 !important; pointer-events: none !important; }
@@ -6962,15 +6969,17 @@ body.mobile-mode #grilla-recientes {
   flex-direction: row !important;
   flex-wrap: nowrap !important;
   overflow-x: auto !important;
-  gap: 10px !important;
-  padding: 4px 16px 8px !important;
+  gap: 8px !important;
+  padding: 0 12px 12px !important;
   scroll-snap-type: x mandatory !important;
   grid-template-columns: unset !important;
 }
 body.mobile-mode #grilla-recientes .tarjeta {
-  flex: 0 0 118px !important;
-  min-width: 118px !important;
+  flex: 0 0 88px !important;
+  min-width: 88px !important;
+  max-width: 88px !important;
   scroll-snap-align: start !important;
+  width: unset !important;
 }
 body.mobile-mode #grilla-recientes .tarjeta-img-wrap {
   aspect-ratio: 2/3 !important;
@@ -6993,25 +7002,49 @@ body.mobile-mode #grilla-recientes .tarjeta-img-wrap {
   letter-spacing: 0.3px;
 }
 
-/* ── 8. Populares esta semana: scroll horizontal ── */
+/* ── 8. Populares esta semana: grid 3 columnas ── */
 body.mobile-mode #grilla-series {
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
-  overflow-x: auto !important;
-  gap: 10px !important;
-  padding: 4px 16px 16px !important;
-  scroll-snap-type: x mandatory !important;
-  grid-template-columns: unset !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  flex-direction: unset !important;
+  flex-wrap: unset !important;
+  overflow-x: unset !important;
+  gap: 8px !important;
+  padding: 0 12px 16px !important;
+  scroll-snap-type: unset !important;
 }
 body.mobile-mode #grilla-series .tarjeta {
-  flex: 0 0 130px !important;
-  min-width: 130px !important;
-  scroll-snap-align: start !important;
+  flex: unset !important;
+  min-width: unset !important;
+  scroll-snap-align: unset !important;
+  width: 100% !important;
 }
 body.mobile-mode #grilla-series .tarjeta-img-wrap,
 body.mobile-mode #grilla-series .tarjeta-serie-cover {
-  aspect-ratio: 2/3 !important;
+  aspect-ratio: 3/4 !important;
+}
+
+/* Historial completo (page-continuar) — grid 3 col como populares */
+body.mobile-mode #continuar-full-lista {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+  padding: 0 12px 16px !important;
+}
+body.mobile-mode #continuar-full-lista .tarjeta-img-wrap { aspect-ratio: 3/4 !important; }
+
+/* Barra de progreso sobre portada en historial */
+.tarjeta-img-wrap { position: relative; }
+.tarjeta-prog-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 3px;
+  background: rgba(0,0,0,0.35);
+}
+.tarjeta-prog-bar div {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 0 2px 2px 0;
 }
 
 /* Badge de ranking */
@@ -7081,19 +7114,22 @@ body.mobile-mode .slider-slide-img {
   object-position: center top !important;
 }
 
-/* FIX 2b: gradiente del slide — va de negro semitransparente a transparente
-   para que el texto sea visible independientemente de si la imagen carga */
+/* FIX 2b: ::before queda detrás de la img (z-index 1 < img z-index 2), no importa */
 body.mobile-mode .slider-slide::before {
-  background:
-    linear-gradient(to top,
-      rgba(0,0,0,0.92) 0%,
-      rgba(0,0,0,0.6)  30%,
-      rgba(0,0,0,0.2)  60%,
-      transparent      82%),
-    linear-gradient(to right,
-      rgba(0,0,0,0.5)  0%,
-      transparent      65%) !important;
-  z-index: 1 !important;
+  display: none !important;
+}
+/* Gradiente de legibilidad ENCIMA de la img (z-index 3), debajo del texto (z-index 4) */
+body.mobile-mode .slider-slide::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 3 !important;
+  pointer-events: none !important;
+  background: linear-gradient(to top,
+    rgba(0,0,0,0.88) 0%,
+    rgba(0,0,0,0.55) 22%,
+    rgba(0,0,0,0.15) 45%,
+    transparent      62%) !important;
 }
 
 /* FIX 2c: fondo del slide para cuando no carga la imagen + soporte bg-image via JS */
@@ -7103,14 +7139,23 @@ body.mobile-mode .slider-slide {
   background-position: center top !important;
   background-repeat: no-repeat !important;
 }
-/* Ocultar el <img> en mobile — usamos background-image en su lugar */
+/* <img> visible en mobile — cubre todo el slide como fondo.
+   z-index: 2 para quedar ENCIMA del ::before overlay (z-index: 1) */
 body.mobile-mode .slider-slide-img {
-  display: none !important;
+  display: block !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+  z-index: 2 !important;
 }
 
-/* FIX 2d: asegurar que slider-info sea visible */
+/* FIX 2d: slider-info encima del ::after gradient (z-index 3) */
 body.mobile-mode .slider-info {
-  z-index: 3 !important;
+  z-index: 4 !important;
   left: 16px !important;
   bottom: 32px !important;
   max-width: 84% !important;
@@ -7136,7 +7181,7 @@ body.mobile-mode .slider-desc {
   text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important;
 }
 
-/* FIX 3: icono del header — kanji 力 en círculo (sin depender de icon.png) */
+/* FIX 3: icono del header — usar icon.png (ahora en assets/ dentro del webDir) */
 .mh-icon {
   width: 38px !important; height: 38px !important;
   border-radius: 50% !important;
@@ -7145,22 +7190,11 @@ body.mobile-mode .slider-desc {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  overflow: visible !important;
-  font-size: 20px !important;
-  font-weight: 900 !important;
-  color: #fff !important;
+  overflow: hidden !important;
   flex-shrink: 0 !important;
 }
-/* Ocultar la img dentro del mh-icon */
-.mh-icon img { display: none !important; }
-/* Mostrar el kanji via ::after */
-.mh-icon::after {
-  content: '力';
-  font-size: 18px;
-  font-weight: 900;
-  color: #fff;
-  line-height: 1;
-}
+.mh-icon img { display: block !important; width: 100% !important; height: 100% !important; object-fit: cover !important; border-radius: 50% !important; }
+.mh-icon::after { content: none !important; }
 
 
 /* ═══════════════════════════════════════════════
@@ -7187,9 +7221,78 @@ body.mobile-mode .home-hero-banner {
   width: 100% !important;
 }
 
-/* FIX: perfil descuadrado — account-avatar-wrap es un div extra en el flex column */
+/* FIX: botón de perfil en mobile — foto llena el círculo completo
+   overflow:hidden recorta la imagen, ::after pone el anillo sin encoger el contenido */
+body.mobile-mode .account-nav-btn {
+  position: relative !important;
+  flex: 0 0 44px !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+body.mobile-mode .account-nav-btn.logged-in::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 50% !important;
+  border: 2.5px solid var(--primary) !important;
+  pointer-events: none !important;
+  z-index: 2 !important;
+}
 body.mobile-mode .account-avatar-wrap {
-  display: contents !important;
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: unset !important;
+  min-height: unset !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+  background: rgba(var(--primary-rgb,37,99,235),0.15) !important;
+}
+
+/* Pull-to-refresh — puntos pulsantes */
+#ptr-spinner {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%) translateY(-50px);
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-2, #1e293b); border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 20px; padding: 10px 16px;
+  z-index: 9999; transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s ease;
+  opacity: 0; pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+#ptr-spinner.ptr-visible { opacity: 1; transform: translateX(-50%) translateY(14px); }
+.ptr-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--primary, #2563eb); opacity: 0.35; transform: scale(0.7);
+}
+#ptr-spinner.ptr-spinning .ptr-dot {
+  animation: ptr-pulse 0.9s ease-in-out infinite;
+}
+#ptr-spinner.ptr-spinning .ptr-dot:nth-child(2) { animation-delay: 0.15s; }
+#ptr-spinner.ptr-spinning .ptr-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ptr-pulse {
+  0%,80%,100% { transform: scale(0.7); opacity: 0.35; }
+  40%          { transform: scale(1);   opacity: 1; }
+}
+
+/* FIX: perfil descuadrado — avatar wrap con tamaño fijo y clip circular */
+body.mobile-mode .account-avatar-wrap {
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: unset !important;
+  min-height: unset !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+  flex-shrink: 0 !important;
+  align-self: unset !important;
+  background: rgba(var(--primary-rgb,37,99,235),0.15) !important;
 }
 /* El online-dot en el nav confunde la alineación vertical */
 body.mobile-mode .account-online-dot {
@@ -7197,17 +7300,222 @@ body.mobile-mode .account-online-dot {
   top: 4px !important;
   right: 50% !important;
   transform: translateX(14px) !important;
-  width: 8px !important; height: 8px !important;
-  z-index: 2 !important;
 }
 
-/* FIX: asegurar que el nav-btn del account quede igual que los demás */
-body.mobile-mode .account-nav-btn {
-  position: relative !important;
+/* ═══════════════════════════════════════════════
+   MOBILE FIXES — configuración, portadas, continuar
+   ═══════════════════════════════════════════════ */
+
+/* Modal de configuración: centrado en mobile.
+   El overlay ya es position:fixed;inset:0, así que usamos position:absolute
+   dentro de él y centramos con left/top 50% + translate. */
+body.mobile-mode #overlay-config {
+  background: rgba(0,0,0,0.55) !important;
+  pointer-events: auto !important;
+}
+body.mobile-mode .cfg-panel {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  bottom: auto !important;
+  right: auto !important;
+  transform: translate(-50%, calc(-50% + 10px)) scale(0.97) !important;
+  width: calc(100vw - 32px) !important;
+  max-width: 360px !important;
+  max-height: 80vh !important;
+}
+body.mobile-mode .cfg-panel.open {
+  transform: translate(-50%, -50%) scale(1) !important;
+  opacity: 1 !important;
+}
+
+/* Portadas: 4 por fila en mobile */
+body.mobile-mode .grilla {
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 6px !important;
+}
+body.mobile-mode .grilla-series {
+  grid-template-columns: repea
+/* ═══════════════════════════════════════════════════════════
+   MOBILE — Rediseño portadas (grilla-recientes scroll / grilla-series grid)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── "Añadidos recientemente" → scroll horizontal ── */
+body.mobile-mode #grilla-recientes {
   display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 3px !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  gap: 8px !important;
+  padding: 0 12px 12px !important;
+  scroll-snap-type: x mandatory !important;
+  grid-template-columns: unset !important;
+}
+body.mobile-mode #grilla-recientes .tarjeta {
+  flex: 0 0 88px !important;
+  min-width: 88px !important;
+  max-width: 88px !important;
+  scroll-snap-align: start !important;
+  width: unset !important;
+}
+/* 3.5 tarjetas visibles, ratio 2:3 */
+body.mobile-mode #grilla-recientes .tarjeta-img-wrap {
+  aspect-ratio: 2/3 !important;
 }
 
+/* texto pequeño para 4 columnas — definido arriba en bloque #8 */
+
+/* Badge "★ NUEVO" → esquina inferior-izquierda (no centrado) */
+body.mobile-mode .tarjeta-badge-nuevo {
+  left: 6px !important;
+  right: auto !important;
+  transform: none !important;
+  bottom: 6px !important;
+  font-size: 8px !important;
+  padding: 2px 6px !important;
+}
+
+/* Badges de rank y rating: tamaño ajustado para grid pequeño */
+body.mobile-mode #grilla-series .tarjeta-rank-badge {
+  min-width: 20px !important;
+  height: 20px !important;
+  font-size: 11px !important;
+  bottom: 4px !important;
+  left: 4px !important;
+}
+body.mobile-mode #grilla-series .tarjeta-rating-badge {
+  font-size: 8px !important;
+  padding: 1px 4px !important;
+  bottom: 4px !important;
+  right: 4px !important;
+}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+
+/* ══════════════════════════════════════════════════════
+   MOBILE PLAYER FIXES
+   ══════════════════════════════════════════════════════ */
+
+/* Fix 1: botones canvas más pequeños en mobile */
+body.mobile-mode .rp-center-ctrls {
+  gap: 10px !important;
+}
+body.mobile-mode .rp-center-ctrls canvas {
+  width: 56px !important;
+  height: 56px !important;
+}
+
+/* Fix 2: video oculto hasta primer frame — evita el placeholder gris del WebView */
+body.mobile-mode #player-video {
+  opacity: 0;
+  transition: opacity 0.25s;
+  background: #000 !important;
+}
+/* Suprimir controles nativos del WebView de Android */
+#player-video::-webkit-media-controls,
+#player-video::-webkit-media-controls-enclosure,
+#player-video::-webkit-media-controls-overlay-play-button {
+  display: none !important;
+  -webkit-appearance: none;
+}
+body.mobile-mode #player-spinner {
+  background: #000 !important;
+}
+
+/* Fix 3: fullscreen via clase CSS (rp-mobile-fullscreen)
+   rp-video-area cubre TODO el viewport con position:fixed
+   así funciona en portrait Y landscape sin importar aspect-ratio */
+body.mobile-mode .rp-shell.rp-mobile-fullscreen .rp-info-bottom,
+body.mobile-mode .rp-shell.rp-mobile-fullscreen .rp-col-eps { display: none !important; }
+
+body.mobile-mode .rp-shell.rp-mobile-fullscreen .rp-video-area {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  aspect-ratio: unset !important;
+  z-index: 99998 !important;
+  background: #000 !important;
+}
+body.mobile-mode .rp-shell.rp-mobile-fullscreen .rp-video-area video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+}
+
+body.rp-fs-active .bottom-nav,
+body.rp-fs-active #mobile-header { display: none !important; }
+/* Ocultar barra superior (Salir + título) en mobile */
+body.mobile-mode .rp-video-title-float { display: none !important; }
+
+
+/* ── Mobile: foto de perfil + FABs + ventanas ────────────────────── */
+/* Foto de perfil: img llena el wrapper de 28x28 */
+body.mobile-mode #account-avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+  border-radius: 0 !important;
+}
+
+/* FABs: subir por encima del nav bar (62px) — píxeles fijos para compatibilidad */
+body.mobile-mode #friends-fab {
+  bottom: 140px !important;
+  right: 14px !important;
+}
+body.mobile-mode #chat-fab {
+  bottom: 208px !important;
+  right: 14px !important;
+}
+
+/* ─── Skeleton screens ──────────────────────────────────────────────────── */
+@keyframes sk-sh { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+
+/* 1. Grilla: shimmer de fondo hasta que aparezcan tarjetas (sk-done) */
+body.mobile-mode #grilla-recientes,
+body.mobile-mode #grilla-series {
+  opacity: 1 !important;
+  visibility: visible !important;
+  min-height: 220px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.14) 45%, rgba(255,255,255,0.07) 90%) !important;
+  background-size: 200% 100% !important;
+  animation: sk-sh 1.4s linear infinite !important;
+  border-radius: 8px;
+}
+body.mobile-mode #grilla-recientes.sk-done,
+body.mobile-mode #grilla-series.sk-done {
+  background: none !important;
+  animation: none !important;
+}
+
+/* 2. Imagen de cada tarjeta: invisible hasta que carga (imgLoaded agrega .loaded) */
+body.mobile-mode .tarjeta-img-wrap {
+  position: relative;
+  background: rgba(255,255,255,0.09) !important;
+  overflow: hidden;
+}
+body.mobile-mode .tarjeta-img-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.14) 50%, transparent 100%);
+  background-size: 200% 100%;
+  background-position: -100% 0;
+  animation: sk-sh 1.4s linear infinite;
+  pointer-events: none;
+}
+body.mobile-mode .tarjeta-img-wrap img {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+body.mobile-mode .tarjeta-img-wrap img.loaded {
+  opacity: 1;
+}
+body.mobile-mode .tarjeta-img-wrap.loaded::after {
+  display: none;
+}
+
+/* Ocultar texto .loading - el shimmer del grilla ya es el placeholder */
+.grilla > .loading {
+  grid-column: 1 / -1 !important;
+  fo

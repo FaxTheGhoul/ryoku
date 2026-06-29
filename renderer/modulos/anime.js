@@ -1,3 +1,36 @@
+// ── Carga nativa de imágenes (fallback cuando WebView bloquea hotlink) ──────────
+if (!window._ryokuImgCallbacks) window._ryokuImgCallbacks = {}
+window._ryokuImgCb = function(id, dataUrl) {
+  const cb = window._ryokuImgCallbacks[id]
+  if (cb) { cb(dataUrl); delete window._ryokuImgCallbacks[id] }
+}
+window._ryokuLoadImgNative = function(img, url) {
+  if (img._nativeTried || !url || url.startsWith('blob:') || url.startsWith('data:')) return
+  img._nativeTried = true
+  // 1. Intentar proxy del servidor (fetch → blob, bypassa hotlink + CORS)
+  const su = window.api && window.api.serverUrl
+  if (su) {
+    fetch(su + '/img-proxy?url=' + encodeURIComponent(url))
+      .then(function(r) { return r.ok ? r.blob() : Promise.reject(r.status) })
+      .then(function(blob) { img.src = URL.createObjectURL(blob) })
+      .catch(function() {
+        // 2. Fallback: Java native fetchImage
+        if (window._nativeExtractor && window._nativeExtractor.fetchImage) {
+          const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+          window._ryokuImgCallbacks[id] = function(d) { if (d) img.src = d }
+          window._nativeExtractor.fetchImage(url, id)
+        }
+      })
+    return
+  }
+  // Sin servidor: Java native directo
+  if (window._nativeExtractor && window._nativeExtractor.fetchImage) {
+    const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+    window._ryokuImgCallbacks[id] = function(d) { if (d) img.src = d }
+    window._nativeExtractor.fetchImage(url, id)
+  }
+}
+
 // modulos/anime.js — Recientes, slider, continuar, calendario, búsqueda, player
 // Requiere: utils.js, core.js, ui.js
 
@@ -7,6 +40,10 @@ function _epLinkToAnimeUrl(link) {
   if (link.includes('animeflv.net/ver/')) {
     const slug = link.split('/ver/')[1]?.replace(/-\d+$/, '') || ''
     return slug ? `https://www4.animeflv.net/anime/${slug}` : ''
+  }
+  if (link.includes('monoschinos.st/ver/')) {
+    const slug = link.split('/ver/')[1]?.replace(/-episodio-\d+$/, '') || ''
+    return slug ? `https://monoschinos.st/anime/${slug}-sub-espanol` : ''
   }
   const slug = link.split('/ver/')[1]?.replace(/-episodio-\d+$/, '') || ''
   return slug ? `https://latanime.org/anime/${slug}` : ''
@@ -21,7 +58,10 @@ async function cargarRecientes(onDone) {
   const _elemsAnime = ['.home-hero-continuar','.home-hero-banner',
     '#page-inicio .seccion-titulo:nth-of-type(1)','#grilla-recientes',
     '#page-inicio .seccion-titulo:nth-of-type(2)','#grilla-series']
-  _elemsAnime.forEach(s => { const el=document.querySelector(s); if(el){el.style.visibility='hidden';el.style.opacity='0'} })
+  // En mobile no ocultar — el splash cubre la carga y animarEntrada no usa stagger
+  if (!document.body.classList.contains('mobile-mode')) {
+    _elemsAnime.forEach(s => { const el=document.querySelector(s); if(el){el.style.visibility='hidden';el.style.opacity='0'} })
+  }
 
   let _recData
   try {
@@ -51,8 +91,13 @@ async function cargarRecientes(onDone) {
     const dots  = document.getElementById('slider-dots')
     track.innerHTML = sliderFiltrado.map(s => {
       const esA = s.adulto || _esAdulto(s)
-      return `<div class="slider-slide">
-        ${!_isMobileSlider ? `<img class="slider-slide-img" src="${s.imagen}" alt="${s.titulo}" style="${esA ? 'filter:blur(14px);transform:scale(1.05)' : ''}" />` : ''}
+      return `<div class="slider-slide" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">
+        <img class="slider-slide-img"
+          src="${_imgProxySrc(s.imagen)}"
+          data-orig="${s.imagen}"
+          alt="${s.titulo}"
+          style="${esA ? 'filter:blur(14px);transform:scale(1.05)' : ''}"
+          onerror="_ryokuLoadImgNative(this, this.getAttribute('data-orig'))" />
         ${esA ? '<span class="badge-18 badge-18-slider">+18</span>' : ''}
         ${_isMobileSlider && !esA ? '<div class="slider-nuevo-badge">★ NUEVO EPISODIO ★</div>' : ''}
         <div class="slider-info">
@@ -66,22 +111,26 @@ async function cargarRecientes(onDone) {
         </div>
       </div>`
     }).join('')
-    // Mobile: background-image via JS (bypasa hotlink protection con no-referrer meta)
-    // + forzar width en cards de continuar via inline style
     if (_isMobileSlider) {
-      Array.from(track.children).forEach((slide, i) => {
-        const s = sliderFiltrado[i]
-        if (s && s.imagen) {
-          slide.style.backgroundImage = `url("${s.imagen}")`
-          if (s.adulto || _esAdulto(s)) slide.style.filter = 'blur(14px)'
-        }
-      })
-      // Forzar ancho de cards de continuar via inline style (más fuerte que CSS)
-      setTimeout(() => {
-        document.querySelectorAll('#continuar-lista .ac-cont-card').forEach(card => {
-          card.style.cssText += ';width:120px!important;min-width:120px!important;max-width:120px!important;flex:0 0 120px!important;'
+      // Cargar imágenes del slider proactivamente (no esperar onerror)
+      // 1. Intentar fetch via proxy del servidor (maneja hotlink/Cloudflare)
+      // 2. Si falla, intentar native Java fetchImage
+      // 3. Si falla, dejar la URL directa (onerror la manejará)
+      ;(function _preloadSliderImages() {
+        const imgs = Array.from(track.querySelectorAll('.slider-slide-img'))
+        const su = window.api && window.api.serverUrl
+        imgs.forEach(function(img, i) {
+          const origUrl = img.getAttribute('data-orig')
+          if (!origUrl) return
+          // Solo actuar si la imagen no cargó en 1.5s
+          setTimeout(function() {
+            if (img.complete && img.naturalWidth > 0) return // ya cargó directamente
+            img._nativeTried = false // reset para permitir intento
+            _ryokuLoadImgNative(img, origUrl)
+          }, 1500)
         })
-      }, 200)
+      })()
+      // layout controlado por CSS mobile (inline styles removed)
     }
     dots.innerHTML = sliderFiltrado.map((_,i) => `<div class="slider-dot ${i===0?'activo':''}" onclick="irSlide(${i})"></div>`).join('')
     irSlide(0)
@@ -148,7 +197,7 @@ async function cargarRecientes(onDone) {
   }).join('')
   checkLoadedImgs(gSeries)
   _enriquecerEnBackground(_filtrarLista(series), 'grilla-series')
-  cargarContinuarViendo()
+  await cargarContinuarViendo()
   if (typeof onDone === 'function') onDone()
   animarEntrada('anime')
 }
@@ -157,6 +206,39 @@ async function cargarRecientes(onDone) {
 // 4 en ventana normal, 6 maximizada
 function _getContinuarMax() {
   return _ventanaMaximizada ? 6 : 4
+}
+
+// Pre-render síncrono desde localStorage — se llama en DOMContentLoaded
+// para mostrar la sección ANTES de que lleguen los datos del servidor
+function _preRenderContinuarViendo() {
+  try {
+    const panel = document.getElementById('home-hero-continuar')
+    const lista  = document.getElementById('continuar-lista')
+    if (!panel || !lista) return
+    const historial  = JSON.parse(localStorage.getItem('ryoku-hist') || '[]')
+    const progresos  = JSON.parse(localStorage.getItem('ryoku-prog') || '{}')
+    if (!historial.length) return
+    const porAnime = {}
+    for (const h of historial) {
+      const nombre = (h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo || '').replace(/\\/g, '')
+      if (!porAnime[nombre]) porAnime[nombre] = h
+    }
+    const todos = Object.values(porAnime).filter(h => {
+      const prog = progresos[h.link]
+      return !prog || !prog.duration || (prog.currentTime / prog.duration) * 100 < 94
+    })
+    if (!todos.length) return
+    // Renderizar con los datos que ya están en memoria
+    panel.style.display = 'flex'
+    const max = _getContinuarMax()
+    lista.innerHTML = todos.slice(0, max).map(h => _continuarCard(h, progresos)).join('')
+    if (todos.length > max) {
+      const restantes = todos.length - max
+      lista.innerHTML += `<button class="continuar-ver-mas" onclick="abrirPaginaContinuar()"><span class="continuar-ver-num">+${restantes}</span><span class="continuar-ver-label">más</span></button>`
+    }
+    const btnVistos = document.getElementById('continuar-ver-vistos-btn')
+    if (btnVistos) btnVistos.style.display = ''
+  } catch(e) {}
 }
 async function cargarContinuarViendo() {
   const panel = document.getElementById('home-hero-continuar')
@@ -178,13 +260,18 @@ async function cargarContinuarViendo() {
   if (btnVistos) btnVistos.style.display = hayHistorial ? '' : 'none'
 
   if (!todos.length) {
-    // Hay historial pero todo visto — mostrar header y chequear nuevos eps
-    panel.style.display = hayHistorial ? 'flex' : 'none'
+    panel.style.display = 'none'
     lista.innerHTML = ''
     if (hayHistorial) {
       const vistos = Object.values(porAnime).filter(h => h.link?.includes('/ver/'))
-      if (vistos.length > 0) _chequearNuevosEpisodios(vistos, progresos)
+      if (vistos.length > 0) {
+        await Promise.race([
+          _chequearNuevosEpisodios(vistos, progresos),
+          new Promise(r => setTimeout(r, 3500))
+        ])
+      }
     }
+    window._continuarViendobListo = true
     return
   }
   panel.style.display = 'flex'
@@ -193,56 +280,52 @@ async function cargarContinuarViendo() {
     const restantes = todos.length - _getContinuarMax()
     lista.innerHTML += `<button class="continuar-ver-mas" onclick="abrirPaginaContinuar()"><span class="continuar-ver-num">+${restantes}</span><span class="continuar-ver-label">más</span></button>`
   }
-  // Cargar portadas faltantes en background
   _continuarCargarPortadas(todos.slice(0, _getContinuarMax()), progresos)
-
-  // Chequear en background si hay nuevos episodios en animes ya vistos
   const vistos = Object.values(porAnime).filter(h => {
     const prog = progresos[h.link]
     const pct = prog?.duration ? (prog.currentTime / prog.duration) * 100 : 0
     return pct >= 94 && h.link?.includes('/ver/')
   })
-  if (vistos.length > 0) _chequearNuevosEpisodios(vistos, progresos)
+  if (vistos.length > 0) {
+    await Promise.race([
+      _chequearNuevosEpisodios(vistos, progresos),
+      new Promise(r => setTimeout(r, 3500))
+    ])
+  }
+  window._continuarViendobListo = true
 }
 
 async function _chequearNuevosEpisodios(vistos, progresos) {
-  for (const h of vistos) {
+  // Paralelo: chequear los primeros 3 animes a la vez (no saturar conexiones)
+  await Promise.all(vistos.slice(0, 3).map(async h => {
     const nombre = h.anime || h.titulo?.split(' - Ep')[0].trim() || ''
     const animeUrl = _epLinkToAnimeUrl(h.link)
-    if (!animeUrl) continue
+    if (!animeUrl) return
     try {
       const info = await window.api.getAnime(animeUrl)
-      if (!info?.episodios?.length) continue
-      // Primer episodio sin ver (<94%)
+      if (!info?.episodios?.length) return
       const sigEp = info.episodios.find(ep => {
         const p = progresos[ep.link]
         return !p || (p.porcentaje || 0) < 94
       })
-      if (!sigEp) continue // Todo visto, no hay nuevo
+      if (!sigEp) return
       const lista = document.getElementById('continuar-lista')
-      if (!lista) continue
-      // No duplicar si ya hay una card para este link
-      if (lista.querySelector(`[data-anime-link="${CSS.escape(sigEp.link)}"]`)) continue
-      // Construir card con el nuevo episodio
+      if (!lista) return
+      if (lista.querySelector(`[data-anime-link="${CSS.escape(sigEp.link)}"]`)) return
       const hNuevo = { link: sigEp.link, titulo: `${nombre} - Ep ${sigEp.num}`, anime: nombre, imagen: h.imagen || info.imagen }
       const tempDiv = document.createElement('div')
       tempDiv.innerHTML = _continuarCard(hNuevo, progresos)
       const cardEl = tempDiv.firstChild
-      // Badge "NUEVO"
       const capEl = cardEl?.querySelector('.ac-cont-cap')
       if (capEl) capEl.innerHTML = `<span style="color:#60a5fa;font-weight:700;font-size:10px">● NUEVO · Ep ${sigEp.num}</span>`
-      // Insertar al inicio (antes del +X más)
       const verMas = lista.querySelector('.continuar-ver-mas')
       if (verMas) lista.insertBefore(cardEl, verMas)
       else lista.prepend(cardEl)
-      // Asegurar panel visible
       const panel = document.getElementById('home-hero-continuar')
       if (panel) panel.style.display = 'flex'
     } catch(e) {}
-    await new Promise(r => setTimeout(r, 400)) // delay entre requests
-  }
+  }))
 }
-
 
 async function _continuarCargarPortadas(items, progresos) {
   // Cargar el historial completo una sola vez para actualizar las entradas
@@ -297,13 +380,14 @@ function _continuarCard(h, progresos) {
   const epNum=h.titulo?.includes(' - Ep')?h.titulo.split(' - Ep')[1]?.trim():''
   const nombre=h.anime||h.titulo?.split(' - Ep')[0].trim()||h.titulo
   const animeUrl=h.link?.includes('/ver/')?_epLinkToAnimeUrl(h.link):(h.link||'')
-  const imgHtml=h.imagen?`<img class="ac-cont-cover" src="${h.imagen}" onerror="this.style.display='none'" />`:`<div class="ac-cont-cover-ph">${nombre.charAt(0)}</div>`
+  const imgHtml=h.imagen?`<img class="ac-cont-cover" src="${h.imagen}" onerror="_ryokuLoadImgNative(this,this.src)||this.style.display='none'" />`:`<div class="ac-cont-cover-ph">${nombre.charAt(0)}</div>`
   const capTexto = visto ? 'Visto ✓' : (epNum ? `Ep ${epNum}${tiempoTexto?' · '+tiempoTexto:''}` : 'Ver anime')
-  const cardStyle=_isMobile?'style="width:120px;min-width:120px;max-width:120px;flex:0 0 120px"':''
+  const cardStyle=''  // layout controlado por CSS mobile
   return `<div class="ac-cont-card" ${cardStyle} data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}" data-anime-visto="${visto}" onclick="continuarClickCard(event,this)">${imgHtml}<div class="ac-cont-dots" onclick="continuarDotsClick(event,this)" data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-link="${_esc(h.link)}">⋯</div><div class="ac-cont-info"><div class="ac-cont-title">${nombre}</div><div class="ac-cont-cap">${capTexto}</div><div class="ac-cont-prog"><div class="ac-cont-prog-fill" style="width:${pct}%"></div></div><div class="ac-cont-pct">${pct>0?pct+'%':''}</div></div></div>`
 }
 let _animeContinuarCtx=null
 document.addEventListener('DOMContentLoaded',()=>{
+
   const menu=document.getElementById('continuar-ctx-menu'); if(!menu)return
   document.getElementById('ctx-ver-eps')?.addEventListener('click',()=>{ menu.classList.remove('visible'); if(_animeContinuarCtx)abrirAnime(_animeContinuarCtx.anime,_animeContinuarCtx.nombre) })
   document.getElementById('ctx-quitar')?.addEventListener('click',async()=>{
@@ -312,6 +396,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     const hist=await window.api.getHistorial()
     const nuevos=hist.filter(h=>(h.anime||h.titulo?.split(' - Ep')[0].trim()||h.titulo)!==nombre)
     await window.api.clearHistorial(); for(const h of nuevos)await window.api.addHistorial(h)
+    // Subir historial actualizado a Firestore para que el merge no restaure el anime borrado
+    if (typeof window._syncGuardar === 'function') window._syncGuardar()
     const card=_animeContinuarCtx.el
     const lista=document.getElementById('continuar-lista')
     const panel=document.getElementById('home-hero-continuar')
@@ -342,6 +428,44 @@ document.addEventListener('DOMContentLoaded',()=>{
     // Si no había "+X más", las demás cards ya están en el DOM sin tocar → sin parpadeo
   })
   document.addEventListener('click',e=>{ if(!e.target.closest('.ac-cont-dots')&&!e.target.closest('#continuar-ctx-menu'))menu.classList.remove('visible') })
+  document.addEventListener('touchstart',e=>{ if(!e.target.closest('.ac-cont-dots')&&!e.target.closest('#continuar-ctx-menu'))menu.classList.remove('visible') }, {passive:true})
+
+  // Long press en mobile para mostrar menu contextual
+  let _lpTimer = null, _lpCard = null
+  document.getElementById('continuar-lista')?.addEventListener('touchstart', e => {
+    const card = e.target.closest('.ac-cont-card')
+    if (!card) return
+    _lpCard = card
+    const t = e.touches[0]
+    const startX = t.clientX, startY = t.clientY
+    _lpTimer = setTimeout(() => {
+      _lpTimer = null
+      const menu = document.getElementById('continuar-ctx-menu')
+      if (!menu) return
+      _animeContinuarCtx = {
+        nombre: card.dataset.animeNombre,
+        anime:  card.dataset.animeUrl,
+        link:   card.dataset.animeLink,
+        el:     card
+      }
+      // Posicionar el menu cerca del toque pero dentro de la pantalla
+      let top = startY + 10, left = startX - 20
+      if (left + 172 > window.innerWidth - 8) left = window.innerWidth - 172 - 8
+      if (left < 8) left = 8
+      if (top + 100 > window.innerHeight - 8) top = startY - 110
+      menu.style.top  = top  + 'px'
+      menu.style.left = left + 'px'
+      menu.classList.add('visible')
+      // Vibrar si disponible
+      if (navigator.vibrate) navigator.vibrate(40)
+    }, 500)
+  }, {passive: true})
+  document.getElementById('continuar-lista')?.addEventListener('touchmove', e => {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null }
+  }, {passive: true})
+  document.getElementById('continuar-lista')?.addEventListener('touchend', e => {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null }
+  }, {passive: true})
 })
 function continuarDotsClick(e,el){
   e.stopPropagation(); const menu=document.getElementById('continuar-ctx-menu'); if(!menu)return
@@ -361,7 +485,6 @@ async function continuarClickAnime(el){
 }
 async function abrirPaginaContinuar(){
   navegar('continuar')
-  // Actualizar título de la página
   const h2 = document.querySelector('#page-continuar .seccion-titulo')
   if (h2) h2.textContent = 'Historial'
   const lista = document.getElementById('continuar-full-lista')
@@ -369,7 +492,6 @@ async function abrirPaginaContinuar(){
   lista.innerHTML = '<div class="loading">Cargando...</div>'
   const hist = await window.api.getHistorial()
   const progresos = await window.api.getTodosProgresos()
-  // Agrupar por anime — mostrar TODOS (en progreso + vistos)
   const porAnime = {}
   for (const h of hist) {
     const n = h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo
@@ -380,7 +502,124 @@ async function abrirPaginaContinuar(){
     lista.innerHTML = '<div class="loading">Sin historial aún.</div>'
     return
   }
-  lista.innerHTML = todos.map(h => _continuarCard(h, progresos)).join('')
+  lista.innerHTML = todos.map(h => _historialPortadaCard(h, progresos)).join('')
+  _initHistorialLongPress(lista, todos)
+}
+
+let _histCtx = null
+function _initHistorialLongPress(lista, todos) {
+  const menu = document.getElementById('hist-ctx-menu')
+  if (!menu) return
+
+  // Cerrar menu al tocar fuera
+  const _cerrarMenu = (e) => {
+    if (!e.target.closest('#hist-ctx-menu') && !e.target.closest('.tarjeta')) menu.classList.remove('visible')
+  }
+  document.addEventListener('click', _cerrarMenu)
+  document.addEventListener('touchstart', _cerrarMenu, { passive: true })
+
+  // Ver episodios
+  const btnVer = document.getElementById('hist-ctx-ver-eps')
+  if (btnVer) {
+    const newBtn = btnVer.cloneNode(true)
+    btnVer.parentNode.replaceChild(newBtn, btnVer)
+    newBtn.addEventListener('click', () => {
+      menu.classList.remove('visible')
+      if (_histCtx) abrirAnime(_histCtx.animeUrl, _histCtx.nombre)
+    })
+  }
+
+  // Quitar del historial
+  const btnQuitar = document.getElementById('hist-ctx-quitar')
+  if (btnQuitar) {
+    const newBtn = btnQuitar.cloneNode(true)
+    btnQuitar.parentNode.replaceChild(newBtn, btnQuitar)
+    newBtn.addEventListener('click', async () => {
+      menu.classList.remove('visible')
+      if (!_histCtx) return
+      const { nombre, card } = _histCtx
+      // Animación de salida
+      if (card) {
+        card.style.transition = 'opacity 0.18s, transform 0.18s'
+        card.style.opacity = '0'
+        card.style.transform = 'scale(0.85)'
+        await new Promise(r => setTimeout(r, 200))
+        card.remove()
+      }
+      // Borrar del historial
+      const hist = await window.api.getHistorial()
+      const nuevos = hist.filter(h => (h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo) !== nombre)
+      await window.api.clearHistorial()
+      for (const h of nuevos) await window.api.addHistorial(h)
+      // Sincronizar con Firestore
+      if (typeof window._syncGuardar === 'function') window._syncGuardar()
+      // Si no quedan cards, mostrar vacío
+      if (!lista.querySelector('.tarjeta')) {
+        lista.innerHTML = '<div class="loading">Sin historial aún.</div>'
+      }
+    })
+  }
+
+  // Long press en cada tarjeta
+  let _lpTimer = null, _lpStartX = 0, _lpStartY = 0
+  lista.addEventListener('touchstart', e => {
+    const card = e.target.closest('.tarjeta')
+    if (!card) return
+    const t = e.touches[0]
+    const sx = t.clientX, sy = t.clientY
+    _lpStartX = sx; _lpStartY = sy
+    _lpTimer = setTimeout(() => {
+      _lpTimer = null
+      _histCtx = {
+        nombre:   card.dataset.animeNombre,
+        animeUrl: card.dataset.animeUrl,
+        card
+      }
+      // Posicionar menú
+      const x = Math.min(sx, window.innerWidth - 170)
+      const y = Math.min(sy, window.innerHeight - 110)
+      menu.style.left = x + 'px'
+      menu.style.top  = y + 'px'
+      menu.classList.add('visible')
+      if (navigator.vibrate) navigator.vibrate(30)
+    }, 450)
+  }, { passive: true })
+  lista.addEventListener('touchmove', e => {
+    if (!_lpTimer) return
+    const t = e.touches[0]
+    if (Math.abs(t.clientX - _lpStartX) > 8 || Math.abs(t.clientY - _lpStartY) > 8) {
+      clearTimeout(_lpTimer); _lpTimer = null
+    }
+  }, { passive: true })
+  lista.addEventListener('touchend', () => { if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null } }, { passive: true })
+}
+
+function _historialPortadaCard(h, progresos) {
+  const nombre = h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo || ''
+  const animeUrl = h.link?.includes('/ver/') ? _epLinkToAnimeUrl(h.link) : (h.link || '')
+  const prog = progresos[h.link]
+  const pct = prog?.duration ? Math.round((prog.currentTime / prog.duration) * 100) : 0
+  const visto = pct >= 94
+  const letra = nombre.charAt(0)
+  const imgHtml = h.imagen
+    ? `<img src="${h.imagen}" onload="imgLoaded(this)" onerror="imgError(this)" />`
+    : `<div class="tarjeta-thumb"><div class="tarjeta-letra">${letra}</div></div>`
+  const progBar = pct > 0 ? `<div class="tarjeta-prog-bar"><div style="width:${pct}%"></div></div>` : ''
+  return `<div class="tarjeta"
+    data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}"
+    data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}"
+    data-anime-visto="${visto}" onclick="continuarClickAnime(this)">
+    <div class="play-overlay">▶</div>
+    <div class="tarjeta-img-wrap" data-letra="${letra}">${imgHtml}${progBar}</div>
+    <div class="tarjeta-info"><div class="tarjeta-titulo">${nombre}</div></div>
+  </div>`
+}
+
+// Resuelve URLs relativas de latanime.org a absolutas
+function _imgProxySrc(url) {
+  if (!url) return ''
+  if (url.startsWith('/')) return 'https://latanime.org' + url
+  return url
 }
 
 function irSlide(idx) {
@@ -392,6 +631,23 @@ function resetTimer() {
   if (_sliderTimer) clearInterval(_sliderTimer)
   _sliderTimer = setInterval(() => irSlide((_sliderIdx+1)%_sliderTotal), 5000)
 }
+
+// ── Swipe táctil en el slider ────────────────────────────────────────────────
+;(function _initSliderSwipe() {
+  const wrap = document.getElementById('slider-wrap')
+  if (!wrap) return
+  let _tx = 0, _dragging = false
+  wrap.addEventListener('touchstart', e => { _tx = e.touches[0].clientX; _dragging = true }, { passive: true })
+  wrap.addEventListener('touchend', e => {
+    if (!_dragging) return
+    _dragging = false
+    const dx = e.changedTouches[0].clientX - _tx
+    if (Math.abs(dx) < 40) return
+    if (dx < 0) irSlide((_sliderIdx + 1) % _sliderTotal)
+    else         irSlide((_sliderIdx - 1 + _sliderTotal) % _sliderTotal)
+    resetTimer()
+  }, { passive: true })
+})()
 
 // ─── CALENDARIO ──────────────────────────────────────────────────────────
 const DIAS_ES = { lunes:'Lunes', martes:'Martes', miercoles:'Miércoles', jueves:'Jueves', viernes:'Viernes', sabado:'Sábado', domingo:'Domingo', otros:'Otros' }
@@ -850,7 +1106,8 @@ document.getElementById('srv-cerrar').addEventListener('click', () => {
 // ─── PASO 2: REPRODUCTOR ──────────────────────────────────────────────────
 let hls = null, _idxActivo = 0
 let _reproducirToken = 0  // token de cancelación — se incrementa al cerrar/cambiar
-let _toastContinuarDone = false  // true una vez que el toast fue atendido/descartado en el episodio actual
+let _toastContinuarDone = false
+const _toastDismissedEps = new Set()  // true una vez que el toast fue atendido/descartado en el episodio actual
 const _nombresDisplay = ['Ultra HD','Rápido','Respaldo','Alternativo','HD','Backup']
 const _proveedores = ['byse','voe','mp4upload','dsvplay','mixdrop','hexload']
 
@@ -1181,6 +1438,9 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
 
   if (renovar && window.api.clearStreamCache) await window.api.clearStreamCache(s.url)
 
+  // Ocultar video hasta primer frame en mobile
+  if (document.body.classList.contains('mobile-mode')) video.style.opacity = '0'
+
   const resultado = _streamPreload || await window.api.getStream(s.url)
 
   if (cancelado()) { spinnerShow(false); return }
@@ -1212,8 +1472,19 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     } catch(e) {}
   }
 
+  const _isMobilePlayer = document.body.classList.contains('mobile-mode')
   const onListo = async () => {
-    spinnerShow(false)
+    if (!_isMobilePlayer) spinnerShow(false) // desktop: ocultar en canplay
+    // mobile: ocultar spinner y mostrar video cuando hay frame real (timeupdate)
+    if (_isMobilePlayer) {
+      var _onFirstFrame = function() {
+        if (video.currentTime <= 0) return
+        video.removeEventListener('timeupdate', _onFirstFrame)
+        spinnerShow(false)
+        video.style.opacity = '1'
+      }
+      video.addEventListener('timeupdate', _onFirstFrame)
+    }
     if (window._friendsSetActivity) {
       const epPart = _tituloActual.split(' - Ep')[1]
       window._friendsSetActivity({ type: 'anime', title: _tituloActual.split(' - Ep')[0].trim(), episode: epPart ? epPart.trim() : '' })
@@ -1318,6 +1589,15 @@ window._rpGetCurrentInfo = function () {
 
 async function cerrarReproductor() {
   _reproducirToken++  // invalida cualquier reproducir() pendiente
+
+  // Si estamos en fullscreen mobile, salir primero (restaura orientación y barras)
+  if (document.body.classList.contains('mobile-mode')) {
+    const fsShell = document.querySelector('.rp-shell')
+    if (fsShell?.classList.contains('rp-mobile-fullscreen')) {
+      if (typeof toggleFullscreenPlayer === 'function') toggleFullscreenPlayer()
+    }
+  }
+
   document.getElementById('overlay-player').classList.remove('activo')
   if (window._chatUpdateFAB) window._chatUpdateFAB()
   if (window._ryokuDiscordActivity !== false) window.api?.discordClear?.()
@@ -1497,6 +1777,11 @@ function initCanvasControls() {
   drawSkipCanvas('c-skip-back', false)
   drawSkipCanvas('c-skip-fwd',  true)
   drawPlayPauseCanvas(false, true) // spinner desde el inicio
+  // Ocultar barra superior en mobile (refuerzo JS al CSS)
+  if (document.body.classList.contains('mobile-mode')) {
+    var _titleFloat = document.querySelector('.rp-video-title-float')
+    if (_titleFloat) _titleFloat.style.setProperty('display', 'none', 'important')
+  }
   if (_canvasControlsInited) return
   _canvasControlsInited = true
   document.getElementById('c-play-pause').addEventListener('click', (e) => {
@@ -1522,6 +1807,7 @@ function syncPlayBtns(playing) {
 }
 
 video.addEventListener('click', (e) => {
+  if (document.body.classList.contains('mobile-mode')) return
   if (e.target === video) { if (video.paused) video.play(); else video.pause() }
 })
 
@@ -1568,7 +1854,10 @@ let _scrubbing = false
 function _scrubTo(e) {
   if (!video.duration) return
   const rect = _progBg.getBoundingClientRect()
-  const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX
+                : (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0].clientX
+                : e.clientX
+  const pct  = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
   const t    = pct * video.duration
   const fill  = document.getElementById('player-progress-fill')
   const thumb = document.getElementById('player-progress-thumb')
@@ -1588,12 +1877,41 @@ _progBg.addEventListener('mousedown', e => {
   _scrubTo(e)
   _progBg.classList.add('scrubbing')
 })
+_progBg.addEventListener('touchstart', e => {
+  e.stopPropagation()
+  e.preventDefault()
+  _toastContinuarDone = true
+  document.getElementById('toast-progreso')?.remove()
+  _scrubbing = true
+  _progBg.style.transition = 'none'
+  _progBg.style.transform = 'scaleY(1)'
+  _scrubTo(e)
+  _progBg.classList.add('scrubbing')
+}, { passive: false })
 document.addEventListener('mousemove', e => { if (_scrubbing) _scrubTo(e) })
+document.addEventListener('touchmove', e => {
+  if (_scrubbing) { e.preventDefault(); _scrubTo(e) }
+}, { passive: false })
 document.addEventListener('mouseup', e => {
   if (_scrubbing) {
     _scrubbing = false
     _progBg.classList.remove('scrubbing')
     // Warp squeeze: apretar y rebotar
+    _progBg.style.transition = 'none'
+    _progBg.style.transform = 'scaleY(0.25)'
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        _progBg.style.transition = 'transform 0.4s cubic-bezier(0.34,1.56,0.64,1)'
+        _progBg.style.transform = 'scaleY(1)'
+      })
+    })
+    _scrubTo(e)
+  }
+})
+document.addEventListener('touchend', e => {
+  if (_scrubbing) {
+    _scrubbing = false
+    _progBg.classList.remove('scrubbing')
     _progBg.style.transition = 'none'
     _progBg.style.transform = 'scaleY(0.25)'
     requestAnimationFrame(() => {
@@ -1737,26 +2055,42 @@ function toggleFullscreenPlayer() {
   const shell = document.querySelector('.rp-shell')
   if (!shell) return
 
-  // En mobile usar fullscreen CSS (evita el espacio vacío que deja la API nativa en Android)
   if (document.body.classList.contains('mobile-mode')) {
+    const vw = document.getElementById('rp-video-wrap')
+    const vid = document.getElementById('player-video')
     const isFull = shell.classList.contains('rp-mobile-fullscreen')
     if (isFull) {
+      // Salir fullscreen: restaurar estilos
       shell.classList.remove('rp-mobile-fullscreen')
       document.body.classList.remove('rp-fs-active')
-      // Salir de fullscreen nativo (restaura barras del sistema + orientación libre)
-      if (window._nativeExtractor?.exitFullscreen) {
+      if (vw) vw.removeAttribute('style')
+      if (vid) { vid.removeAttribute('style'); vid.style.opacity = '1' }
+      if (window._nativeExtractor && window._nativeExtractor.exitFullscreen) {
         window._nativeExtractor.exitFullscreen()
-      } else if (screen.orientation?.unlock) {
-        screen.orientation.unlock()
       }
     } else {
+      // Entrar fullscreen: inline styles directamente sobre el elemento
       shell.classList.add('rp-mobile-fullscreen')
       document.body.classList.add('rp-fs-active')
-      // Entrar en fullscreen nativo: rota a landscape y oculta barras del sistema
-      if (window._nativeExtractor?.enterFullscreen) {
+      if (vw) {
+        vw.style.cssText = [
+          'position:fixed',
+          'top:0','left:0','right:0','bottom:0',
+          'width:100vw','height:100vh',
+          'aspect-ratio:unset',
+          'z-index:99998',
+          'background:#000'
+        ].join('!important;') + '!important'
+      }
+      if (vid) {
+        vid.style.cssText = [
+          'position:absolute','top:0','left:0',
+          'width:100%','height:100%',
+          'object-fit:contain'
+        ].join('!important;') + '!important'
+      }
+      if (window._nativeExtractor && window._nativeExtractor.enterFullscreen) {
         window._nativeExtractor.enterFullscreen()
-      } else if (screen.orientation?.lock) {
-        screen.orientation.lock('landscape').catch(() => {})
       }
     }
     return
@@ -1916,6 +2250,7 @@ function skipSegundo(s) {
 }
 
 function mostrarToastProgreso(currentTime) {
+  if (_toastDismissedEps.has(_urlEpisodioActual)) return
   document.getElementById('toast-progreso')?.remove()
   const DURACION = 10000
   const toast = document.createElement('div')
@@ -1947,6 +2282,7 @@ function mostrarToastProgreso(currentTime) {
   document.getElementById('toast-continuar').onclick = () => {
     clearTimeout(t)
     _toastContinuarDone = true
+    _toastDismissedEps.add(_urlEpisodioActual)
     video.currentTime = currentTime
     video.play().catch(()=>{})
     toast.remove()
@@ -2014,7 +2350,28 @@ function hideControls() {
   }
 }
 
+// Bloquear overscroll (estiramiento) de Android en fullscreen
+videoWrap.addEventListener('touchmove', function(e) {
+  const shell = document.querySelector('.rp-shell')
+  if (shell && shell.classList.contains('rp-mobile-fullscreen') && !_scrubbing) {
+    e.preventDefault()
+  }
+}, { passive: false })
+
 videoWrap.addEventListener('mousemove', showControls)
+
+// Mobile: tap muestra/oculta controles sin pausar
+videoWrap.addEventListener('touchend', function(e) {
+  if (!document.body.classList.contains('mobile-mode')) return
+  var t = e.target
+  if (t.tagName === 'CANVAS' || t.closest('button') || t.closest('.rp-vc-btns') || t.closest('.rp-vc-progress')) return
+  e.preventDefault()
+  if (videoWrap.classList.contains('show-controls')) {
+    hideControls()
+  } else {
+    showControls(null)
+  }
+}, false)
 videoWrap.addEventListener('mouseenter', e => {
   const rect = videoWrap.getBoundingClientRect()
   if (e.clientY - rect.top < 20) return
@@ -2465,15 +2822,7 @@ document.addEventListener('keydown', e => {
     case 'KeyF':
       e.preventDefault()
       toggleFullscreenPlayer()
-      break
     case 'Escape':
       cerrarReproductor()
       break
-    default:
-      if (e.code.startsWith('Digit') && vid.duration > 0) {
-        const n = parseInt(e.code.replace('Digit', ''), 10)
-        vid.currentTime = vid.duration * n / 10
-      }
-      break
-  }
-})
+    def
