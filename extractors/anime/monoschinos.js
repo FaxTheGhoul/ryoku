@@ -64,10 +64,15 @@ async function getRecientes() {
   // Las imágenes de portada son hermanas del contenedor de info, no hijas
   const portadaImgs = []
   $('img').each((_, img) => {
-    const src = $(img).attr('src') || $(img).attr('data-src') || ''
-    if (src.includes('/portada/') || (src.includes('/serie/') && /\.(jpg|webp|png)/.test(src))) {
-      portadaImgs.push(src)
-    }
+    // Revisar src Y data-src independientemente (src puede ser placeholder anime.png)
+    const s1 = $(img).attr('src') || ''
+    const s2 = $(img).attr('data-src') || ''
+    const portada = s1.includes('/portada/') ? s1
+      : s2.includes('/portada/') ? s2
+      : (s1.includes('/serie/') && /\.(jpg|webp|png)/.test(s1)) ? s1
+      : (s2.includes('/serie/') && /\.(jpg|webp|png)/.test(s2)) ? s2
+      : ''
+    if (portada) portadaImgs.push(portada)
   })
 
   let sliderIdx = 0
