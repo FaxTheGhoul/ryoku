@@ -960,18 +960,20 @@ function _srcFile(prefix, srcId) { return require('path').join(app.getPath('user
 function _loadJ(f, fb) { try { return JSON.parse(fs.readFileSync(f,'utf8')) } catch(e) { return fb } }
 function _saveJ(f, d)  { try { fs.writeFileSync(f, JSON.stringify(d)) } catch(e) {} }
 
-const _favsD = { latanime: _loadJ(_srcFile('favs','latanime'),[]),      animeflv: _loadJ(_srcFile('favs','animeflv'),[]) }
-const _histD = { latanime: _loadJ(_srcFile('historial','latanime'),[]), animeflv: _loadJ(_srcFile('historial','animeflv'),[]) }
-const _progD = { latanime: _loadJ(_srcFile('progreso','latanime'),{}),  animeflv: _loadJ(_srcFile('progreso','animeflv'),{}) }
+const _SRCS = ['latanime', 'animeflv', 'monoschinos']
+const _favsD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('favs',      s), [])]))
+const _histD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('historial', s), [])]))
+const _progD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('progreso',  s), {})]))
 
 function _src()  { return _activeAnimeSource?.id || 'latanime' }
-function _favs() { return _favsD[_src()] || [] }
-function _hist() { return _histD[_src()] || [] }
-function _prog() { return _progD[_src()] || {} }
+// Defensivo: si en el futuro se agrega otra fuente, init al vuelo
+function _favs() { const s=_src(); if(!_favsD[s]) _favsD[s]=[]; return _favsD[s] }
+function _hist() { const s=_src(); if(!_histD[s]) _histD[s]=[]; return _histD[s] }
+function _prog() { const s=_src(); if(!_progD[s]) _progD[s]={}; return _progD[s] }
 function _setF(v) { _favsD[_src()] = v; _saveJ(_srcFile('favs',      _src()), v) }
 function _setH(v) { _histD[_src()] = v; _saveJ(_srcFile('historial', _src()), v) }
-function _setP(k,v){ _progD[_src()][k] = v; _saveJ(_srcFile('progreso',_src()), _prog()) }
-function _delP(k)  { delete _progD[_src()][k]; _saveJ(_srcFile('progreso',_src()), _prog()) }
+function _setP(k,v){ _prog()[k] = v; _saveJ(_srcFile('progreso',_src()), _prog()) }
+function _delP(k)  { delete _prog()[k]; _saveJ(_srcFile('progreso',_src()), _prog()) }
 
 ipcMain.handle('get-favs',   ()        => _favs())
 ipcMain.handle('toggle-fav', (_, anime) => {
