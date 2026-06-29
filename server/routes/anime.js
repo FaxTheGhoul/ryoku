@@ -6,9 +6,10 @@ const router  = express.Router()
 
 // Importar extractores existentes del proyecto padre
 const ROOT = path.join(__dirname, '..', '..')
-const latanime  = require(path.join(ROOT, 'extractors', 'anime', 'latanime'))
-const animeflv  = require(path.join(ROOT, 'extractors', 'anime', 'animeflv'))
-const extIndex  = require(path.join(ROOT, 'extractors', 'anime', 'index'))
+const latanime     = require(path.join(ROOT, 'extractors', 'anime', 'latanime'))
+const animeflv     = require(path.join(ROOT, 'extractors', 'anime', 'animeflv'))
+const monoschinos  = require(path.join(ROOT, 'extractors', 'anime', 'monoschinos'))
+const extIndex     = require(path.join(ROOT, 'extractors', 'anime', 'index'))
 
 // Cache
 const recientesCache = {}
@@ -25,7 +26,9 @@ router.get('/recientes', async (req, res) => {
   try {
     const result = srcId === 'animeflv'
       ? await animeflv.getRecientes()
-      : await latanime.getRecientes()
+      : srcId === 'monoschinos'
+        ? await monoschinos.getRecientes()
+        : await latanime.getRecientes()
     recientesCache[srcId] = { data: result, ts: Date.now() }
     res.json(result)
   } catch(e) {
@@ -47,7 +50,9 @@ router.get('/buscar', async (req, res) => {
   try {
     const result = srcId === 'animeflv'
       ? await animeflv.buscar(q, filtros, page)
-      : await latanime.buscar(q, filtros, page)
+      : srcId === 'monoschinos'
+        ? await monoschinos.buscar(q, filtros, page)
+        : await latanime.buscar(q, filtros, page)
     res.json(result)
   } catch(e) {
     res.json({ lista: [], hayMas: false, page: 1 })
@@ -63,7 +68,9 @@ router.get('/detalle', async (req, res) => {
   try {
     const result = srcId === 'animeflv'
       ? await animeflv.getAnime(url)
-      : await latanime.getAnime(url)
+      : srcId === 'monoschinos'
+        ? await monoschinos.getAnime(url)
+        : await latanime.getAnime(url)
     res.json(result)
   } catch(e) {
     res.status(500).json(null)
@@ -79,7 +86,9 @@ router.get('/servidores', async (req, res) => {
   try {
     const result = srcId === 'animeflv'
       ? await animeflv.getServidores(url)
-      : await latanime.getServidores(url)
+      : srcId === 'monoschinos'
+        ? await monoschinos.getServidores(url)
+        : await latanime.getServidores(url)
     res.json(result || [])
   } catch(e) {
     res.json([])
@@ -148,7 +157,9 @@ router.get('/biblioteca', async (req, res) => {
   try {
     const result = srcId === 'animeflv'
       ? await animeflv.getBiblioteca(params)
-      : await latanime.getBiblioteca(params)
+      : srcId === 'monoschinos'
+        ? await monoschinos.getBiblioteca(params)
+        : await latanime.getBiblioteca(params)
     res.json(result || { lista: [], hayMas: false })
   } catch(e) {
     res.json({ lista: [], hayMas: false })

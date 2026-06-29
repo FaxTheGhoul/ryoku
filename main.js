@@ -5,8 +5,9 @@ const cheerio = require('cheerio')
 const fs = require('fs')
 const os = require('os')
 const extractors  = require('./extractors/anime')
-const latanime    = require('./extractors/anime/latanime')
-const animeflv    = require('./extractors/anime/animeflv')
+const latanime     = require('./extractors/anime/latanime')
+const animeflv     = require('./extractors/anime/animeflv')
+const monoschinos  = require('./extractors/anime/monoschinos')
 const DiscordRPC  = require('discord-rpc')
 const { autoUpdater } = require('electron-updater')
 
@@ -157,8 +158,9 @@ function guardarConfig() { try { fs.writeFileSync(APP_CONFIG_FILE, JSON.stringif
 
 // ─── MULTI-SOURCE ANIME ───────────────────────────────────────────────────────
 const ANIME_SOURCES = {
-  latanime: { id: 'latanime', nombre: 'Latanime', BASE: 'https://latanime.org' },
-  animeflv:    { id: 'animeflv',    nombre: 'AnimeFLV',         BASE: 'https://www4.animeflv.net' }
+  latanime:    { id: 'latanime',    nombre: 'Latanime',     BASE: 'https://latanime.org' },
+  animeflv:    { id: 'animeflv',    nombre: 'AnimeFLV',     BASE: 'https://www4.animeflv.net' },
+  monoschinos: { id: 'monoschinos', nombre: 'MonosChinos',  BASE: 'https://monoschinos.st' }
 }
 const _savedAnimeSource  = appConfig?.['anime-source']
 let   _activeAnimeSource = ANIME_SOURCES[_savedAnimeSource] || ANIME_SOURCES['latanime']
@@ -330,7 +332,7 @@ async function getSinopsisAnimeFlv(titulo) {
     const $ = cheerio.load(data)
     const link = $('ul.ListAnimes li a').first().attr('href')
     if (!link) return ''
-    const { data: page } = await axios.get(`https://www3.animeflv.net${link}`, { headers: HEADERS, timeout: 5000 })
+    const { data: page } = await axios.get(`https://www4.animeflv.net${link}`, { headers: HEADERS, timeout: 5000 })
     const $p = cheerio.load(page)
     return $p('.sinopsis p, .Description p').first().text().trim() || ''
   } catch(e) { return '' }
@@ -344,7 +346,10 @@ async function _fetchRecientes(srcId) {
   try {
     let result
     if (srcId === 'animeflv') {
-      result = await animeflv.getRecientes()} else {
+      result = await animeflv.getRecientes()
+    } else if (srcId === 'monoschinos') {
+      result = await monoschinos.getRecientes()
+    } else {
       result = await latanime.getRecientes()
     }
     _recientesCache[srcId] = { data: result, ts: Date.now() }
@@ -498,9 +503,12 @@ ipcMain.handle('buscar', async (_, query, filtros = {}) => {
   const hit = _buscarAnimeCache.get(cacheKey)
   if (hit && Date.now() - hit.ts < _BUSCAR_TTL) return hit.data
   try {
-    const data = _activeAnimeSource?.id === 'animeflv'
+    const srcId = _activeAnimeSource?.id || 'latanime'
+    const data = srcId === 'animeflv'
       ? await animeflv.buscar(query, filtros)
-      : await latanime.getBiblioteca({ query, ...filtros })
+      : srcId === 'monoschinos'
+        ? await monoschinos.buscar(query, filtros)
+        : await latanime.getBiblioteca({ query, ...filtros })
     _buscarAnimeCache.set(cacheKey, { data, ts: Date.now() })
     return data
   } catch(e) { console.error('[buscar]', e.message); return { lista: [], hayMas: false, page: 1 } }
@@ -514,6 +522,9 @@ ipcMain.handle('get-anime-biblioteca', async (_, params = {}) => {
 
     if (srcId === 'animeflv') {
       return await animeflv.getBiblioteca({ query, genero, tipo, page })
+    }
+    if (srcId === 'monoschinos') {
+      return await monoschinos.getBiblioteca({ query, genero, tipo, page })
     }
     // latanime (default)
     return await latanime.getBiblioteca({ query, genero, tipo, emision, page })
@@ -659,7 +670,38 @@ function extraerAnimes($) {
 // SERVIDORES
 ipcMain.handle('get-servidores', async (_, url) => {
   try {
-    if (url?.includes('animeflv.net'))           return await animeflv.getServidores(url)
+    if (url?.includes('animeflv.net')) {
+      // AnimeFLV tiene Cloudflare — usar BrowserWindow real en vez de axios
+      const videos = await new Promise((resolve) => {
+        let win = null
+        const timer = setTimeout(() => { if (win && !win.isDestroyed()) win.destroy(); resolve(null) }, 20000)
+        win = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } })
+        win.webContents.on('did-finish-load', async () => {
+          try {
+            await new Promise(r => setTimeout(r, 1500))
+            const raw = await win.webContents.executeJavaScript('JSON.stringify(typeof videos !== "undefined" ? videos : null)')
+            clearTimeout(timer); win.destroy(); resolve(JSON.parse(raw))
+          } catch(e) { clearTimeout(timer); win.destroy(); resolve(null) }
+        })
+        win.webContents.on('did-fail-load', (_, code) => { if (code === -3) return; clearTimeout(timer); win.destroy(); resolve(null) })
+        win.loadURL(url, { userAgent: UA })
+      })
+      if (!videos) return []
+      const servidores = []
+      for (const [tipo, lista] of Object.entries(videos)) {
+        if (!Array.isArray(lista)) continue
+        for (const item of lista) {
+          let serverUrl = item.url || item.code || ''
+          if (serverUrl && !serverUrl.startsWith('http')) {
+            try { serverUrl = Buffer.from(serverUrl, 'base64').toString('utf-8') } catch(e) {}
+          }
+          if (!serverUrl) continue
+          servidores.push({ nombre: (item.server || item.title || tipo).toLowerCase(), url: serverUrl })
+        }
+      }
+      return servidores
+    }
+    if (url?.includes('monoschinos.st')) return await monoschinos.getServidores(url)
     return await latanime.getServidores(url)
   } catch(e) { return [] }
 })
@@ -667,7 +709,8 @@ ipcMain.handle('get-servidores', async (_, url) => {
 // get-anime — delega por fuente activa
 ipcMain.handle('get-anime', async (_, url) => {
   try {
-    if (url?.includes('animeflv.net/anime/'))       return await animeflv.getAnime(url)
+    if (url?.includes('animeflv.net/anime/'))  return await animeflv.getAnime(url)
+    if (url?.includes('monoschinos.st/anime/')) return await monoschinos.getAnime(url)
     return await latanime.getAnime(url, { coverCache, jikanBuscar })
   } catch(e) { return null }
 })
@@ -2209,7 +2252,6 @@ ipcMain.handle('google-auth', () => {
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ idToken: idToken, accessToken: accessToken })
       })
-    }).then(function() {
       box.innerHTML = '<h2 class="ok">&#10003; Sesion iniciada</h2><p>Puedes cerrar esta pestana y volver a RYOKU.</p>'
     }).catch(function(err) {
       var code = err && err.code || 'unknown'
