@@ -60,12 +60,22 @@ async function getRecientes() {
   const lista  = []
   const series = []
 
-  // ── SLIDER: botones "Ver ahora" solo están en el hero carousel ───────────
+  // ── SLIDER: recopilar portadas en orden, luego emparejar con botones ────
+  // Las imágenes de portada son hermanas del contenedor de info, no hijas
+  const portadaImgs = []
+  $('img').each((_, img) => {
+    const src = $(img).attr('src') || $(img).attr('data-src') || ''
+    if (src.includes('/portada/') || (src.includes('/serie/') && /\.(jpg|webp|png)/.test(src))) {
+      portadaImgs.push(src)
+    }
+  })
+
+  let sliderIdx = 0
   $('a').filter((_, el) => /ver ahora/i.test($(el).text())).each((_, el) => {
     const verLink = $(el).attr('href') || ''
     if (!verLink.includes('/ver/')) return
 
-    // Sube buscando el contenedor que tiene un h1/h2
+    // Sube buscando el contenedor con h1
     let container = $(el).parent()
     for (let i = 0; i < 8 && container.length; i++) {
       if (container.find('h1').length) break
@@ -80,22 +90,20 @@ async function getRecientes() {
       ? (infoHref.startsWith('http') ? infoHref : BASE + infoHref)
       : (verLink.startsWith('http') ? verLink : BASE + verLink)
 
-    let imagen = ''
-    container.find('img').each((_, img) => {
-      const src = $(img).attr('src') || $(img).attr('data-src') || ''
-      if (src.includes('/portada/') || src.includes('/serie/')) { imagen = src; return false }
-    })
-    if (!imagen) imagen = container.find('img[src]').first().attr('src') || ''
-
+    const imagen = portadaImgs[sliderIdx] || ''
     const desc = container.find('p').filter((_, p) => $(p).text().length > 30).first().text().trim()
 
     if (!slider.some(s => s.titulo === titulo)) {
       slider.push({ titulo, link, imagen: _img(imagen), desc })
+      sliderIdx++
     }
   })
 
-  // ── LISTA: "últimos capítulos" — <a href="/ver/..."> con episodio ────────
+  // ── LISTA: "últimos capítulos" — excluir los links del slider ────────────
   $('a[href*="/ver/"]').each((_, el) => {
+    // Saltar los botones "Ver ahora" del slider
+    if (/ver ahora/i.test($(el).text())) return
+
     const link = $(el).attr('href') || ''
     if (!link.includes('-episodio-')) return
     const fullLink = link.startsWith('http') ? link : BASE + link
