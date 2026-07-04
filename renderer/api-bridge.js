@@ -69,16 +69,36 @@
     })
   }
 
+  // ── MonosChinos nativo (Android WebView bypass Cloudflare) ─────────────
+  function _fetchMonosChinos(url) {
+    if (!window._nativeExtractor || !window._nativeExtractor.fetchMonosChinos) {
+      return Promise.resolve([])
+    }
+    return new Promise((resolve) => {
+      const cbId = 'mc' + (++_cbCounter)
+      window._ryokuMcCb = (id) => {
+        if (id !== cbId) return
+        window._ryokuMcCb = null
+        try {
+          const raw = window._nativeExtractor.getMcResult(id)
+          const list = raw ? JSON.parse(raw) : []
+          resolve(Array.isArray(list) ? list : [])
+        } catch(e) { resolve([]) }
+      }
+      window._nativeExtractor.fetchMonosChinos(url, cbId)
+    })
+  }
+
   // ── API web/Android (llama al servidor REST) ───────────────────────────────
   const webApi = {
     // Anime
     getRecientes:      ()             => _get('/api/anime/recientes',  { source: _getAnimeSource() }),
-    buscar:            (q, filtros)   => _get('/api/anime/buscar',     { q, source: _getAnimeSource(), ...filtros }),
+    buscar:            (q, filtros)   => _getAnimeSource()==='monoschinos' ? _fetchMonosChinos('https://monoschinos.st/buscar?q='+encodeURIComponent(q||'')) : _get('/api/anime/buscar', { q, source: _getAnimeSource(), ...filtros }),
     getAnime:          (url)          => _get('/api/anime/detalle',    { url, source: _getAnimeSource() }),
     getServidores:     (url)          => _get('/api/anime/servidores', { url, source: _getAnimeSource() }),
     getStream:         (url)          => _getStreamLocal(url),
     getCalendario:     ()             => _get('/api/anime/calendario', { source: _getAnimeSource() }),
-    getAnimeBiblioteca:(params)       => _get('/api/anime/biblioteca', { source: _getAnimeSource(), ...params }),
+    getAnimeBiblioteca:(params={})     => _getAnimeSource()==='monoschinos' ? _fetchMonosChinos(params.query ? 'https://monoschinos.st/buscar?q='+encodeURIComponent(params.query) : 'https://monoschinos.st/animes').then(lista=>({lista,hayMas:false,page:1})) : _get('/api/anime/biblioteca', { source: _getAnimeSource(), ...params }),
     checkServidores:   (servidores)   => _post('/api/anime/check-servidores', { servidores }),
     checkNuevosEps:    (items)        => _post('/api/anime/check-nuevos-eps', { items }),
     getProxyUrl:       (url, referer) => Promise.resolve(`${SERVER_URL}/proxy?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(referer||url)}`),
@@ -92,7 +112,7 @@
     sugerirManga:       (q)           => _get('/api/manga/buscar',     { q, source: _getMangaSource() }),
 
     // Fuentes
-    getAnimeSources: () => Promise.resolve([{ id:'latanime', nombre:'Latanime' },{ id:'animeflv', nombre:'AnimeFLV' }]),
+    getAnimeSources: () => Promise.resolve([{ id:'latanime', nombre:'Latanime' },{ id:'animeflv', nombre:'AnimeFLV' },{ id:'monoschinos', nombre:'MonosChinos' }]),
     getAnimeSource:  () => Promise.resolve(_getAnimeSource()),
     setAnimeSource:  (id) => { _setAnimeSource(id); return Promise.resolve(true) },
     getMangaSources: () => Promise.resolve([{ id:'zonatmo', nombre:'ZonaTMO' },{ id:'novelcool', nombre:'NovelCool' }]),
