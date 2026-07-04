@@ -1876,7 +1876,7 @@ setTimeout(function(){;(function(){
               <div style="font-size:18px;font-weight:800;color:var(--text-main);letter-spacing:2px">RYOKU</div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:2px">By <span style="color:var(--primary);font-weight:600">Phantom - City</span></div>
             </div>
-            <span id="app-version-badge" style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(var(--primary-rgb,37,99,235),0.12);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.2)">v1.0.6</span>
+            <span id="app-version-badge" style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(var(--primary-rgb,37,99,235),0.12);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.2)">…</span>
           </div>
           <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
             <button id="update-check-btn" onclick="window._checkForUpdates()" style="width:100%;background:rgba(var(--primary-rgb,37,99,235),0.1);color:var(--primary-glow);border:1px solid rgba(var(--primary-rgb,37,99,235),0.25);border-radius:10px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -2022,6 +2022,12 @@ setTimeout(function(){;(function(){
       document.getElementById('update-progress-wrap').style.display = 'block'
       window.api.updateDownload()
     }
+    // Mostrar versión real desde package.json
+    window.api.getAppVersion?.().then(v => {
+      const badge = document.getElementById('app-version-badge')
+      if (badge) badge.textContent = 'v' + v
+    }).catch(() => {})
+
     window.api.onUpdateAvailable((version) => {
       document.getElementById('update-version').textContent = 'Versión ' + version + ' lista para instalar'
       document.getElementById('update-banner').style.display = 'block'
