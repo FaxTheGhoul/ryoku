@@ -2208,8 +2208,6 @@ autoUpdater.setFeedURL({
   provider: 'github',
   owner: 'FaxTheGhoul',
   repo: 'ryoku',
-  token: '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',
-  private: true,
 })
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
