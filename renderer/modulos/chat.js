@@ -1914,6 +1914,37 @@ function _initDrag() {
     win.style.right = rVal + 'px'; win.style.bottom = bVal + 'px'
     try { localStorage.setItem(_posKey(), JSON.stringify({ right: rVal, bottom: bVal })) } catch (e) {}
   })
+
+  // ── Touch drag (mobile) ──────────────────────────────────────────────────
+  titlebar.addEventListener('touchstart', function (e) {
+    if (e.target.closest('.cw-icon-btn, .cw-back-btn')) return
+    var t = e.touches[0]
+    var rect  = win.getBoundingClientRect()
+    startX    = t.clientX; startY    = t.clientY
+    startLeft = rect.left; startTop  = rect.top
+    win.style.right = 'auto'; win.style.bottom = 'auto'
+    win.style.left  = startLeft + 'px'; win.style.top = startTop + 'px'
+    win.style.transition = 'none'
+    dragging = true
+  }, { passive: true })
+  document.addEventListener('touchmove', function (e) {
+    if (!dragging) return
+    var t = e.touches[0]
+    var newLeft = Math.max(0, Math.min(window.innerWidth  - win.offsetWidth,  startLeft + (t.clientX - startX)))
+    var newTop  = Math.max(0, Math.min(window.innerHeight - win.offsetHeight, startTop  + (t.clientY - startY)))
+    win.style.left = newLeft + 'px'; win.style.top = newTop + 'px'
+  }, { passive: true })
+  document.addEventListener('touchend', function () {
+    if (!dragging) return
+    dragging = false
+    win.style.transition = ''
+    var r    = win.getBoundingClientRect()
+    var rVal = Math.max(0, window.innerWidth  - r.right)
+    var bVal = Math.max(0, window.innerHeight - r.bottom)
+    win.style.left = 'auto'; win.style.top = 'auto'
+    win.style.right = rVal + 'px'; win.style.bottom = bVal + 'px'
+    try { localStorage.setItem(_posKey(), JSON.stringify({ right: rVal, bottom: bVal })) } catch (e) {}
+  }, { passive: true })
 }
 
 // Contenedor correcto según si hay fullscreen activo
@@ -1996,34 +2027,27 @@ window._initWindowResize = function (winId, minW, minH, sizeKey) {
   document.addEventListener('mouseup', function () {
     if (!_rz) return
     _rz = false
-    win.style.transition = ''; win.style.userSelect = ''
-    var r    = win.getBoundingClientRect()
-    var rVal = Math.max(0, window.innerWidth  - r.right)
-    var bVal = Math.max(0, window.innerHeight - r.bottom)
-    win.style.left   = 'auto'; win.style.top    = 'auto'
-    win.style.right  = rVal + 'px'; win.style.bottom = bVal + 'px'
-    try { localStorage.setItem(sizeKey, JSON.stringify({ w: Math.round(win.offsetWidth), h: Math.round(win.offsetHeight) })) } catch (e) {}
+    win.style.transition = ''
+    win.style.userSelect = ''
+    try { localStorage.setItem(sizeKey, JSON.stringify({ w: win.offsetWidth, h: win.offsetHeight })) } catch (e) {}
   })
 }
 
-// ─── DOM ready ────────────────────────────────────────────────────────────────
+// ─── Boot ────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', function () {
   _init()
   _initDrag()
   _initFullscreenWatch()
-  window._initWindowResize('chat-window', 260, 360, 'ryoku-chat-size-v1')
-  var obs = function () { _updateFAB() }
-  ;[
-    ['page-inicio',    { attributes: true, attributeFilter: ['class'] }],
-    ['app-anime',      { attributes: true, attributeFilter: ['style'] }],
-    ['page-manga-inicio', { attributes: true, attributeFilter: ['class'] }],
-    ['app-manga',      { attributes: true, attributeFilter: ['style'] }],
-    ['overlay-player', { attributes: true, attributeFilter: ['class'] }],
-    ['page-manga-lector', { attributes: true, attributeFilter: ['class'] }],
-  ].forEach(function (pair) {
-    var el = document.getElementById(pair[0])
-    if (el) new MutationObserver(obs).observe(el, pair[1])
-  })
+  if (window._initWindowResize) window._initWindowResize('chat-window', 280, 200, 'ryoku-chat-size-v1')
+
+  var pageInicio = document.getElementById('page-inicio')
+  var appAnime   = document.getElementById('app-anime')
+  var pageMangaI = document.getElementById('page-manga-inicio')
+  var appManga   = document.getElementById('app-manga')
+  if (pageInicio) new MutationObserver(function () { _updateFAB() }).observe(pageInicio, { attributes: true, attributeFilter: ['class'] })
+  if (appAnime)   new MutationObserver(function () { _updateFAB() }).observe(appAnime,   { attributes: true, attributeFilter: ['style'] })
+  if (pageMangaI) new MutationObserver(function () { _updateFAB() }).observe(pageMangaI, { attributes: true, attributeFilter: ['class'] })
+  if (appManga)   new MutationObserver(function () { _updateFAB() }).observe(appManga,   { attributes: true, attributeFilter: ['style'] })
 })
 
-})()
+})();

@@ -754,6 +754,7 @@ async function buscar(q) {
   const grilla = document.getElementById('grilla-buscar')
   grilla.innerHTML = '<div class="loading">Buscando...</div>'
   const lista = await window.api.buscar(q, { ..._filtros, emision: _emisionActiva })
+  console.log('[BUSCAR DEBUG] q=', q, 'lista=', lista, 'length=', lista?.length)
   if (!lista.length) { grilla.innerHTML = '<div class="loading">Sin resultados.</div>'; return }
   grilla.innerHTML = _filtrarLista(lista).map(r => renderTarjeta({...r, adulto: r.adulto || _esAdulto(r)})).join('')
   checkLoadedImgs(grilla)
@@ -781,6 +782,25 @@ function actualizarFiltros() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ── Buscador: escuchar input con debounce ──────────────────────────────────
+  let _buscarTimer = null
+  const _buscadorEl = document.getElementById('buscador-2')
+  if (_buscadorEl) {
+    _buscadorEl.addEventListener('input', () => {
+      clearTimeout(_buscarTimer)
+      _buscarTimer = setTimeout(() => {
+        const q = _buscadorEl.value.trim()
+        buscar(q)
+      }, 400)
+    })
+    _buscadorEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        clearTimeout(_buscarTimer)
+        buscar(_buscadorEl.value.trim())
+      }
+    })
+  }
+
   document.getElementById('filtro-emision')?.addEventListener('click', () => {
     _emisionActiva = !_emisionActiva
     document.getElementById('filtro-emision').classList.toggle('activo', _emisionActiva)
@@ -883,7 +903,7 @@ async function abrirAnime(url, titulo) {
     const visto    = linksVistos.has(ep.link) && prog?.porcentaje >= 95
     const enProg   = prog && prog.porcentaje > 5 && prog.porcentaje < 95
     const pct      = prog ? Math.round(prog.porcentaje) : 0
-    const thumbSrc = ep.imagen || ''
+    const thumbSrc = ep.imagen || info.imagen || ''
     const lEsc     = _esc(ep.link)
     const tEsc     = _esc((info.titulo||titulo) + ' - Ep ' + ep.num)
 
@@ -2825,4 +2845,7 @@ document.addEventListener('keydown', e => {
     case 'Escape':
       cerrarReproductor()
       break
-    def
+    default:
+      break
+  }
+})

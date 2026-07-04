@@ -4,14 +4,63 @@ const axios = require('axios')
 const cheerio = require('cheerio')
 const fs = require('fs')
 const os = require('os')
+const http  = require('http')
+const https = require('https')
 const extractors  = require('./extractors/anime')
 const latanime     = require('./extractors/anime/latanime')
 const animeflv     = require('./extractors/anime/animeflv')
 const monoschinos  = require('./extractors/anime/monoschinos')
+
+// ── Servidor local para búsqueda con BrowserWindow (bypass Cloudflare) ──
+const _localServer = http.createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  const u = new URL(req.url, 'http://localhost')
+  if (u.pathname === '/api/anime/buscar') {
+    const q = u.searchParams.get('q') || ''
+    const src = u.searchParams.get('source') || 'latanime'
+    try {
+      let raw
+      if (src === 'monoschinos') raw = await monoschinos.buscar(q)
+      else if (src === 'animeflv') raw = await animeflv.buscar(q)
+      else raw = await latanime.getBiblioteca({ query: q })
+      const data = Array.isArray(raw) ? raw : (raw?.lista || [])
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(data))
+    } catch(e) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('[]')
+    }
+  } else if (u.pathname === '/api/anime/biblioteca') {
+    const src   = u.searchParams.get('source')    || 'latanime'
+    const query  = u.searchParams.get('query')    || ''
+    const genero = u.searchParams.get('genero')   || ''
+    const tipo   = u.searchParams.get('categoria')|| ''
+    const page   = parseInt(u.searchParams.get('page') || '1', 10)
+    try {
+      let result
+      if (src === 'monoschinos') result = await monoschinos.getBiblioteca({ query, genero, tipo, page })
+      else if (src === 'animeflv') result = await animeflv.getBiblioteca({ query, genero, tipo, page })
+      else result = await latanime.getBiblioteca({ query, genero, tipo, page })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(result))
+    } catch(e) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ lista: [], hayMas: false }))
+    }
+  } else {
+    // Proxy al servidor remoto para todo lo demás
+    const remoteUrl = 'https://ryoku.onrender.com' + req.url
+    const proxyReq = https.get(remoteUrl, { headers: { 'Accept': 'application/json' } }, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      proxyRes.pipe(res)
+    })
+    proxyReq.on('error', () => { try { res.writeHead(502); res.end('[]') } catch(e){} })
+  }
+})
+_localServer.listen(3001, '127.0.0.1', () => console.log('[local-server] puerto 3001'))
 const DiscordRPC  = require('discord-rpc')
 const { autoUpdater } = require('electron-updater')
 
-const { createSplash } = require('./splash')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
 const HEADERS = { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-ES,es;q=0.9' }
@@ -211,6 +260,9 @@ function createWindow() {
       } else if (url.includes('mxcontent.net') || url.includes('mxcdn.net') || url.includes('mixdrop')) {
         details.requestHeaders['Referer'] = 'https://mixdrop.ag/'
         details.requestHeaders['Origin']  = 'https://mixdrop.ag'
+      } else if (url.includes('monoschinos.st') || url.includes('monoschinos2.com')) {
+        details.requestHeaders['Referer'] = 'https://monoschinos.st/'
+        details.requestHeaders['Origin']  = 'https://monoschinos.st'
       } else if (url.includes('goodstream') || url.includes('gscdn.cam')) {
         details.requestHeaders['Referer'] = 'https://gscdn.cam/'
         details.requestHeaders['Origin']  = 'https://gscdn.cam'
@@ -242,6 +294,11 @@ function createWindow() {
     cb({ cancel: block })
   })
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.executeJavaScript("window._RYOKU_SERVER = 'http://localhost:3001'").catch(() => {})
+    // Mostrar ventana si app-ready nunca llega (fallback)
+    setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show() }, 6000)
+  })
   mainWindow.on('maximize',   () => mainWindow.webContents.send('window-maximize-change', true))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-maximize-change', false))
 
@@ -262,7 +319,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  createWindow(); createSplash(mainWindow, appConfig); initDiscord(); initUpdater(mainWindow)
+  createWindow(); initDiscord(); initUpdater(mainWindow)
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 ipcMain.on('minimize-window', () => mainWindow.minimize())
@@ -1020,8 +1077,6 @@ ipcMain.handle('clear-stream-cache', (_, url) => {
 
 // PROXY STREAM — para servidores que validan Referer (mp4upload, etc.)
 // El renderer pide la URL al main, que la retransmite con el Referer correcto
-const http  = require('http')
-const https = require('https')
 
 let _proxyServer = null
 let _proxyPort   = 0
@@ -2102,7 +2157,8 @@ ipcMain.handle('is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.on('set-win-bg', (_, color) => {
   try { if (mainWindow && color) mainWindow.setBackgroundColor(color) } catch(e) {}
 })
-ipcMain.on('app-ready', () => {})
+ipcMain.on('app-ready', () => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show() })
+ipcMain.on('cfg-sync', (e) => { e.returnValue = appConfig })
 
 // ─── CONFIG HANDLERS ─────────────────────────────────────────────────────────
 ipcMain.handle('config-get',     ()        => appConfig)

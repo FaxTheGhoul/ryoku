@@ -1,4 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron')
+
+// Exponer config sincronamente para la pantalla de carga
+const _syncCfg = ipcRenderer.sendSync('cfg-sync') || {}
+contextBridge.exposeInMainWorld('__ryokuCfg', _syncCfg)
+
 contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('minimize-window'),
   winDrag: (x, y) => ipcRenderer.send('win-drag', x, y),

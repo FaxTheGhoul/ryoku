@@ -14,7 +14,7 @@
 
   // ── Helper fetch ─────────────────────────────────────────────────────────────
   async function _get(path, params = {}) {
-    const url = new URL(SERVER_URL + path)
+    const url = new URL((window._RYOKU_SERVER || SERVER_URL) + path)
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v)
     })
@@ -24,7 +24,7 @@
   }
 
   async function _post(path, body) {
-    const r = await fetch(SERVER_URL + path, {
+    const r = await fetch((window._RYOKU_SERVER || SERVER_URL) + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -106,31 +106,46 @@
 
     // Datos de usuario — manejados por Firebase directamente (sync.js los guarda en Firestore)
     // En Android no hay almacenamiento local de archivos, todo va a Firebase.
-    getFavs:          ()          => Promise.resolve(JSON.parse(localStorage.getItem('ryoku-favs') || '[]')),
+    getFavs:          ()          => {
+      const _srcDomain = { latanime:'latanime.org', animeflv:'animeflv.net', monoschinos:'monoschinos.st' }[_getAnimeSource()] || ''
+      const all = JSON.parse(localStorage.getItem('ryoku-favs') || '[]')
+      return Promise.resolve(_srcDomain ? all.filter(f => (f.url||'').includes(_srcDomain)) : all)
+    },
     toggleFav:        (anime)     => {
       const favs = JSON.parse(localStorage.getItem('ryoku-favs') || '[]')
       const idx  = favs.findIndex(f => f.url === anime.url)
       idx >= 0 ? favs.splice(idx, 1) : favs.push(anime)
       localStorage.setItem('ryoku-favs', JSON.stringify(favs))
-      return Promise.resolve(favs)
+      const _srcDomain = { latanime:'latanime.org', animeflv:'animeflv.net', monoschinos:'monoschinos.st' }[_getAnimeSource()] || ''
+      return Promise.resolve(_srcDomain ? favs.filter(f => (f.url||'').includes(_srcDomain)) : favs)
     },
     isFav:            (url)       => {
       const favs = JSON.parse(localStorage.getItem('ryoku-favs') || '[]')
       return Promise.resolve(favs.some(f => f.url === url))
     },
-    getHistorial:     ()          => Promise.resolve(JSON.parse(localStorage.getItem('ryoku-hist') || '[]')),
+    getHistorial:     ()          => {
+      const _srcDomain = { latanime:'latanime.org', animeflv:'animeflv.net', monoschinos:'monoschinos.st' }[_getAnimeSource()] || ''
+      const all = JSON.parse(localStorage.getItem('ryoku-hist') || '[]')
+      return Promise.resolve(_srcDomain ? all.filter(h => (h.link||'').includes(_srcDomain)) : all)
+    },
     addHistorial:     (ep)        => {
       const hist = JSON.parse(localStorage.getItem('ryoku-hist') || '[]').filter(h => h.link !== ep.link)
       hist.unshift(ep)
       localStorage.setItem('ryoku-hist', JSON.stringify(hist.slice(0, 200)))
-      return Promise.resolve(hist)
+      const _srcDomain = { latanime:'latanime.org', animeflv:'animeflv.net', monoschinos:'monoschinos.st' }[_getAnimeSource()] || ''
+      return Promise.resolve(_srcDomain ? hist.filter(h => (h.link||'').includes(_srcDomain)) : hist)
     },
     removeHistorial:  (link)      => {
       const hist = JSON.parse(localStorage.getItem('ryoku-hist') || '[]').filter(h => h.link !== link)
       localStorage.setItem('ryoku-hist', JSON.stringify(hist))
       return Promise.resolve()
     },
-    clearHistorial:   ()          => { localStorage.removeItem('ryoku-hist'); return Promise.resolve([]) },
+    clearHistorial:   ()          => {
+      const _srcDomain = { latanime:'latanime.org', animeflv:'animeflv.net', monoschinos:'monoschinos.st' }[_getAnimeSource()] || ''
+      const hist = JSON.parse(localStorage.getItem('ryoku-hist') || '[]').filter(h => _srcDomain ? !(h.link||'').includes(_srcDomain) : false)
+      localStorage.setItem('ryoku-hist', JSON.stringify(hist))
+      return Promise.resolve([])
+    },
     setProgreso:      (link,t,d)  => {
       const prog = JSON.parse(localStorage.getItem('ryoku-prog') || '{}')
       prog[link] = { currentTime:t, duration:d, porcentaje: d>0?(t/d)*100:0 }
@@ -202,7 +217,24 @@
     // Historial antiguo (clear)
     clearStreamCache: () => Promise.resolve(),
     clearCache:       () => Promise.resolve(),
-    openBgImage:      () => Promise.resolve(null),
+    openBgImage: () => new Promise((resolve) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.style.display = 'none'
+      document.body.appendChild(input)
+      input.onchange = () => {
+        const file = input.files && input.files[0]
+        document.body.removeChild(input)
+        if (!file) { resolve(null); return }
+        const reader = new FileReader()
+        reader.onload = (e) => resolve(e.target.result)
+        reader.onerror = () => resolve(null)
+        reader.readAsDataURL(file)
+      }
+      input.addEventListener('cancel', () => { document.body.removeChild(input); resolve(null) })
+      input.click()
+    }),
     setWinBg:         () => {},
     onSplashBg:       () => {},
   }
@@ -219,8 +251,26 @@
   if (!IS_ELECTRON) {
     window.api = webApi
     // Activar layout mobile cuando el DOM esté listo
+    const _IS_ELECTRON_UA = /Electron\//.test(navigator.userAgent)
     const _applyMobile = () => {
-      document.body.classList.add('mobile-mode')
+      if (!_IS_ELECTRON_UA) document.body.classList.add('mobile-mode')
+
+      // ── Posicionar FABs por encima del nav bar real ──────────────────────
+      const _fixFabPos = () => {
+        const sidebar  = document.querySelector('.sidebar')
+        const fabFr    = document.getElementById('friends-fab')
+        const fabCh    = document.getElementById('chat-fab')
+        if (!sidebar || !fabFr || !fabCh) { setTimeout(_fixFabPos, 300); return }
+        const navH = sidebar.getBoundingClientRect().height
+        const base = Math.ceil(navH) + 18          // 18px sobre el nav
+        fabFr.style.setProperty('bottom', base + 'px', 'important')
+        fabCh.style.setProperty('bottom', (base + 52 + 12) + 'px', 'important')
+        fabFr.style.setProperty('right', '14px', 'important')
+        fabCh.style.setProperty('right', '14px', 'important')
+      }
+      if (document.readyState === 'loading')
+        document.addEventListener('DOMContentLoaded', () => setTimeout(_fixFabPos, 400))
+      else setTimeout(_fixFabPos, 400)
 
       // ── Botón atrás / gesto de volver de Android ───────────────────────
       // MainActivity.java llama window._ryokuHandleBack() directamente desde
@@ -228,16 +278,19 @@
       // Devuelve true si el JS manejó el evento (no cerrar la app),
       // false para que Android ejecute el comportamiento por defecto (salir).
       window._ryokuHandleBack = () => {
-        // 1. Fullscreen mobile activo → salir del fullscreen
-        const shell = document.querySelector('.rp-shell.rp-mobile-fullscreen')
-        if (shell) {
-          shell.classList.remove('rp-mobile-fullscreen')
-          document.body.classList.remove('rp-fs-active')
-          // Restaurar orientación y barras del sistema vía nativo
-          if (window._nativeExtractor?.exitFullscreen) {
-            window._nativeExtractor.exitFullscreen()
-          } else if (screen.orientation?.unlock) {
-            screen.orientation.unlock()
+        // 1. Fullscreen mobile activo → salir del fullscreen (sin cerrar el player)
+        const shell = document.querySelector('.rp-shell')
+        if (shell && shell.classList.contains('rp-mobile-fullscreen')) {
+          if (typeof toggleFullscreenPlayer === 'function') {
+            toggleFullscreenPlayer()
+          } else {
+            shell.classList.remove('rp-mobile-fullscreen')
+            document.body.classList.remove('rp-fs-active')
+            const vw = document.getElementById('rp-video-wrap')
+            const vid = document.getElementById('player-video')
+            if (vw) vw.removeAttribute('style')
+            if (vid) { vid.removeAttribute('style'); vid.style.opacity = '1' }
+            if (window._nativeExtractor?.exitFullscreen) window._nativeExtractor.exitFullscreen()
           }
           return true
         }
@@ -289,6 +342,80 @@
         // 8. Inicio → false para que MainActivity llame super.onBackPressed() (sale de la app)
         return false
       }
+
+      // ── Pull-to-refresh (arrastrar desde el tope hacia abajo) ────────────────
+      
+
+      // Splash creado en index.html (inline script al inicio de <body>)
+      // window._triggerSplashOpen() es definido alli
+
+
+      // Observar grilla-recientes: cuando todas sus imgs cargan → abrir splash
+      // Mantener grilla visible mientras carga (cargarRecientes la oculta)
+      ;(function _initForceVisible() {
+        var _IDS = ['grilla-recientes', 'grilla-series']
+        function _fv(el) {
+          el.style.setProperty('opacity',    '1', 'important')
+          el.style.setProperty('visibility', 'visible', 'important')
+        }
+        function _watch() {
+          _IDS.forEach(function(id) {
+            var el = document.getElementById(id)
+            if (!el) return
+            _fv(el)
+            new MutationObserver(function() { _fv(el) }).observe(el, {
+              attributes: true, attributeFilter: ['style']
+            })
+          })
+          // Re-intentar si los elementos aun no existen
+          setTimeout(function() {
+            _IDS.forEach(function(id) {
+              var el = document.getElementById(id)
+              if (el) _fv(el)
+            })
+          }, 2000)
+        }
+        if (document.readyState === 'loading')
+          document.addEventListener('DOMContentLoaded', _watch)
+        else _watch()
+      })()
+
+
+      // Patch animarEntrada: evitar animacion de entrada en mobile
+      ;(function _patchAnimarEntrada() {
+        var _mobile_ae = function(mod) {
+          var sels = [
+            '.home-hero-continuar', '.home-hero-banner',
+            '#page-inicio .seccion-titulo:nth-of-type(1)', '#grilla-recientes',
+            '#page-inicio .seccion-titulo:nth-of-type(2)', '#grilla-series'
+          ]
+          sels.forEach(function(s) {
+            var el = document.querySelector(s)
+            if (!el) return
+            el.style.visibility = ''
+            el.style.opacity = ''
+            el.classList.remove('ryoku-animar')
+          })
+        }
+        _mobile_ae._patched = true
+
+        function _tryPatch() {
+          if (typeof window.animarEntrada==='function' && !window.animarEntrada._patched) {
+            window.animarEntrada = _mobile_ae
+            return true
+          }
+          return false
+        }
+
+        if (!_tryPatch()) {
+          var _iv = setInterval(function() {
+            if (_tryPatch()) clearInterval(_iv)
+          }, 80)
+          setTimeout(function() { clearInterval(_iv) }, 8000)
+        }
+      })()
+
+// Pull-to-refresh manejado por modulos/pull-refresh.js
     }
     if (document.body) _applyMobile()
     else document.addEventListener('DOMContentLoaded', _applyMobile)
@@ -300,46 +427,4 @@
       let _banner = null
 
       const _showBanner = () => {
-        if (_banner) return
-        _banner = document.createElement('div')
-        _banner.id = 'ryoku-warmup-banner'
-        _banner.innerHTML = `
-          <div class="ryoku-warmup-inner">
-            <div class="ryoku-warmup-dot"></div>
-            <span>Conectando con el servidor…</span>
-          </div>`
-        document.body.appendChild(_banner)
-        // Animar entrada
-        requestAnimationFrame(() => _banner.classList.add('visible'))
-      }
-
-      const _hideBanner = () => {
-        if (!_banner) return
-        _banner.classList.remove('visible')
-        setTimeout(() => { _banner?.remove(); _banner = null }, 400)
-      }
-
-      // Mostrar banner si el primer ping tarda más de 1.5s
-      const _bannerTimer = setTimeout(_showBanner, 1500)
-
-      const _ping = () => fetch(SERVER_URL + '/health', { cache: 'no-store' })
-        .then(() => {
-          clearTimeout(_bannerTimer)
-          _hideBanner()
-        })
-        .catch(() => {
-          // Servidor dormido — mostrar banner y reintentar
-          _showBanner()
-          setTimeout(_ping, 6000)
-        })
-
-      _ping()
-    }
-
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _warmup)
-    else _warmup()
-  }
-
-  // Log de entorno
-  console.log('[api-bridge] modo:', IS_ELECTRON ? 'Electron (IPC)' : `Web → ${SERVER_URL}`)
-})()
+        if (_banner) re

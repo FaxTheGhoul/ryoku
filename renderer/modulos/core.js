@@ -240,6 +240,15 @@ const MODOS = {
   oled:   { main:'#000000', secondary:'#0D1117', card:'#0A0A0A',  border:'#1F2937', textMain:'#F8FAFC', textSecondary:'#CBD5E1', textMuted:'#64748B' },
 }
 
+// Debounce para sync cloud — evita disparar un sync por cada clic en config
+let _syncGuardarTimer = null
+function _syncGuardarDebounced() {
+  clearTimeout(_syncGuardarTimer)
+  _syncGuardarTimer = setTimeout(() => {
+    if (typeof window._syncGuardar === 'function') window._syncGuardar()
+  }, 2000)
+}
+
 // Valores por defecto — se sobreescriben en initConfig()
 let _appModo   = 'oscuro'
 let _appAccent = 'blue'
@@ -293,23 +302,30 @@ function _aplicarSidebarAutohide() {
     sidebar.classList.remove('visible')
   }
 }
+let _sidebarRafPending = false
 function _sidebarMouseMove(e) {
-  const sidebar = document.getElementById('main-sidebar')
-  if (!sidebar) return
-  const playerAbierto = document.getElementById('overlay-player')?.classList.contains('activo')
-  const mangaAbierto  = document.getElementById('page-manga-lector')?.classList.contains('activa')
-  if (playerAbierto || mangaAbierto) {
-    sidebar.classList.remove('visible')
-    document.body.classList.remove('sidebar-open')
-    return
-  }
-  if (e.clientX <= 60) {
-    sidebar.classList.add('visible')
-    document.body.classList.add('sidebar-open')
-  } else if (e.clientX > 80) {
-    sidebar.classList.remove('visible')
-    document.body.classList.remove('sidebar-open')
-  }
+  const x = e.clientX
+  if (_sidebarRafPending) return
+  _sidebarRafPending = true
+  requestAnimationFrame(() => {
+    _sidebarRafPending = false
+    const sidebar = document.getElementById('main-sidebar')
+    if (!sidebar) return
+    const playerAbierto = document.getElementById('overlay-player')?.classList.contains('activo')
+    const mangaAbierto  = document.getElementById('page-manga-lector')?.classList.contains('activa')
+    if (playerAbierto || mangaAbierto) {
+      sidebar.classList.remove('visible')
+      document.body.classList.remove('sidebar-open')
+      return
+    }
+    if (x <= 60) {
+      sidebar.classList.add('visible')
+      document.body.classList.add('sidebar-open')
+    } else if (x > 80) {
+      sidebar.classList.remove('visible')
+      document.body.classList.remove('sidebar-open')
+    }
+  })
 }
 // mantener compatibilidad
 let _sidebarJustLeft = false
@@ -372,14 +388,14 @@ function setAppModo(modo) {
   const _modos = { oscuro:'#0F172A', claro:'#F1F5F9', oled:'#000000' }
   if (window.api?.setWinBg) window.api.setWinBg(_modos[_appModo] || '#0F172A')
   document.querySelectorAll('.cfg-mode-btn').forEach(b => b.classList.toggle('activo', b.id === `cfg-modo-${modo}`))
-  if (typeof window._syncGuardar === 'function') window._syncGuardar()
+  _syncGuardarDebounced()
 }
 function setAppAccent(accent) {
   _appAccent = accent
   window.api.configSet('app-accent', accent)
   _aplicarTema()
   document.querySelectorAll('.cfg-color').forEach(b => b.classList.toggle('activo', b.dataset.accent === accent))
-  if (typeof window._syncGuardar === 'function') window._syncGuardar()
+  _syncGuardarDebounced()
 }
 function setConfig18(val) {
   _app18 = val
@@ -500,7 +516,7 @@ function _syncBgUI() {
 
 function abrirConfig() {
   const ov = document.getElementById('overlay-config')
-  ov.style.display = 'block'
+  ov.classList.add('is-open')
   cfgMostrarVista('menu')
   document.querySelectorAll('.cfg-mode-btn').forEach(b => {
     b.classList.toggle('activo', b.id === `cfg-modo-${_appModo}`)
@@ -521,25 +537,24 @@ function abrirConfig() {
   document.querySelectorAll('#cfg-lista-estilo-group .cfg-num-btn').forEach(b => {
     b.classList.toggle('activo', (b.dataset.val || b.textContent.toLowerCase()) === _le)
   })
-  _syncBgUI()
   requestAnimationFrame(() => ov.querySelector('.cfg-panel')?.classList.add('open'))
 }
 const _cfgTitulos = { menu:'Configuración', apariencia:'Apariencia', interfaz:'Interfaz', contenido:'Contenido', cache:'Caché', creditos:'Créditos' }
 function cfgMostrarVista(id, back=false) {
   document.querySelectorAll('.cfg-view').forEach(v => { v.style.display='none'; v.className='cfg-view' })
   const vista = document.getElementById('cfg-view-'+id); if (!vista) return
-  vista.style.display='block'; void vista.offsetWidth
-  vista.classList.add(back ? 'entrando-back' : 'entrando')
+  vista.style.display='block'
+  requestAnimationFrame(() => vista.classList.add(back ? 'entrando-back' : 'entrando'))
   const tEl = document.getElementById('cfg-titulo'); if (tEl) tEl.textContent = _cfgTitulos[id]||id
   const bk = document.getElementById('cfg-back'); if (bk) bk.style.display = id==='menu'?'none':'flex'
 }
-function cfgIr(s) { cfgMostrarVista(s) }
+function cfgIr(s) { cfgMostrarVista(s); if (s === 'apariencia') setTimeout(_syncBgUI, 120) }
 function cfgVolver() { cfgMostrarVista('menu',true) }
 function cerrarConfig() {
   const ov = document.getElementById('overlay-config')
   const panel = ov.querySelector('.cfg-panel')
   panel?.classList.remove('open')
-  setTimeout(() => { ov.style.display = 'none' }, 200)
+  setTimeout(() => { ov.classList.remove('is-open') }, 200)
 }
 
 async function limpiarCache() {
@@ -715,4 +730,28 @@ async function initConfig() {
     const _modosBg = { oscuro: '#0F172A', claro: '#F1F5F9', oled: '#000000' }
     if (window.api?.setWinBg) window.api.setWinBg(_modosBg[_appModo] || '#0F172A')
 
-    document.body.classList.toggle('show
+    document.body.classList.toggle('show-18', _app18)
+    _aplicarSidebarAutohide()
+    document.body.classList.toggle('searchbar-autohide', _searchbarAutohide)
+    document.body.classList.toggle('sidebar-neon', _sidebarNeon)
+
+    // Cargar fondo guardado
+    if (window.api?.bgGet) {
+      _appBgImage = await window.api.bgGet()
+      _aplicarBg()
+    }
+
+  } catch(e) { console.error('[initConfig]', e) }
+
+  // Restaurar módulo activo (se guarda en activarModulo)
+  try {
+    const cfg2 = (await window.api?.configGet?.()) || {}
+    const lastModulo = cfg2['lastModulo']
+    if (lastModulo === 'manga') {
+      const src = await window.api?.getMangaSource?.()
+      if (src) activarModulo('manga')
+    }
+  } catch(e) {}
+}
+
+initConfig()

@@ -156,37 +156,254 @@ async function getRecientes() {
 }
 
 // ── BUSCAR ────────────────────────────────────────────────────────────────────
+const _norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+function _matchesQuery(text, words) {
+  const h = _norm(text)
+  return words.every(w => h.includes(w))
+}
+function _slugToTitulo(href) {
+  try {
+    return (href.split('/anime/')[1] || '').replace(/-sub-espanol.*$/, '').replace(/-/g, ' ').trim()
+  } catch { return '' }
+}
+
+// Fetch usando session de Electron (comparte cookies reales del browser, incluyendo Cloudflare)
+async function _sessionFetch(url, extraHeaders = {}) {
+  const { session } = require('electron')
+  const resp = await session.defaultSession.fetch(url, {
+    method: 'GET',
+    headers: { ...HEADERS, ...extraHeaders },
+  })
+  const text = await resp.text()
+  let data
+  try { data = JSON.parse(text) } catch(e) { data = text }
+  return { status: resp.status, data }
+}
+
+// Parsear data-page de Inertia — busca cualquier array con estructura de anime
+function _parseInertiaPage(html) {
+  try {
+    const $ = cheerio.load(html)
+    const raw = $('#app').attr('data-page')
+    if (!raw) return null
+    const props = JSON.parse(raw)?.props || {}
+    for (const key of ['animes', 'series', 'data', 'resultados', ...Object.keys(props)]) {
+      let val = props[key]
+      if (!val) continue
+      // Laravel paginator: { data: [...], current_page, last_page, ... }
+      if (val && typeof val === 'object' && !Array.isArray(val) && Array.isArray(val.data)) val = val.data
+      if (!Array.isArray(val) || !val.length) continue
+      const first = val[0]
+      if (!first || typeof first !== 'object') continue
+      if (!(first.slug || first.titulo || first.title || first.url || first.nombre)) continue
+      const result = val.map(a => {
+        const slug = a.slug || a.url_slug || ''
+        const link = a.url || a.link || (slug ? `${BASE}/anime/${slug}-sub-espanol` : '')
+        const titulo = a.titulo || a.title || a.nombre || a.name || slug.replace(/-/g, ' ')
+        return { titulo, link, imagen: _img(a.imagen || a.image || a.portada || a.cover || '') }
+      }).filter(a => a.titulo && a.link)
+      if (result.length) return result
+    }
+  } catch(e) {}
+  return null
+}
+
+function _parseAnimeLinks($, words) {
+  const items = []
+  const seen = new Set()
+  $('a[href*="/anime/"]').each((_, el) => {
+    const href = $(el).attr('href') || ''
+    if (href.includes('/ver/') || !href.includes('/anime/')) return
+    const fullLink = href.startsWith('http') ? href : BASE + href
+    if (seen.has(fullLink)) return
+    seen.add(fullLink)
+    const slug = _slugToTitulo(href)
+    let titulo = $(el).find('h3,h2,.titulo,.title,.nombre').first().text().trim()
+              || $(el).attr('title') || slug
+    if (!titulo || titulo.length < 2) return
+    if (words && !_matchesQuery(titulo, words) && !_matchesQuery(slug, words)) return
+    const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || ''
+    items.push({ titulo, link: fullLink, imagen: _img(img) })
+  })
+  return items
+}
+
+async function _buscarConBrowserWindow(q) {
+  return new Promise((resolve) => {
+    try {
+      const { BrowserWindow } = require('electron')
+      const win = new BrowserWindow({
+        show: false, width: 1280, height: 800,
+        webPreferences: { nodeIntegration: false, contextIsolation: true },
+      })
+      win.webContents.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+      let done = false
+      const cleanup = (r) => { if (done) return; done = true; try { win.destroy() } catch(e) {}; resolve(r) }
+      let _timer = null
+      win.webContents.on('did-finish-load', () => {
+        clearTimeout(_timer)
+        _timer = setTimeout(() => {
+          if (done) return
+          win.webContents.executeJavaScript(`(function(){
+            try {
+              const dp = document.getElementById('app')?.getAttribute('data-page')
+              if (dp) {
+                const page = JSON.parse(dp)
+                const props = page?.props || {}
+                const PKEYS = ['animes','series','data','resultados']
+                const allKeys = [...PKEYS, ...Object.keys(props).filter(k=>!PKEYS.includes(k))]
+                for (const key of allKeys) {
+                  let val = props[key]
+                  if (!val) continue
+                  if (val && typeof val==='object' && !Array.isArray(val) && Array.isArray(val.data)) val = val.data
+                  if (!Array.isArray(val) || !val.length) continue
+                  const f = val[0]
+                  if (f && typeof f==='object' && (f.slug||f.titulo||f.title||f.url||f.nombre)) {
+                    return val.map(a=>({
+                      titulo:(a.titulo||a.title||a.nombre||a.name||'').trim(),
+                      link:a.url||a.link||(a.slug?'https://monoschinos.st/anime/'+a.slug+'-sub-espanol':''),
+                      imagen:a.imagen||a.image||a.portada||a.img||''
+                    })).filter(a=>a.titulo&&a.link)
+                  }
+                }
+              }
+              const links = Array.from(document.querySelectorAll('a[href*="/anime/"]'))
+                .filter(el=>el.querySelector('img')&&!el.href.includes('/ver/')&&!el.href.endsWith('/anime/'))
+              return links.map(el=>({
+                titulo:(el.querySelector('h3,h2,h4,p,.titulo,.title')?.textContent||el.title||'').trim(),
+                link:el.href,
+                imagen:el.querySelector('img')?.src||el.querySelector('img')?.getAttribute('data-src')||''
+              })).filter(a=>a.titulo&&a.link)
+            } catch(e) { return null }
+          })()`).then(r => {
+            if (r && r.length) cleanup(r)
+            // Si no hay resultados aun (Cloudflare challenge), esperar siguiente did-finish-load
+          }).catch(() => cleanup(null))
+        }, 2500)
+      })
+      win.loadURL('https://monoschinos.st/buscar?q=' + encodeURIComponent(q)).catch(() => cleanup(null))
+      setTimeout(() => cleanup(null), 15000)
+    } catch(e) { resolve(null) }
+  })
+}
+
 async function buscar(query, filtros = {}, page = 1) {
   const q = (query || '').trim()
-  if (!q) return { lista: [], hayMas: false, page: 1 }
+  if (!q) return []
+  const words = _norm(q).split(/\s+/).filter(Boolean)
 
-  const url = `${BASE}/animes?buscar=${encodeURIComponent(q)}&genero=all&categoria=all&estado=all&orden=default&p=${page}`
-  const html = await _fetch(url)
-  const $ = cheerio.load(html)
-  const lista = []
+  // ── E0: BrowserWindow persistente (bypass Cloudflare) ───────────────────────
+  try {
+    const r = await _buscarConBrowserWindow(q)
+    if (r && r.length) return r
+  } catch(e) {}
 
-  $('a[href*="/anime/"]').each((_, el) => {
-    const link = $(el).attr('href') || ''
-    if (!link.includes('-sub-espanol')) return
-    const fullLink = link.startsWith('http') ? link : BASE + link
+    // ── E2: /buscar?q=X con axios normal + parseo data-page ───────────────────
+  try {
+    const html = await _fetch(`${BASE}/buscar?q=${encodeURIComponent(q)}`)
+    const r = _parseInertiaPage(html)
+    if (r && r.length) return r
+    const found = _parseAnimeLinks(cheerio.load(html), words)
+    if (found.length) return found
+  } catch(e) {}
 
-    const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || ''
-    let titulo = $(el).find('h3, h2, .titulo, .title').first().text().trim()
-    if (!titulo) titulo = $(el).attr('title') || $(el).text().trim()
-    if (!titulo) return
-    if (lista.find(x => x.link === fullLink)) return
+  // ── E3: catálogo paginado en paralelo con filtro client-side ──────────────
+  const seen = new Set()
+  const results = []
+  let totalPages = 50
 
-    lista.push({ titulo, link: fullLink, imagen: _img(img) })
+  for (let batch = 0; batch * 5 < totalPages; batch++) {
+    const start = batch * 5 + 1
+    const pages = Array.from({ length: 5 }, (_, i) => start + i).filter(p => p <= totalPages)
+    const htmls = await Promise.allSettled(pages.map(p =>
+      _fetch(`${BASE}/animes?orden=titulo&p=${p}`)
+    ))
+
+    let gotAny = false
+    for (let i = 0; i < htmls.length; i++) {
+      if (htmls[i].status !== 'fulfilled') continue
+      const $ = cheerio.load(htmls[i].value)
+      if (batch === 0 && i === 0) {
+        const nums = $('a[href*="p="]').map((_, el) => {
+          const m = ($(el).attr('href') || '').match(/[?&]p=(\d+)/)
+          return m ? parseInt(m[1]) : 0
+        }).get()
+        const max = Math.max(...nums, 1)
+        if (max > 1) totalPages = max
+      }
+      const items = _parseAnimeLinks($, words)
+      items.forEach(a => { if (!seen.has(a.link)) { seen.add(a.link); results.push(a) } })
+      if ($('a[href*="/anime/"]').length > 0) gotAny = true
+    }
+    if (!gotAny) break
+  }
+
+  return results
+}
+
+
+// ── GET BIBLIOTECA con BrowserWindow (bypass Cloudflare) ─────────────────────
+async function _getBibliotecaConBrowserWindow(urlBib) {
+  return new Promise((resolve) => {
+    try {
+      const { BrowserWindow } = require('electron')
+      const win = new BrowserWindow({
+        show: false, width: 1280, height: 900,
+        webPreferences: { nodeIntegration: false, contextIsolation: true },
+      })
+      win.webContents.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+      let done = false
+      const cleanup = (r) => { if (done) return; done = true; try { win.destroy() } catch(e) {}; resolve(r) }
+      win.webContents.on('did-finish-load', () => {
+        setTimeout(() => {
+          if (done) return
+          win.webContents.executeJavaScript(`(function(){
+            try {
+              const dp = document.getElementById('app')?.getAttribute('data-page')
+              if (dp) {
+                const page = JSON.parse(dp)
+                const props = page?.props || {}
+                for (const key of Object.keys(props)) {
+                  const val = props[key]
+                  if (!Array.isArray(val) || !val.length) continue
+                  const f = val[0]
+                  if (f && typeof f === 'object' && (f.slug||f.titulo||f.title||f.url||f.nombre)) {
+                    return { lista: val.map(a=>({
+                      titulo:(a.titulo||a.title||a.nombre||a.name||'').trim(),
+                      link:a.url||a.link||(a.slug?'https://monoschinos.st/anime/'+a.slug+'-sub-espanol':''),
+                      imagen:a.imagen||a.image||a.portada||a.img||''
+                    })).filter(a=>a.titulo&&a.link), hayMas: !!document.querySelector('a[rel=next]') }
+                  }
+                }
+              }
+              const links = Array.from(document.querySelectorAll('a[href*="/anime/"]'))
+                .filter(el=>el.querySelector('img')&&!el.href.includes('/ver/')&&!el.href.endsWith('/anime/'))
+              return { lista: links.map(el=>({
+                titulo:(el.querySelector('h3,h2,h4,p,.titulo')?.textContent||el.title||'').trim(),
+                link:el.href,
+                imagen:el.querySelector('img')?.src||el.querySelector('img')?.getAttribute('data-src')||''
+              })).filter(a=>a.titulo&&a.link), hayMas: !!document.querySelector('a[rel=next]') }
+            } catch(e) { return null }
+          })()`).then(r => {
+            if (r && r.lista && r.lista.length) cleanup(r)
+          }).catch(() => cleanup(null))
+        }, 2500)
+      })
+      win.loadURL(urlBib).catch(() => cleanup(null))
+      setTimeout(() => cleanup(null), 15000)
+    } catch(e) { resolve(null) }
   })
-
-  // Detectar si hay página siguiente
-  const hayMas = !!$(`a[href*="p=${page + 1}"]`).length
-
-  return { lista, hayMas, page }
 }
 
 // ── BIBLIOTECA ────────────────────────────────────────────────────────────────
 async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', page = 1 } = {}) {
+  // MonosChinos filtra por query solo en /buscar?q=X, no en /animes?buscar=X
+  // Cuando hay query, delegar al buscador que usa el endpoint correcto
+  if (query) {
+    const lista = await buscar(query)
+    return { lista: Array.isArray(lista) ? lista : [], hayMas: false }
+  }
+
   const params = new URLSearchParams({
     genero:    genero  || 'all',
     categoria: tipo    || 'all',
@@ -194,9 +411,68 @@ async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', 
     orden:     'default',
     p:         String(page),
   })
-  if (query) params.set('buscar', query)
 
   const url = `${BASE}/animes?${params}`
+
+  // ── E0: Inertia XHR (server-side filtering, retorna JSON con resultados correctos) ─
+  try {
+    let version = ''
+    try {
+      const home = await _sessionFetch(BASE)
+      if (typeof home.data === 'string') {
+        const $ = cheerio.load(home.data)
+        const raw = $('#app').attr('data-page')
+        if (raw) version = JSON.parse(raw)?.version || ''
+      }
+    } catch(e) {}
+    console.log('[MC-BIB] E0 Inertia XHR url:', url)
+    const resp = await _sessionFetch(url, {
+      'X-Inertia': 'true',
+      'X-Inertia-Version': version,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'text/html, application/xhtml+xml',
+    })
+    console.log('[MC-BIB] E0 status:', resp.status, 'data type:', typeof resp.data, 'isObj:', typeof resp.data === 'object')
+    if (typeof resp.data === 'object' && resp.data) {
+      const props = resp.data?.props || {}
+      console.log('[MC-BIB] E0 props keys:', Object.keys(props).map(k => k + '=' + (Array.isArray(props[k]) ? 'arr('+props[k].length+')' : typeof props[k] === 'object' ? 'obj('+JSON.stringify(Object.keys(props[k] || {})).slice(0,60)+')' : typeof props[k])))
+    }
+    if (resp.status === 200 && resp.data && typeof resp.data === 'object') {
+      const props = resp.data?.props || {}
+      for (const key of ['animes', 'series', 'data', 'resultados', ...Object.keys(props)]) {
+        const val = props[key]
+        if (!Array.isArray(val) || !val.length) continue
+        const f = val[0]
+        if (!f || typeof f !== 'object') continue
+        if (!(f.slug || f.titulo || f.title || f.url || f.nombre)) continue
+        const lista = val.map(a => {
+          const slug = a.slug || ''
+          const link = a.url || a.link || (slug ? `${BASE}/anime/${slug}-sub-espanol` : '')
+          const titulo = a.titulo || a.title || a.nombre || a.name || slug.replace(/-/g, ' ')
+          return { titulo, link, imagen: _img(a.imagen || a.image || a.portada || a.cover || '') }
+        }).filter(a => a.titulo && a.link)
+        console.log('[MC-BIB] E0 lista encontrada, count:', lista.length, 'primero:', lista[0]?.titulo)
+        if (lista.length) return { lista, hayMas: !!(props.links?.next || resp.data?.props?.links?.next) }
+      }
+    }
+    // SSR HTML con data-page
+    if (typeof resp.data === 'string') {
+      const r = _parseInertiaPage(resp.data)
+      console.log('[MC-BIB] E0 SSR parse result:', r?.length)
+      if (r && r.length) return { lista: r, hayMas: false }
+    }
+    console.log('[MC-BIB] E0 sin resultados utiles')
+  } catch(e) { console.log('[MC-BIB] E0 error:', e.message) }
+
+  // ── E1: BrowserWindow (bypass Cloudflare, espera rendering Vue) ────────────
+  try {
+    console.log('[MC-BIB] E1 BrowserWindow...')
+    const r = await _getBibliotecaConBrowserWindow(url)
+    console.log('[MC-BIB] E1 result:', r?.lista?.length, 'primero:', r?.lista?.[0]?.titulo)
+    if (r && r.lista && r.lista.length) return r
+  } catch(e) { console.log('[MC-BIB] E1 error:', e.message) }
+
+  // ── E2: axios ───────────────────────────────────────────────────────────────
   const html = await _fetch(url)
   const $ = cheerio.load(html)
   const lista = []
@@ -276,7 +552,8 @@ async function getAnime(url) {
               const num = parseInt(cap.episodio, 10)
               if (!cap.url || !num) continue
               const epLink = cap.url.startsWith('http') ? cap.url : BASE + cap.url
-              episodios.push({ num, link: epLink, titulo: `Episodio ${num}` })
+              const epImg  = cap.imagen ? _img(cap.imagen) : ''
+              episodios.push({ num, link: epLink, titulo: `Episodio ${num}`, imagen: epImg })
             }
           }
         }
@@ -293,7 +570,8 @@ async function getAnime(url) {
       const num = _epNum(fullLink)
       if (!num) return
       if (episodios.find(e => e.num === num)) return
-      episodios.push({ num, link: fullLink, titulo: `Episodio ${num}` })
+      const epImg = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || ''
+      episodios.push({ num, link: fullLink, titulo: `Episodio ${num}`, imagen: _img(epImg) })
     })
   }
 

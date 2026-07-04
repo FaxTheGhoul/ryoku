@@ -64,6 +64,7 @@ function _initFirebase() {
     _auth.onAuthStateChanged(user => {
       _currentUser = user
       _authReady   = true
+      window._authReadyForSplash = true
       _d('[auth] onAuthStateChanged: ' + (user ? user.email : 'null'))
 
       // Cancelar listener anterior del documento de usuario

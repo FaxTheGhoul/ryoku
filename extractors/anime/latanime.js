@@ -142,7 +142,8 @@ async function getRecientes() {
     if (!link.includes('/anime/') || sliderVistos.has(link)) return
     sliderVistos.add(link)
     const img    = $(el).find('img').first()
-    const imagen = img.attr('data-src') || img.attr('src') || ''
+    let imagen = img.attr('data-src') || img.attr('src') || ''
+    if (imagen && imagen.startsWith('/')) imagen = BASE + imagen
     if (!imagen || imagen.includes('logito') || imagen.includes('web.jpg') || imagen.includes('monitos')) return
     const slug = link.split('/anime/')[1] || ''
     let idioma = slug.includes('-latino') ? 'Latino' : slug.includes('-castellano') ? 'Castellano' : ''
