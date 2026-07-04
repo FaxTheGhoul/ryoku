@@ -2208,7 +2208,7 @@ autoUpdater.setFeedURL({
   provider: 'github',
   owner: 'FaxTheGhoul',
   repo: 'ryoku',
-  token: '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',
+  token: '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',
   private: true,
 })
 autoUpdater.autoDownload = false
