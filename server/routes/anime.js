@@ -7,7 +7,6 @@ const router  = express.Router()
 // Importar extractores existentes del proyecto padre
 const ROOT = path.join(__dirname, '..', '..')
 const latanime     = require(path.join(ROOT, 'extractors', 'anime', 'latanime'))
-const animeflv     = require(path.join(ROOT, 'extractors', 'anime', 'animeflv'))
 const monoschinos  = require(path.join(ROOT, 'extractors', 'anime', 'monoschinos'))
 const extIndex     = require(path.join(ROOT, 'extractors', 'anime', 'index'))
 
@@ -25,7 +24,7 @@ router.get('/recientes', async (req, res) => {
 
   try {
     const result = srcId === 'animeflv'
-      ? await animeflv.getRecientes()
+      ? await Promise.reject(new Error('animeflv no disponible via API'))
       : srcId === 'monoschinos'
         ? await monoschinos.getRecientes()
         : await latanime.getRecientes()
@@ -49,7 +48,7 @@ router.get('/buscar', async (req, res) => {
 
   try {
     const result = srcId === 'animeflv'
-      ? await animeflv.buscar(q, filtros, page)
+      ? await Promise.reject(new Error('animeflv no disponible via API'))
       : srcId === 'monoschinos'
         ? await monoschinos.buscar(q, filtros, page)
         : await latanime.buscar(q, filtros, page)
@@ -67,7 +66,7 @@ router.get('/detalle', async (req, res) => {
 
   try {
     const result = srcId === 'animeflv'
-      ? await animeflv.getAnime(url)
+      ? await Promise.reject(new Error('animeflv no disponible via API'))
       : srcId === 'monoschinos'
         ? await monoschinos.getAnime(url)
         : await latanime.getAnime(url)
@@ -85,7 +84,7 @@ router.get('/servidores', async (req, res) => {
 
   try {
     const result = srcId === 'animeflv'
-      ? await animeflv.getServidores(url)
+      ? await Promise.reject(new Error('animeflv no disponible via API'))
       : srcId === 'monoschinos'
         ? await monoschinos.getServidores(url)
         : await latanime.getServidores(url)
@@ -132,7 +131,7 @@ router.get('/calendario', async (req, res) => {
   }
   try {
     const result = srcId === 'animeflv'
-      ? await animeflv.getCalendario()
+      ? await Promise.reject(new Error('animeflv no disponible via API'))
       : await latanime.getCalendario()
     calendarioCache.data = result
     calendarioCache.ts   = Date.now()
@@ -156,7 +155,7 @@ router.get('/biblioteca', async (req, res) => {
   }
   try {
     const result = srcId === 'animeflv'
-      ? await animeflv.getBiblioteca(params)
+      ? await Promise.reject(new Error('animeflv no disponible via API'))
       : srcId === 'monoschinos'
         ? await monoschinos.getBiblioteca(params)
         : await latanime.getBiblioteca(params)
@@ -194,7 +193,7 @@ router.post('/check-nuevos-eps', async (req, res) => {
       try {
         const srcId = item.source || 'latanime'
         const anime = srcId === 'animeflv'
-          ? await animeflv.getAnime(item.url)
+          ? await Promise.reject(new Error('animeflv no disponible via API'))
           : await latanime.getAnime(item.url)
         const ultimoEp = anime?.episodios?.slice(-1)[0]
         return { ...item, ultimoEp: ultimoEp?.num || 0, hayNuevo: ultimoEp?.num > (item.ultimoVisto || 0) }
