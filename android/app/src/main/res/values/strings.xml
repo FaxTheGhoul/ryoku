@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">RYOKU</string>
-    <string name="title_activity_main">RYOKU</string>
-    <string name="package_name">com.ryoku.anime</string>
-    <string name="custom_url_scheme">com.ryoku.anime</string>
-</resources>
