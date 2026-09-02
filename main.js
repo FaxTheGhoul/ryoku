@@ -2473,7 +2473,19 @@ function initUpdater(win) {
 }
 
 ipcMain.on('update-download', () => autoUpdater.downloadUpdate())
-ipcMain.on('update-install',  () => autoUpdater.quitAndInstall())
+ipcMain.on('update-install', () => {
+  // El cierre normal de la ventana es async (espera al renderer con un
+  // timer de hasta 4s, ver _requestQuit/_doQuit) — si quitAndInstall()
+  // dispara el cierre de la ventana y esta lo intercepta con
+  // preventDefault(), el instalador NSIS puede encontrar el proceso
+  // todavia vivo y mostrar "No se puede cerrar RYOKU". Para actualizar,
+  // saltamos ese flujo: avisamos al renderer (best-effort, sin esperar)
+  // y marcamos _quitting para que la ventana cierre de inmediato.
+  if (_quitTimer) { clearTimeout(_quitTimer); _quitTimer = null }
+  _quitting = true
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('save-before-quit')
+  autoUpdater.quitAndInstall()
+})
 ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates().catch((e) => { throw e }))
 
