@@ -1162,6 +1162,21 @@ function spinnerShow(v) {
   if (v) drawPlayPauseCanvas(false, true)
 }
 
+function _mostrarErrorPlayer(msg) {
+  spinnerShow(false)
+  const wrap = document.getElementById('rp-video-wrap')
+  document.getElementById('player-error-msg')?.remove()
+  if (!wrap) return
+  const el = document.createElement('div')
+  el.id = 'player-error-msg'
+  el.style.cssText = `position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;
+    background:var(--bg-2,rgba(15,23,42,0.95));border:1px solid var(--border,rgba(255,255,255,0.15));
+    border-radius:8px;padding:16px 20px;font-family:Inter,sans-serif;font-size:13px;
+    color:var(--text-1,white);text-align:center;max-width:280px;pointer-events:none`
+  el.textContent = msg
+  wrap.appendChild(el)
+}
+
 async function elegirServidor(idx) {
   const s = _servidores[idx]
   if (!s) return
@@ -1472,6 +1487,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
   const skipBtnReset = document.getElementById('rp-skip-intro')
   if (skipBtnReset) skipBtnReset._usado = false
   document.getElementById('toast-progreso')?.remove()
+  document.getElementById('player-error-msg')?.remove()
   _toastContinuarDone = false
   const fill  = document.getElementById('player-progress-fill')
   const thumb = document.getElementById('player-progress-thumb')
@@ -1493,7 +1509,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
 
   if (!resultado || !resultado.url) {
     if (window.api.clearStreamCache) await window.api.clearStreamCache(s.url)
-    spinnerShow(false)
+    _mostrarErrorPlayer('No se pudo cargar este servidor. Probá otro desde el botón de servidores.')
     return
   }
 
@@ -1571,11 +1587,24 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     hls.loadSource(url)
     hls.attachMedia(video)
     hls.on(Hls.Events.MANIFEST_PARSED, onListo)
+    let _hlsRecoverAttempts = 0
     hls.on(Hls.Events.ERROR, (_, d) => {
-      if (d.fatal && video.readyState < 2 && video.currentTime < 1) {
-        if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
-        spinnerShow(false)
+      if (!d.fatal) return
+      if (cancelado()) return
+      // Reintentar antes de rendirse — evita que un error de red/media a
+      // mitad de reproducción deje el player congelado sin ningún aviso.
+      if (_hlsRecoverAttempts < 3 && d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        _hlsRecoverAttempts++
+        hls.startLoad()
+        return
       }
+      if (_hlsRecoverAttempts < 3 && d.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        _hlsRecoverAttempts++
+        hls.recoverMediaError()
+        return
+      }
+      if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
+      _mostrarErrorPlayer('Error reproduciendo este servidor. Probá otro desde el botón de servidores.')
     })
   } else {
     // Mobile: reproducción nativa del elemento <video> (Android soporta HLS
@@ -1586,7 +1615,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     video.onerror = () => {
       if (video.currentTime > 2) return
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
-      spinnerShow(false)
+      _mostrarErrorPlayer('Error reproduciendo este servidor. Probá otro desde el botón de servidores.')
     }
     video.load()
   }
@@ -1656,6 +1685,7 @@ async function cerrarReproductor() {
   }
   if (video._progresoInterval) { clearInterval(video._progresoInterval); video._progresoInterval = null }
   video.pause(); video.src = ''
+  document.getElementById('player-error-msg')?.remove()
   if (hls) { hls.destroy(); hls = null }
   if (document.fullscreenElement || document.webkitFullscreenElement) {
     if (document.exitFullscreen) document.exitFullscreen()
@@ -2282,6 +2312,7 @@ document.addEventListener('click', e => {
 })
 
 function saltarOpening() {
+  if (!video.duration) return  // evita currentTime = NaN si aun no cargo metadata
   video.currentTime = Math.min(video.currentTime + 85, video.duration)
   const skipBtn = document.getElementById('rp-skip-intro')
   if (skipBtn) {
@@ -2292,6 +2323,7 @@ function saltarOpening() {
   }
 }
 function skipSegundo(s) {
+  if (!video.duration) return  // evita currentTime = NaN si aun no cargo metadata
   _toastContinuarDone = true
   if (_urlEpisodioActual) _toastDismissedEps.add(_urlEpisodioActual)
   document.getElementById('toast-progreso')?.remove()
