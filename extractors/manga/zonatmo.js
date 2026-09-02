@@ -173,7 +173,7 @@ module.exports = function createZonatmoSource(deps) {
         if (p.genders && p.genders.length)               p.genders.forEach(g => params.append('genders[]', g))
         if (p.exclude_genders && p.exclude_genders.length) p.exclude_genders.forEach(g => params.append('exclude_genders[]', g))
         url = this.BASE + '/biblioteca?' + params.toString()
-      } else if (query.startsWith('__seccion__')) {
+      } else if (query && query.startsWith('__seccion__')) {
         const parts = query.replace('__seccion__', '').split(':')
         const ordenMap = { likes:'likes_count', score:'score', creation:'creation', trending:'trending', alphabetic:'alphabetic' }
         const orden = ordenMap[parts[0]] || parts[0]

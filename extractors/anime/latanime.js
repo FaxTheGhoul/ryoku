@@ -240,6 +240,7 @@ async function getBiblioteca({ query, categoria, genero, emision, page } = {}) {
   let url, params = {}
   if (emision) {
     url = `${BASE}/emision`
+    if (p > 1) params.p = p
   } else if (genero?.trim()) {
     url = `${BASE}/genero/${encodeURIComponent(genero.trim())}`
     if (p > 1) params.p = p
@@ -256,7 +257,11 @@ async function getBiblioteca({ query, categoria, genero, emision, page } = {}) {
     const cat = categoria.toLowerCase().replace(/[áéíóú]/g, c => ({á:'a',é:'e',í:'i',ó:'o',ú:'u'}[c]))
     resultados = resultados.filter(r => (r.titulo + ' ' + (r.categoria||'')).toLowerCase().replace(/[áéíóú]/g, c => ({á:'a',é:'e',í:'i',ó:'o',ú:'u'}[c])).includes(cat))
   }
-  return { lista: resultados, hayMas: resultados.length >= 24 && !emision, page: p }
+  // "En emisión" SÍ pagina en el sitio (confirmado: /emision?p=2 devuelve
+  // contenido distinto con su propia paginación 1/2/3...) — antes hayMas
+  // quedaba hardcodeado en false para esta sección, así que la UI nunca
+  // ofrecía cargar la página siguiente aunque hubiera más.
+  return { lista: resultados, hayMas: resultados.length >= 24, page: p }
 }
 
 async function getAnime(url, { coverCache, jikanBuscar } = {}) {

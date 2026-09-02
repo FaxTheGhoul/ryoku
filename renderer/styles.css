@@ -3334,9 +3334,13 @@ body.is-fullscreen.player-activo .sidebar-trigger { display: none !important; }
 .cfg-panel.open { transform: translateY(0) scale(1); opacity: 1; }
 /* Overlay config — siempre en el árbol, visible solo con .is-open */
 #overlay-config { display: block; }
-#overlay-config:not(.is-open) > div:first-child { pointer-events: none !important; }
+#overlay-config:not(.is-open) { pointer-events: none !important; }
 #overlay-config:not(.is-open) .cfg-panel { pointer-events: none !important; }
-#overlay-config.is-open > div:first-child { pointer-events: all; }
+#overlay-config.is-open { pointer-events: none; }
+#overlay-config.is-open .cfg-panel { pointer-events: all; }
+/* Backdrop: solo interactivo cuando el config está abierto */
+.cfg-backdrop { position: absolute; inset: 0; pointer-events: none; }
+#overlay-config.is-open .cfg-backdrop { pointer-events: all; }
 
 .cfg-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -7315,7 +7319,11 @@ body.mobile-mode .account-online-dot {
 /* Modal de configuración: centrado en mobile.
    El overlay ya es position:fixed;inset:0, así que usamos position:absolute
    dentro de él y centramos con left/top 50% + translate. */
-body.mobile-mode #overlay-config {
+body.mobile-mode #overlay-config:not(.is-open) {
+  background: transparent !important;
+  pointer-events: none !important;
+}
+body.mobile-mode #overlay-config.is-open {
   background: rgba(0,0,0,0.55) !important;
   pointer-events: auto !important;
 }

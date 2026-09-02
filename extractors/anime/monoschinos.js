@@ -491,7 +491,11 @@ async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', 
     lista.push({ titulo, link: fullLink, imagen: _img(img) })
   })
 
-  const hayMas = !!$(`a[href*="p=${page + 1}"]`).length
+  // Number(page) por si algún día llega como string (p.ej. desde un query param
+  // sin parsear) — "page + 1" con page='2' concatena en vez de sumar
+  // ("2"+1 = "21"), buscando un link a la página 21 que nunca existe y
+  // reportando "no hay más páginas" siempre a partir de ahí.
+  const hayMas = !!$(`a[href*="p=${Number(page) + 1}"]`).length
   return { lista, hayMas }
 }
 

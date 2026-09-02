@@ -105,11 +105,11 @@ async function _syncModOverlaySrc(idOverride) {
 // ── Fuente anime ──────────────────────────────────────────────────────────
 async function _syncAnimeOverlaySrc(idOverride) {
   const id = idOverride !== undefined ? idOverride : (await window.api?.getAnimeSource?.())
-  const srcMap = { latanime: 'latanime.org', animeflv: 'animeflv.net', monoschinos: 'monoschinos.st' }
+  const srcMap = { latanime: 'latanime.org', monoschinos: 'monoschinos.st' }
   const effectiveId = id || 'latanime'
   const srcEl = document.getElementById('modcard-anime-src')
   if (srcEl) srcEl.textContent = srcMap[effectiveId] || effectiveId
-  ;['latanime','animeflv','monoschinos'].forEach(s => {
+  ;['latanime','monoschinos'].forEach(s => {
     document.getElementById('modcard-src-' + s)?.classList.toggle('activo', s === effectiveId)
   })
   // Reflect on the parent anime card too

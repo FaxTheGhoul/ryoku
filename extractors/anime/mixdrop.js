@@ -23,7 +23,17 @@ function esMediaValida(url) {
   return /\.(mp4|m3u8|webm)(\?|&|$|#|\/|:)/.test(ul) || /\.(mp4|m3u8|webm)$/.test(ul.split('?')[0])
 }
 
+// Cuántas extracciones de mixdrop hay en curso ahora mismo — todas usan la
+// misma partition ('persist:mixdrop_v3') a propósito: main.js reusa esa
+// sesión (fromPartition) para el proxy de reproducción, así que no se puede
+// aislar cada llamada en su propia partition. cleanup() sí puede evitar
+// pisarle el storage a una extracción hermana todavía en curso.
+let _activeMixdropExtractions = 0
+
 async function getStream(serverUrl) {
+  _activeMixdropExtractions++
+  let _counted = true
+  const _uncount = () => { if (_counted) { _counted = false; _activeMixdropExtractions-- } }
   return new Promise((resolve) => {
     let done = false, win = null
     let currentUrl = serverUrl
@@ -34,12 +44,19 @@ async function getStream(serverUrl) {
 
     function cleanup() {
       clearTimeout(timer)
+      _uncount()
       if (win && !win.isDestroyed()) {
         try {
           const d = win.webContents.debugger
           if (d.isAttached()) d.detach().catch(() => {})
         } catch(e) {}
-        try { win.webContents.session.clearStorageData().catch(() => {}) } catch(e) {}
+        // Solo limpiar el storage compartido si no queda otra extracción de
+        // mixdrop en curso — la partition 'persist:mixdrop_v3' es compartida,
+        // así que hacerlo mientras otra extracción sigue cargando le borraría
+        // cookies/storage que esa carga en curso todavía necesita.
+        if (_activeMixdropExtractions === 0) {
+          try { win.webContents.session.clearStorageData().catch(() => {}) } catch(e) {}
+        }
         // Pequeño delay para dejar que el debugger procese antes de destruir
         setImmediate(() => { try { if (win && !win.isDestroyed()) win.destroy() } catch(e) {} })
       }
@@ -129,6 +146,12 @@ async function getStream(serverUrl) {
         }
       })
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      // Evita que la página intente armar candidatos ICE de WebRTC (gathering
+      // de IP vía STUN) — muchos embeds de video traen scripts de tracking/anti-
+      // adblock que lo disparan, y como esta VM no resuelve stun.cloudflare.com
+      // ni los STUN de Google, spamea la consola con errores de resolución DNS
+      // sin aportar nada a la extracción del video.
+      win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
 
       // ── CDP: interceptar TODAS las requests de red ─────────────────────
       try {
@@ -164,6 +187,14 @@ async function getStream(serverUrl) {
       win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
         const u = details.url, ul = u.toLowerCase()
         if (AD_DOMAINS.some(d => ul.includes(d))) { cb({ cancel: true }); return }
+
+        // Bloquear navegación a host inválido — mismo patrón que doodstream.js:
+        // algunos mirrors arman un redirect roto tipo "https://undefined/<token>"
+        // que si se deja navegar mata la página antes de poder extraer el video.
+        try {
+          const h = new URL(u).hostname
+          if (h === 'undefined' || h === 'null' || h === '') { cb({ cancel: true }); return }
+        } catch(e) { cb({ cancel: true }); return }
 
         // Interceptar navegación principal a dominios falsos (redirect HTTP server-side)
         if (!_triedFallback && details.resourceType === 'mainFrame' && FAKE_MIXDROP.some(d => ul.includes(d))) {
@@ -225,14 +256,17 @@ async function getStream(serverUrl) {
         setTimeout(intentarExtraerJS, 5000)
       })
 
-      win.webContents.on('did-fail-load', (_, code) => { if (code === -3) return })
+      win.webContents.on('did-fail-load', (_, code) => {
+        if (code === -3) return
+        if (!done) { done = true; cleanup(); resolve(null) }
+      })
 
       const ref = getReferer(serverUrl)
       win.loadURL(serverUrl, {
         userAgent: UA,
         extraHeaders: `Referer: ${ref}\nOrigin: ${ref.slice(0, -1)}\n`
       })
-    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
+    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } else { _uncount() } }
   })
 }
 module.exports = { getStream }

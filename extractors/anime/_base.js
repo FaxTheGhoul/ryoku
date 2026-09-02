@@ -29,10 +29,40 @@ function crearWin(referer) {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
-      partition: `persist:stream_${Date.now()}`,
+      // SIN prefijo 'persist:' a propósito: esta ventana es de un solo uso
+      // (se destruye a los segundos, en extraer()) y no necesita que su cookie
+      // jar sobreviva entre llamadas — con 'persist:' cada llamada escribía una
+      // carpeta de sesión nueva a disco (Partitions/stream_<timestamp>/) que
+      // Electron nunca borra sola, así que en semanas de uso se acumulaban miles
+      // de carpetas vacías. Sin el prefijo, la partition vive solo en memoria y
+      // Electron la libera sola en cuanto se destruye la ventana.
+      partition: `stream_${Date.now()}`,
     }
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // Evita que la página intente armar candidatos ICE de WebRTC (gathering
+  // de IP vía STUN) — muchos embeds de video traen scripts de tracking/anti-
+  // adblock que lo disparan, y como esta VM no resuelve stun.cloudflare.com
+  // ni los STUN de Google, spamea la consola con errores de resolución DNS
+  // sin aportar nada a la extracción del video.
+  win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
+  // Bloquear navegaciones a hosts inválidos — algunos sitios/mirrors (p.ej.
+  // dsvplay.com, un mirror de doodstream) arman del lado del cliente un
+  // redirect con una variable de plantilla rota que termina en
+  // "https://undefined/<token>". Sin este guard, la página entera navega
+  // hacia esa URL basura, matando el contexto donde jwplayer/EXTRACT_JS
+  // hubiera encontrado la URL real del video, y generando ruido en
+  // Chromium (ERR_NAME_NOT_RESOLVED / "bad IPC message" por el tamaño
+  // del token). Bloquear la navegación deja la página original intacta
+  // para que el resto de la extracción siga intentando.
+  const _bloquearNavInvalida = (event, url) => {
+    try {
+      const h = new URL(url).hostname
+      if (h === 'undefined' || h === 'null' || h === '') event.preventDefault()
+    } catch(e) { event.preventDefault() }
+  }
+  win.webContents.on('will-navigate', _bloquearNavInvalida)
+  win.webContents.on('will-redirect', _bloquearNavInvalida)
   win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, cb) => {
     cb({ requestHeaders: {
       ...details.requestHeaders,
@@ -105,12 +135,16 @@ const EXTRACT_JS = `(function() {
 })()`
 
 // Lógica común de extracción: interceptar + DOM fallback
-function extraer(serverUrl, referer, timeout = 25000) {
+function extraer(serverUrl, referer, timeout = 25000, debugTag = null) {
   return new Promise((resolve) => {
     let done = false
     let win  = null
+    // Log opcional de diagnostico — solo cuando el llamador pasa un debugTag
+    // (los demas extractores no lo pasan, asi que su consola queda igual)
+    const dbg = debugTag ? (...a) => console.log(`[EXTRAER:${debugTag}]`, ...a) : () => {}
 
     const timer = setTimeout(() => {
+      dbg('timeout alcanzado sin resultado')
       if (!done) { done = true; cleanup(); resolve(null) }
     }, timeout)
 
@@ -131,39 +165,63 @@ function extraer(serverUrl, referer, timeout = 25000) {
 
     try {
       win = crearWin(referer)
-      interceptarVideo(win, resolver)
+      dbg('cargando:', serverUrl, '| referer:', referer)
+      interceptarVideo(win, (u) => { dbg('interceptado video:', u.substring(0, 150)); resolver(u) })
+
+      const ACTIVAR_JS = `
+        document.querySelectorAll('[class*=play],[id*=play],button').forEach(b => { try{b.click()}catch(e){} })
+        document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){}; if(v.src&&v.src.startsWith('http')) window.__foundUrl=v.src })
+        document.querySelectorAll('source').forEach(s => { if(s.src&&(s.src.includes('.mp4')||s.src.includes('.m3u8'))) window.__foundUrl=s.src })
+      `
+
+      // Recorre el frame principal Y todos sus subframes (recalculado en cada
+      // vuelta, por si un subframe se agrega mas tarde — comun en embeds que
+      // arman el iframe del player real via JS despues de cargar). Algunos
+      // proveedores (Byse/Filemoon) montan el player adentro de un <iframe>
+      // en vez del documento principal, así que EXTRACT_JS en el top frame
+      // solo no alcanza — WebFrameMain.executeJavaScript() sí puede evaluar
+      // JS en esos subframes sin importar el dominio.
+      async function intentarTodosLosFrames(intentoNum) {
+        if (done || !win || win.isDestroyed()) return null
+        let frames
+        try { frames = win.webContents.mainFrame.framesInSubtree } catch(e) { return null }
+        if (intentoNum === 1) dbg('frames en la pagina:', frames.length, frames.map(f => f.url || '(sin url)').join(' | '))
+        for (const f of frames) { try { await f.executeJavaScript(ACTIVAR_JS) } catch(e) {} }
+        for (const f of frames) {
+          if (done || !win || win.isDestroyed()) return null
+          try {
+            const u = await f.executeJavaScript(EXTRACT_JS)
+            if (u) {
+              dbg(`EXTRACT_JS (${f === win.webContents.mainFrame ? 'main' : (f.url || 'frame')}) intento ${intentoNum}:`, u)
+              return u
+            }
+          } catch(e) {}
+        }
+        return null
+      }
 
       win.webContents.on('did-finish-load', async () => {
         if (done || !win || win.isDestroyed()) return
-        // Intentar activar el player con clicks
-        win.webContents.executeJavaScript(`
-          setTimeout(() => {
-            document.querySelectorAll('[class*=play],[id*=play],button').forEach(b => { try{b.click()}catch(e){} })
-            document.querySelectorAll('video').forEach(v => { try{v.play()}catch(e){}; if(v.src&&v.src.startsWith('http')) window.__foundUrl=v.src })
-            document.querySelectorAll('source').forEach(s => { if(s.src&&(s.src.includes('.mp4')||s.src.includes('.m3u8'))) window.__foundUrl=s.src })
-          }, 1000)
-        `).catch(() => {})
+        dbg('did-finish-load, url final:', win.webContents.getURL())
 
-        await new Promise(r => setTimeout(r, 2500))
-        if (done || !win || win.isDestroyed()) return
-
-        try {
-          const url = await win.webContents.executeJavaScript(EXTRACT_JS)
-          if (url) resolver(url)
-          else if (!done) {
-            setTimeout(async () => {
-              if (done || !win || win.isDestroyed()) return
-              try {
-                const url2 = await win.webContents.executeJavaScript(EXTRACT_JS)
-                if (url2) resolver(url2)
-                else { done = true; cleanup(); resolve(null) }
-              } catch(e) { done = true; cleanup(); resolve(null) }
-            }, 1500)
+        const MAX_INTENTOS = 8 // ~2s inicial + 8x1.5s ≈ 14s, bien por debajo del timeout minimo (25s) que usan los llamadores
+        await new Promise(r => setTimeout(r, 2000))
+        for (let i = 1; i <= MAX_INTENTOS; i++) {
+          if (done || !win || win.isDestroyed()) return
+          let u = null
+          try { u = await intentarTodosLosFrames(i) } catch(e) { dbg('error en intento', i, ':', e.message) }
+          if (u) { resolver(u); return }
+          if (i === MAX_INTENTOS) {
+            dbg(`sin resultado tras ${MAX_INTENTOS} intentos en todos los frames`)
+            if (!done) { done = true; cleanup(); resolve(null) }
+            return
           }
-        } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
+          await new Promise(r => setTimeout(r, 1500))
+        }
       })
 
-      win.webContents.on('did-fail-load', (_, code) => {
+      win.webContents.on('did-fail-load', (_, code, desc, validatedURL) => {
+        dbg('did-fail-load code=', code, 'desc=', desc, 'url=', validatedURL)
         if (code === -3) return // redirect normal
         if (!done) { done = true; cleanup(); resolve(null) }
       })

@@ -60,6 +60,33 @@ app.get('/version', (_, res) => {
   })
 })
 
+// ── Proxy de imágenes (bypass hotlink protection) ────────────────────────────
+app.get('/img-proxy', async (req, res) => {
+  const { url } = req.query
+  if (!url) return res.status(400).end()
+  try {
+    const targetUrl = new URL(url)
+    const axios = require('axios')
+    const upstream = await axios.get(url, {
+      responseType: 'stream',
+      headers: {
+        'Referer':    targetUrl.origin + '/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept':     'image/webp,image/apng,image/*,*/*;q=0.8',
+      },
+      timeout: 15000,
+    })
+    const ct = upstream.headers['content-type'] || 'image/jpeg'
+    if (!ct.startsWith('image/') && !ct.startsWith('application/octet')) return res.status(403).end()
+    res.setHeader('Content-Type', ct)
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    upstream.data.pipe(res)
+  } catch(e) {
+    res.status(502).end()
+  }
+})
+
 // ── Proxy de video (para streams que validan Referer) ─────────────────────────
 app.get('/proxy', async (req, res) => {
   const { url, referer } = req.query

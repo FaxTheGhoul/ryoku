@@ -862,7 +862,6 @@ async function _mnBibCargar(reset = false) {
     if (_mnBibStatus)             params.status          = _mnBibStatus
     if (_mnBibYear)             params.year            = _mnBibYear
     if (_mnBibRate)             params.rate            = _mnBibRate
-    console.log('[_mnBibCargar] params enviados:', JSON.stringify(params))
     const lista = await window.api.buscarManga(JSON.stringify(params))
 
     if (grilla) grilla.innerHTML = ''
@@ -884,7 +883,7 @@ async function _mnBibCargar(reset = false) {
     }
     if (countEl)  countEl.textContent  = `${_mnBibTotal} mangas`
     if (pagLabel) pagLabel.textContent = `Página ${_mnBibPag}`
-    const _pageSize = _activeMangaSource === 'novelcool' ? 48 : 24
+    const _pageSize = window._activeMangaSource === 'novelcool' ? 48 : 24
     const hayMas = lista.length >= _pageSize
     if (btnPrev) btnPrev.disabled = _mnBibPag <= 1
     if (btnNext) btnNext.disabled = !hayMas
@@ -1082,7 +1081,6 @@ function mnBibNcGenero(btnEl, mode) {
 function mnBibBuscar() {
   _mnBibCargando = false  // reset por si quedó bloqueado de una búsqueda anterior
   _mnBibQuery = document.getElementById('mnbib-input')?.value.trim() || ''
-  console.log('[mnBibBuscar] query:', JSON.stringify(_mnBibQuery), '| ncGenders:', JSON.stringify(_mnBibNcGenders))
   const t = document.getElementById('mnbib-titulo')
   if (t) t.textContent = _mnBibQuery ? `Resultados: ${_mnBibQuery}` : 'Biblioteca'
   _mnBibPag = 1; _mnBibCargar(true)
@@ -1185,8 +1183,13 @@ function setFiltroManga(btn) {
 // Estado de orden y sinopsis para el detalle
 let _mdOrdenDesc = true     // true = mayor a menor (default)
 let _mdSinopsisExpandida = false
+// Token de cancelación — si el usuario navega a otro manga antes de que
+// termine getMangaDetalle de uno anterior, la respuesta vieja se descarta
+// en vez de pisar el estado/DOM del manga que se está mostrando ahora.
+let _abrirMangaToken = 0
 
 async function abrirManga(url, titulo) {
+  const miToken = ++_abrirMangaToken
   // Si hay PiP de un manga diferente → cerrarlo
   if (_pipManga && _pipManga.mangaUrl !== url) _cerrarPip()
 
@@ -1244,6 +1247,7 @@ async function abrirManga(url, titulo) {
   _actualizarEstadoCompletadoManga(url)
 
   const data = await window.api.getMangaDetalle(url, titulo)
+  if (miToken !== _abrirMangaToken) return  // el usuario ya abrió otro manga
 
   if (!data) {
     if (g('md-sinopsis-texto')) g('md-sinopsis-texto').textContent = 'Error al cargar el manga. Intenta de nuevo.'

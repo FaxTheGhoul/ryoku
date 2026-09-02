@@ -9,6 +9,7 @@ var _friendsUnsub  = null
 var _requestsUnsub = null
 var _activityUnsubs = []
 var _presenceRefs   = []
+var _connRef        = null   // ref a .info/connected (para limpiar en logout)
 var _currentTab  = 'online'
 var _friends     = []
 var _requests    = []
@@ -44,6 +45,7 @@ function _onAuthChange(user) {
 function _cleanup() {
   if (_friendsUnsub)  { _friendsUnsub();  _friendsUnsub  = null }
   if (_requestsUnsub) { _requestsUnsub(); _requestsUnsub = null }
+  if (_connRef)       { _connRef.off();   _connRef = null }
   _activityUnsubs.forEach(function(u){ u() })
   _activityUnsubs = []
   _presenceRefs.forEach(function(r){ r.off() })
@@ -55,8 +57,9 @@ function _cleanup() {
 function _setupPresence(uid) {
   if (!_rtdb) return
   var presRef = _rtdb.ref('presence/' + uid)
-  var connRef = _rtdb.ref('.info/connected')
-  connRef.on('value', function(snap) {
+  if (_connRef) _connRef.off()   // limpiar listener anterior antes de registrar uno nuevo
+  _connRef = _rtdb.ref('.info/connected')
+  _connRef.on('value', function(snap) {
     if (snap.val()) {
       presRef.onDisconnect().set({ online: false, lastSeen: firebase.database.ServerValue.TIMESTAMP })
       presRef.set({ online: true, lastSeen: firebase.database.ServerValue.TIMESTAMP })
@@ -455,7 +458,6 @@ function _initFriendsDrag() {
     dragging             = false
     win.style.transition = ''
     win.style.userSelect = ''
-    // Convertir a right/bottom y guardar
     var r    = win.getBoundingClientRect()
     var rVal = Math.max(0, window.innerWidth  - r.right)
     var bVal = Math.max(0, window.innerHeight - r.bottom)
@@ -465,33 +467,51 @@ function _initFriendsDrag() {
     win.style.bottom = bVal + 'px'
     try { localStorage.setItem('ryoku-friends-pos-v7', JSON.stringify({ right: rVal, bottom: bVal })) } catch (e) {}
   })
+
+  // ── Touch drag (mobile) ──────────────────────────────────────────────────
+  titlebar.addEventListener('touchstart', function (e) {
+    if (e.target.closest('.fw-icon-btn, .fw-hdr-btn')) return
+    var t = e.touches[0]
+    var rect  = win.getBoundingClientRect()
+    startX    = t.clientX; startY    = t.clientY
+    startLeft = rect.left; startTop  = rect.top
+    win.style.right = 'auto'; win.style.bottom = 'auto'
+    win.style.left  = startLeft + 'px'; win.style.top = startTop + 'px'
+    win.style.transition = 'none'
+    dragging = true
+  }, { passive: true })
+  document.addEventListener('touchmove', function (e) {
+    if (!dragging) return
+    var t = e.touches[0]
+    var newLeft = Math.max(0, Math.min(window.innerWidth  - win.offsetWidth,  startLeft + (t.clientX - startX)))
+    var newTop  = Math.max(0, Math.min(window.innerHeight - win.offsetHeight, startTop  + (t.clientY - startY)))
+    win.style.left = newLeft + 'px'; win.style.top = newTop + 'px'
+  }, { passive: true })
+  document.addEventListener('touchend', function () {
+    if (!dragging) return
+    dragging = false
+    win.style.transition = ''
+    var r    = win.getBoundingClientRect()
+    var rVal = Math.max(0, window.innerWidth  - r.right)
+    var bVal = Math.max(0, window.innerHeight - r.bottom)
+    win.style.left   = 'auto'; win.style.top    = 'auto'
+    win.style.right  = rVal + 'px'; win.style.bottom = bVal + 'px'
+    try { localStorage.setItem('ryoku-friends-pos-v7', JSON.stringify({ right: rVal, bottom: bVal })) } catch (e) {}
+  }, { passive: true })
 }
 
 window.addEventListener('DOMContentLoaded', function() {
   _init()
   _initFriendsDrag()
   if (window._initWindowResize) window._initWindowResize('friends-window', 240, 160, 'ryoku-friends-size-v1')
-  // Watch page-inicio class AND app-anime/app-manga style for FAB visibility
-  var pageInicio  = document.getElementById('page-inicio')
-  var appAnime    = document.getElementById('app-anime')
-  var pageMangaI  = document.getElementById('page-manga-inicio')
-  var appManga    = document.getElementById('app-manga')
-  if (pageInicio) {
-    new MutationObserver(function() { _updateFAB() })
-      .observe(pageInicio, { attributes: true, attributeFilter: ['class'] })
-  }
-  if (appAnime) {
-    new MutationObserver(function() { _updateFAB() })
-      .observe(appAnime, { attributes: true, attributeFilter: ['style'] })
-  }
-  if (pageMangaI) {
-    new MutationObserver(function() { _updateFAB() })
-      .observe(pageMangaI, { attributes: true, attributeFilter: ['class'] })
-  }
-  if (appManga) {
-    new MutationObserver(function() { _updateFAB() })
-      .observe(appManga, { attributes: true, attributeFilter: ['style'] })
-  }
+  var pageInicio = document.getElementById('page-inicio')
+  var appAnime   = document.getElementById('app-anime')
+  var pageMangaI = document.getElementById('page-manga-inicio')
+  var appManga   = document.getElementById('app-manga')
+  if (pageInicio) new MutationObserver(function() { _updateFAB() }).observe(pageInicio, { attributes: true, attributeFilter: ['class'] })
+  if (appAnime)   new MutationObserver(function() { _updateFAB() }).observe(appAnime,   { attributes: true, attributeFilter: ['style'] })
+  if (pageMangaI) new MutationObserver(function() { _updateFAB() }).observe(pageMangaI, { attributes: true, attributeFilter: ['class'] })
+  if (appManga)   new MutationObserver(function() { _updateFAB() }).observe(appManga,   { attributes: true, attributeFilter: ['style'] })
 })
 
 })();

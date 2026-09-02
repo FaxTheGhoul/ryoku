@@ -227,7 +227,19 @@ document.getElementById('btn-buscar').addEventListener('click', () => {
 let _sliderIdx = 0, _sliderTotal = 0, _sliderTimer = null
 
 
+let _appReadyFired = false
 function animarEntrada(modulo) {
+  // Notificar al proceso principal que el renderer está listo para mostrarse.
+  // Se hace aquí, justo antes de la animación, para que la ventana aparezca
+  // sincronizada con el inicio del stagger (no 6s después del did-finish-load).
+  if (!_appReadyFired) {
+    _appReadyFired = true
+    window._appReadyDone = true
+    // La ventana ya está visible (mostrada desde did-finish-load + 500ms en main.js).
+    // Llamar appReady() para señalarle a main.js que el contenido cargó → dispara _triggerSplashOpen.
+    window.api?.appReady?.()
+  }
+
   const mod = modulo || _moduloActivo || 'anime'
   const DELAY = 220   // ms entre cada elemento
   const PAUSA = 400   // ms de pantalla vacía antes de empezar
@@ -249,6 +261,15 @@ function animarEntrada(modulo) {
   ]
 
   const lista = mod === 'manga' ? selManga : selAnime
+
+  // En mobile el splash ya cubre la carga — mostrar todo de golpe sin animación
+  if (document.body.classList.contains('mobile-mode')) {
+    lista.forEach(s => {
+      const el = document.querySelector(s)
+      if (el) { el.style.visibility = ''; el.style.opacity = '' }
+    })
+    return
+  }
 
   // Ocultar todos inmediatamente
   lista.forEach(s => {

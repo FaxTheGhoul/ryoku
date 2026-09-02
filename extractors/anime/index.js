@@ -12,6 +12,7 @@ const fembed     = require('./fembed')
 const savefiles  = require('./savefiles')
 const generico    = require('./generico')
 const goodstream  = require('./goodstream')
+const filemoon    = require('./filemoon')
 
 // Inline extractor for cuevana8 player (needs cuevana referer)
 const cuevanaPlayer = {
@@ -46,7 +47,8 @@ function detectar(url) {
       u.includes('laymanlousest') || u.includes('housecardsunited') ||
       u.includes('donaldlineage') || u.includes('pickledandshuffled'))
                                                              return 'voe'
-  if (u.includes('dood') || u.includes('ds2play'))          return 'doodstream'
+  if (u.includes('dood') || u.includes('ds2play') || u.includes('dsvplay') || u.includes('dsv-play'))
+                                                             return 'doodstream'
   if (u.includes('uqload') || u.includes('uptostream') ||
       u.includes('uqload.co') || u.includes('uqload.io'))   return 'uqload'
   if (u.includes('yourupload') || u.includes('your-upload')) return 'yourupload'
@@ -55,18 +57,21 @@ function detectar(url) {
   if (u.includes('fembed'))                                  return 'fembed'
   if (u.includes('savefiles') || u.includes('save-files') ||
       u.includes('svfiles'))                                 return 'savefiles'
-  if (u.includes('dsvplay') || u.includes('dsv-play'))       return 'dsvplay'
   if (u.includes('hexload'))                                 return 'hexload'
   if (u.includes('streamwish') || u.includes('wishembed'))  return 'streamwish'
   if (u.includes('filelions') || u.includes('lion'))        return 'filelions'
   if (u.includes('goodstream') || u.includes('gscdn.cam'))  return 'goodstream'
+  // Filemoon se rebrandeo a "Byse" y rota dominios random tipo bysekoze.com
+  // (mismo patron que dsvplay/ds2play con Doodstream: el dominio visible no
+  // dice "filemoon" pero es el mismo player/CDN).
+  if (u.includes('filemoon') || u.includes('byse'))         return 'filemoon'
   if (u.includes('player.cuevana8.plus') || u.includes('cuevana8.plus/player')) return 'cuevana'
   return 'generico'
 }
 
 const EXTRACTORES = {
   mp4upload, voe, doodstream, uqload, yourupload,
-  mixdrop, streamtape, fembed, savefiles, generico, goodstream,
+  mixdrop, streamtape, fembed, savefiles, generico, goodstream, filemoon,
   dsvplay: generico, hexload: generico,
   streamwish: generico, filelions: generico,
   cuevana: cuevanaPlayer,

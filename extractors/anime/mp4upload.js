@@ -47,10 +47,18 @@ async function getStream(serverUrl) {
           nodeIntegration: false,
           contextIsolation: true,
           webSecurity: false,
-          partition: 'persist:mp4upload',
+          // Sin 'persist:' — ventana de un solo uso, no necesita disco (ver _base.js
+          // crearWin() para la explicación completa de por qué se saco el prefijo).
+          partition: `mp4upload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         }
       })
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      // Evita que la página intente armar candidatos ICE de WebRTC (gathering
+      // de IP vía STUN) — muchos embeds de video traen scripts de tracking/anti-
+      // adblock que lo disparan, y como esta VM no resuelve stun.cloudflare.com
+      // ni los STUN de Google, spamea la consola con errores de resolución DNS
+      // sin aportar nada a la extracción del video.
+      win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
 
       // Cancelar anuncios
       win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {

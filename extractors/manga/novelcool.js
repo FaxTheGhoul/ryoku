@@ -223,7 +223,6 @@ module.exports = function createNovelcoolSource(deps) {
       }
 
       let _incGenres = [], _excGenres = [], _status = '', _year = '', _rate = '', _pTitle = ''
-      let _titleFilter = ''
 
       if (query && query.startsWith('{')) {
         const p = JSON.parse(query)
@@ -305,7 +304,7 @@ module.exports = function createNovelcoolSource(deps) {
         } else {
           url = pag <= 1 ? this.BASE + '/category.html' : this.BASE + '/category/index_' + pag + '.html'
         }
-      } else if (query.startsWith('__seccion__')) {
+      } else if (query && query.startsWith('__seccion__')) {
         const parts = query.replace('__seccion__', '').split(':')
         const pag = parseInt(parts[1]) || 1
         url = pag <= 1 ? this.BASE + '/category.html' : this.BASE + '/category/index_' + pag + '.html'
@@ -452,12 +451,15 @@ module.exports = function createNovelcoolSource(deps) {
 
       if (!items || !items.length) return []
       items.forEach(m => { if (!m.imagen) m.imagen = lcCoverCache.get(m.link) || '' })
-      // Filtrar por título cuando se combinó género + texto
-      if (_titleFilter) items = items.filter(m => m.titulo.toLowerCase().includes(_titleFilter))
+      // Filtrar por título cuando se combinó género + texto. Antes esto chequeaba
+      // _titleFilter, una variable que se declaraba pero nunca se asignaba en
+      // ningún lado (el valor real vive en _pTitle) — así que este filtro y su
+      // fallback de búsqueda nunca se ejecutaban.
+      if (_pTitle) items = items.filter(m => m.titulo.toLowerCase().includes(_pTitle.toLowerCase()))
       // Si el filtro combinado dejó 0 resultados, hacer fallback a búsqueda por texto
-      if (!items.length && _titleFilter) {
+      if (!items.length && _pTitle) {
         try {
-          const _fbUrl = this.BASE + '/search/?wd=' + encodeURIComponent(_titleFilter)
+          const _fbUrl = this.BASE + '/search/?wd=' + encodeURIComponent(_pTitle)
           const _fbRes = await axios.get(_fbUrl, { headers: this.HEADERS, timeout: 8000 })
           if (_fbRes.data && !_fbRes.data.includes('Just a moment') && _fbRes.data.length > 3000) {
             const $ = require('cheerio').load(_fbRes.data)

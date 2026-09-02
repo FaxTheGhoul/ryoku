@@ -4,31 +4,46 @@ window._ryokuImgCb = function(id, dataUrl) {
   const cb = window._ryokuImgCallbacks[id]
   if (cb) { cb(dataUrl); delete window._ryokuImgCallbacks[id] }
 }
-window._ryokuLoadImgNative = function(img, url) {
-  if (img._nativeTried || !url || url.startsWith('blob:') || url.startsWith('data:')) return
+window._ryokuLoadImgNative = function(img, url, onFail) {
+  // onFail (opcional) se llama solo cuando TODOS los fallbacks fallaron de
+  // verdad — antes algunos call-sites asumían que esta función indicaba
+  // éxito/fracaso via su valor de retorno (siempre undefined), así que
+  // ocultaban la imagen apenas se llamaba, sin esperar a que el proxy/nativo
+  // termine, y nunca la volvían a mostrar aunque el fallback sí funcionara.
+  if (img._nativeTried || !url || url.startsWith('blob:') || url.startsWith('data:')) {
+    if (typeof onFail === 'function') onFail()
+    return
+  }
   img._nativeTried = true
+  function _tryNative() {
+    // 2. Fallback: Java native fetchImage (solo existe en Android)
+    if (window._nativeExtractor && window._nativeExtractor.fetchImage) {
+      const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+      window._ryokuImgCallbacks[id] = function(d) {
+        if (d) img.src = d
+        else if (typeof onFail === 'function') onFail()
+      }
+      window._nativeExtractor.fetchImage(url, id)
+    } else if (typeof onFail === 'function') {
+      onFail()
+    }
+  }
   // 1. Intentar proxy del servidor (fetch → blob, bypassa hotlink + CORS)
   const su = window.api && window.api.serverUrl
   if (su) {
     fetch(su + '/img-proxy?url=' + encodeURIComponent(url))
       .then(function(r) { return r.ok ? r.blob() : Promise.reject(r.status) })
       .then(function(blob) { img.src = URL.createObjectURL(blob) })
-      .catch(function() {
-        // 2. Fallback: Java native fetchImage
-        if (window._nativeExtractor && window._nativeExtractor.fetchImage) {
-          const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
-          window._ryokuImgCallbacks[id] = function(d) { if (d) img.src = d }
-          window._nativeExtractor.fetchImage(url, id)
-        }
-      })
+      .catch(_tryNative)
     return
   }
   // Sin servidor: Java native directo
-  if (window._nativeExtractor && window._nativeExtractor.fetchImage) {
-    const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
-    window._ryokuImgCallbacks[id] = function(d) { if (d) img.src = d }
-    window._nativeExtractor.fetchImage(url, id)
-  }
+  _tryNative()
+}
+// Helper para onerror inline: solo oculta la imagen si el fallback nativo/proxy
+// también termina fallando (en vez de ocultarla apenas se dispara el error).
+window._ryokuImgHideOnFail = function(img) {
+  _ryokuLoadImgNative(img, img.src, function() { img.style.display = 'none' })
 }
 
 // modulos/anime.js — Recientes, slider, continuar, calendario, búsqueda, player
@@ -380,7 +395,7 @@ function _continuarCard(h, progresos) {
   const epNum=h.titulo?.includes(' - Ep')?h.titulo.split(' - Ep')[1]?.trim():''
   const nombre=h.anime||h.titulo?.split(' - Ep')[0].trim()||h.titulo
   const animeUrl=h.link?.includes('/ver/')?_epLinkToAnimeUrl(h.link):(h.link||'')
-  const imgHtml=h.imagen?`<img class="ac-cont-cover" src="${h.imagen}" onerror="_ryokuLoadImgNative(this,this.src)||this.style.display='none'" />`:`<div class="ac-cont-cover-ph">${nombre.charAt(0)}</div>`
+  const imgHtml=h.imagen?`<img class="ac-cont-cover" src="${h.imagen}" onerror="_ryokuImgHideOnFail(this)" />`:`<div class="ac-cont-cover-ph">${nombre.charAt(0)}</div>`
   const capTexto = visto ? 'Visto ✓' : (epNum ? `Ep ${epNum}${tiempoTexto?' · '+tiempoTexto:''}` : 'Ver anime')
   const cardStyle=''  // layout controlado por CSS mobile
   return `<div class="ac-cont-card" ${cardStyle} data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}" data-anime-visto="${visto}" onclick="continuarClickCard(event,this)">${imgHtml}<div class="ac-cont-dots" onclick="continuarDotsClick(event,this)" data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-link="${_esc(h.link)}">⋯</div><div class="ac-cont-info"><div class="ac-cont-title">${nombre}</div><div class="ac-cont-cap">${capTexto}</div><div class="ac-cont-prog"><div class="ac-cont-prog-fill" style="width:${pct}%"></div></div><div class="ac-cont-pct">${pct>0?pct+'%':''}</div></div></div>`
@@ -754,7 +769,6 @@ async function buscar(q) {
   const grilla = document.getElementById('grilla-buscar')
   grilla.innerHTML = '<div class="loading">Buscando...</div>'
   const lista = await window.api.buscar(q, { ..._filtros, emision: _emisionActiva })
-  console.log('[BUSCAR DEBUG] q=', q, 'lista=', lista, 'length=', lista?.length)
   if (!lista.length) { grilla.innerHTML = '<div class="loading">Sin resultados.</div>'; return }
   grilla.innerHTML = _filtrarLista(lista).map(r => renderTarjeta({...r, adulto: r.adulto || _esAdulto(r)})).join('')
   checkLoadedImgs(grilla)
@@ -823,8 +837,13 @@ document.addEventListener('DOMContentLoaded', () => {
 let _paginaAnterior = 'inicio'
 const _coverCache = {}
 let _animeActual = null
+// Token de cancelación — si el usuario navega a otro anime antes de que
+// termine una carga anterior, la respuesta vieja se descarta en vez de
+// pisar el estado/DOM del anime que se está mostrando ahora.
+let _abrirAnimeToken = 0
 
 async function abrirAnime(url, titulo) {
+  const miToken = ++_abrirAnimeToken
   const activa = document.querySelector('#app-anime .pagina.activa')
   _paginaAnterior = activa ? activa.id.replace('page-','') : 'inicio'
   // Ocultar todas las páginas del app anime y mostrar page-anime
@@ -846,6 +865,7 @@ async function abrirAnime(url, titulo) {
   document.getElementById('eps-lista').innerHTML = '<div class="loading">Cargando episodios...</div>'
 
   const info = await window.api.getAnime(url)
+  if (miToken !== _abrirAnimeToken) return  // el usuario ya abrió otro anime
   portada.classList.remove('loaded')
 
   if (!info) {
@@ -873,6 +893,7 @@ async function abrirAnime(url, titulo) {
 
   _animeActual = { url, titulo: info.titulo || titulo, imagen: info.imagen || '', sinopsis: info.sinopsis || '', episodios: info.episodios }
   const esFav = await window.api.isFav(url)
+  if (miToken !== _abrirAnimeToken) return
   _actualizarEstadoFav(esFav)
   _actualizarEstadoCompletado(url)
 
@@ -896,6 +917,7 @@ async function abrirAnime(url, titulo) {
 
   const historial = await window.api.getHistorial()
   const progresos = await window.api.getTodosProgresos()
+  if (miToken !== _abrirAnimeToken) return
   const linksVistos = new Set(historial.map(h => h.link))
 
   document.getElementById('eps-lista').innerHTML = info.episodios.map(ep => {
@@ -1024,7 +1046,11 @@ let _pendingEp = null
 
 // Cache de streams pre-fetcheados: { [urlServidor]: Promise<resultado> }
 const _streamCache = {}
-const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','doodstream','streamwish','sw']
+// 'mxdrop' (sin la 'i') aparte de 'mixdrop': el botón en Monoschinos dice
+// literalmente "Mxdrop", así que 'mixdrop' solo no lo matcheaba — mismo
+// problema que ya vimos con Filemoon/Byse, el nombre visible no siempre
+// coincide con el nombre "oficial" del proveedor.
+const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','streamwish','sw','filemoon']
 const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
 
 function _preFetchServidores(lista) {
@@ -1890,6 +1916,7 @@ function _scrubTo(e) {
 _progBg.addEventListener('mousedown', e => {
   e.stopPropagation()
   _toastContinuarDone = true
+  if (_urlEpisodioActual) _toastDismissedEps.add(_urlEpisodioActual)
   document.getElementById('toast-progreso')?.remove()
   _scrubbing = true
   _progBg.style.transition = 'none'
@@ -1901,6 +1928,7 @@ _progBg.addEventListener('touchstart', e => {
   e.stopPropagation()
   e.preventDefault()
   _toastContinuarDone = true
+  if (_urlEpisodioActual) _toastDismissedEps.add(_urlEpisodioActual)
   document.getElementById('toast-progreso')?.remove()
   _scrubbing = true
   _progBg.style.transition = 'none'
@@ -2265,12 +2293,14 @@ function saltarOpening() {
 }
 function skipSegundo(s) {
   _toastContinuarDone = true
+  if (_urlEpisodioActual) _toastDismissedEps.add(_urlEpisodioActual)
   document.getElementById('toast-progreso')?.remove()
   video.currentTime = Math.max(0, Math.min(video.currentTime + s, video.duration))
 }
 
 function mostrarToastProgreso(currentTime) {
   if (_toastDismissedEps.has(_urlEpisodioActual)) return
+  if (_toastContinuarDone) return
   document.getElementById('toast-progreso')?.remove()
   const DURACION = 10000
   const toast = document.createElement('div')
@@ -2353,8 +2383,6 @@ function showControls(e) {
       if (!video.paused) {
         videoWrap.classList.remove('show-controls')
         syncSkipIntro()
-        const toast = document.getElementById('toast-progreso')
-        if (toast) { _toastContinuarDone = true; toast.remove() }
       }
     }, 3000)
   }
@@ -2365,8 +2393,6 @@ function hideControls() {
   if (!video.paused) {
     videoWrap.classList.remove('show-controls')
     syncSkipIntro()
-    const toast = document.getElementById('toast-progreso')
-    if (toast) { _toastContinuarDone = true; toast.remove() }
   }
 }
 
@@ -2428,8 +2454,6 @@ let _mouseOverControls = false
       _ctrlTimer = setTimeout(() => {
         videoWrap.classList.remove('show-controls')
         syncSkipIntro()
-        const toast = document.getElementById('toast-progreso')
-        if (toast) { _toastContinuarDone = true; toast.remove() }
       }, 2000)
     }
   })
@@ -2842,6 +2866,7 @@ document.addEventListener('keydown', e => {
     case 'KeyF':
       e.preventDefault()
       toggleFullscreenPlayer()
+      break
     case 'Escape':
       cerrarReproductor()
       break

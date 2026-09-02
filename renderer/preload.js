@@ -4,6 +4,14 @@ const { contextBridge, ipcRenderer } = require('electron')
 const _syncCfg = ipcRenderer.sendSync('cfg-sync') || {}
 contextBridge.exposeInMainWorld('__ryokuCfg', _syncCfg)
 
+// Exponer versión leyendo package.json directamente (sin IPC)
+try {
+  const _pkg = require('../package.json')
+  contextBridge.exposeInMainWorld('__ryokuVersion', _pkg.version || '')
+} catch(e) {
+  contextBridge.exposeInMainWorld('__ryokuVersion', '')
+}
+
 contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('minimize-window'),
   winDrag: (x, y) => ipcRenderer.send('win-drag', x, y),
@@ -67,6 +75,16 @@ contextBridge.exposeInMainWorld('api', {
   restoreFavs:      (lista) => ipcRenderer.invoke('restore-favs', lista),
   restoreHistorial: (lista) => ipcRenderer.invoke('restore-historial', lista),
   restoreProgresos: (datos) => ipcRenderer.invoke('restore-progresos', datos),
+  // ── Multi-fuente (crossplay sync) ───────────────────────────────────────────
+  getAllFavsFlat:   ()       => ipcRenderer.invoke('get-all-favs-flat'),
+  getAllHistFlat:   ()       => ipcRenderer.invoke('get-all-hist-flat'),
+  getAllProgFlat:   ()       => ipcRenderer.invoke('get-all-prog-flat'),
+  restoreAllFavs:  (lista)  => ipcRenderer.invoke('restore-all-favs', lista),
+  restoreAllHist:  (lista)  => ipcRenderer.invoke('restore-all-hist', lista),
+  restoreAllProg:  (datos)  => ipcRenderer.invoke('restore-all-prog', datos),
+  getAllTombstonesFlat: ()       => ipcRenderer.invoke('get-all-tombstones-flat'),
+  restoreAllTombstones: (tombs)  => ipcRenderer.invoke('restore-all-tombstones', tombs),
+  cancelGoogleAuth:     ()       => ipcRenderer.send('google-auth-cancel'),
   onSaveBeforeQuit:   (cb)  => ipcRenderer.on('save-before-quit', () => cb()),
   saveBeforeQuitDone: ()    => ipcRenderer.send('save-before-quit-done'),
 

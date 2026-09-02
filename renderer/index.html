@@ -37,8 +37,11 @@ setTimeout(function(){;(function(){
                || (performance.navigation && performance.navigation.type === 1 ? 'reload' : 'navigate')
   var _isReload = (_navType === 'reload')
 
-  // ── Leer tema y acento desde config sincrónica (expuesta por preload) ────
+  // ── Leer tema y acento (Electron: IPC sync; Android: localStorage) ──────
   var _cfg    = (typeof __ryokuCfg !== 'undefined' ? __ryokuCfg : null) || {}
+  if (!_cfg['app-modo'] && !_cfg['app-accent']) {
+    try { _cfg = JSON.parse(localStorage.getItem('ryoku-config') || '{}') } catch(e) {}
+  }
   var _modo   = _cfg['app-modo']   || 'oscuro'
   var _accent = _cfg['app-accent'] || 'blue'
   if (_modo === 'sistema') {
@@ -78,15 +81,18 @@ setTimeout(function(){;(function(){
     'transition:opacity .35s'
   sp.appendChild(blurEl)
 
-  // Canvas de animación
+  // Canvas de animación — escalar por DPR para nitidez en pantallas de alta densidad
   var cv = document.createElement('canvas')
   cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'
-  cv.width  = window.innerWidth  || 1280
-  cv.height = window.innerHeight || 800
+  var _dpr  = window.devicePixelRatio || 1
+  var _cssW = window.innerWidth  || 1280
+  var _cssH = window.innerHeight || 800
+  cv.width  = _cssW * _dpr
+  cv.height = _cssH * _dpr
   sp.appendChild(cv)
 
   // Logo CSS — gira en el compositor, nunca se congela aunque JS bloquee
-  var R = Math.min(cv.width, cv.height) * 0.1
+  var R = Math.min(_cssW, _cssH) * 0.1
   var logoEl = document.createElement('div')
   logoEl.style.cssText = [
     'position:absolute',
@@ -109,18 +115,31 @@ setTimeout(function(){;(function(){
   document.body.appendChild(sp)
 
   var ctx = cv.getContext('2d')
-  var W = cv.width, H = cv.height, cx = W/2, cy = H/2
+  ctx.scale(_dpr, _dpr)
+  var W = _cssW, H = _cssH, cx = W/2, cy = H/2
 
-  var img = new Image()
+  // (img removido — el logo usa CSS background-image, no canvas)
 
   var phase = 0, loadProgress = 0, openProgress = 0
   var _raf = null
+  var _lastTime = 0  // para delta-time (independiente de Hz del monitor)
+
+  // Duración de cada fase en segundos (tiempo real, independiente de Hz).
+  // La ventana se muestra cuando app-ready llega (contenido ya cargado),
+  // así que el rAF corre en background y la fase 1 suele estar en curso al mostrar.
+  var PHASE0_S = 2.5   // barra de progreso (invisible para el usuario en PC)
+  var PHASE1_S = 2.0   // puertas deslizándose — lo que el usuario ve al aparecer la ventana
 
   function easeOut(t){ return 1 - Math.pow(1-t, 4) }
 
   var _overlayRemoved = false
-  function draw(){
+  function draw(ts){
     _raf = requestAnimationFrame(draw)
+
+    // Delta en segundos (tope 50ms para evitar saltos en primer frame visible)
+    var dt = _lastTime ? Math.min((ts - _lastTime) / 1000, 0.05) : 0
+    _lastTime = ts
+
     ctx.clearRect(0, 0, W, H)
 
     // ── Fondo: sólido en fase 0, desvanece en fase 1 ─────────────────────
@@ -138,13 +157,14 @@ setTimeout(function(){;(function(){
       }
     }
 
-    // Avanzar fases
+    // Fase 0: avanza siempre (igual que el backup). _triggerSplashOpen() puede
+    // acelerar la transición si la app cargó antes de que termine PHASE0_S.
     if (phase === 0) {
-      loadProgress = Math.min(loadProgress + 0.0067, 1)
+      loadProgress = Math.min(loadProgress + dt / PHASE0_S, 1)
       if (loadProgress >= 1) phase = 1
     }
     if (phase === 1) {
-      openProgress = Math.min(openProgress + 0.0067, 1)
+      openProgress = Math.min(openProgress + dt / PHASE1_S, 1)
       blurEl.style.opacity = String(Math.max(0, 1 - easeOut(Math.min(openProgress * 1.8, 1))))
       if (openProgress >= 1) {
         cancelAnimationFrame(_raf)
@@ -192,32 +212,37 @@ setTimeout(function(){;(function(){
       var tProj = ((cx-W)*(-W) + cy*H) / lenSq
       var gap   = (R + 18) / Math.sqrt(lenSq)
       ctx.save()
-      ctx.strokeStyle = 'rgba('+a.rgb+','+lineAlpha+')'
-      ctx.lineWidth = 1.5; ctx.lineCap = 'round'
-      ctx.shadowColor = a.primary; ctx.shadowBlur = 10
+      ctx.lineCap = 'round'
       var t1=tProj-gap, t2=tProj+gap
-      if (t1>0){ ctx.beginPath(); ctx.moveTo(W,0); ctx.lineTo(W+t1*(-W),t1*H); ctx.stroke() }
-      if (t2<1){ ctx.beginPath(); ctx.moveTo(W+t2*(-W),t2*H); ctx.lineTo(0,H); ctx.stroke() }
+      function _drawLine(lw, alpha, blur) {
+        ctx.strokeStyle = 'rgba('+a.rgb+','+alpha+')'
+        ctx.lineWidth = lw; ctx.shadowColor = a.primary; ctx.shadowBlur = blur
+        if (t1>0){ ctx.beginPath(); ctx.moveTo(W,0); ctx.lineTo(W+t1*(-W),t1*H); ctx.stroke() }
+        if (t2<1){ ctx.beginPath(); ctx.moveTo(W+t2*(-W),t2*H); ctx.lineTo(0,H); ctx.stroke() }
+      }
+      _drawLine(8,  lineAlpha * 0.15, 0)   // halo exterior
+      _drawLine(3,  lineAlpha * 0.5,  20)  // glow medio
+      _drawLine(1.5,lineAlpha,        12)  // línea nítida
       ctx.restore()
+    }
+
+    // ── Barra de progreso (solo fase 0) ──────────────────────────────────────
+    if (phase === 0) {
+      var bW = Math.min(W * 0.18, 180), bY = cy + R + 28
+      ctx.fillStyle = 'rgba(' + a.rgb + ',0.15)'
+      ctx.fillRect(cx - bW/2, bY, bW, 3)
+      ctx.fillStyle = a.primary; ctx.shadowColor = a.primary; ctx.shadowBlur = 8
+      ctx.fillRect(cx - bW/2, bY, bW * loadProgress, 3)
+      ctx.shadowBlur = 0
+      ctx.fillStyle = 'rgba(' + a.rgb + ',0.45)'
+      ctx.font = '500 10px Inter,system-ui,sans-serif'; ctx.textAlign = 'center'
+      ctx.fillText('RYOKU', cx, bY + 18)
     }
 
     // Ocultar logo cuando arrancan las puertas
     if (phase === 1 && logoEl.style.opacity !== '0') {
       logoEl.style.transition = 'opacity 0.3s'
       logoEl.style.opacity = '0'
-    }
-
-    // ── Barra de progreso (solo en fase 0) ───────────────────────────────
-    if (phase === 0) {
-      var bW = Math.min(W*0.18, 180), bY = cy + R + 28
-      ctx.fillStyle = 'rgba('+a.rgb+',0.15)'
-      ctx.fillRect(cx-bW/2, bY, bW, 3)
-      ctx.fillStyle = a.primary; ctx.shadowColor = a.primary; ctx.shadowBlur = 8
-      ctx.fillRect(cx-bW/2, bY, bW*loadProgress, 3)
-      ctx.shadowBlur = 0
-      ctx.fillStyle = 'rgba('+a.rgb+',0.45)'
-      ctx.font = '500 10px Inter,system-ui,sans-serif'; ctx.textAlign = 'center'
-      ctx.fillText('RYOKU', cx, bY + 18)
     }
 
     // Quitar overlay después de pintar el primer frame del canvas
@@ -227,10 +252,23 @@ setTimeout(function(){;(function(){
     }
   }
 
-  img.src = 'assets/icon.png'
-  draw()
+  // Arrancar rAF inmediatamente. PHASE0_S=3s garantiza que la barra de progreso
+  // todavía esté visible cuando la ventana aparece (did-finish-load + 200ms suele
+  // ser < 3s). Si la app carga antes, _triggerSplashOpen salta directo a las puertas.
+  requestAnimationFrame(draw)
 
-  window._triggerSplashOpen = function(){}
+  // Si la app carga antes de que termine la barra, saltar directo a fase 1.
+  window._triggerSplashOpen = function() {
+    if (phase !== 0) return
+    loadProgress = 1
+    phase = 1
+  }
+
+  // Failsafe global: si algo va mal, quitar el splash a los 15s
+  setTimeout(function() {
+    var el = document.getElementById('_sp')
+    if (el) { try { el.remove() } catch(e){} document.body.classList.add('splash-done') }
+  }, 15000)
 })()}, 50) // 50ms para que el overlay pinte antes de que arranque el canvas
 </script>
   <div id="app-bg-layer"></div>
@@ -1731,21 +1769,7 @@ setTimeout(function(){;(function(){
                 </div>
               </div>
 
-              <!-- AnimeFLV -->
-              <div class="mod-overlay-card" id="modcard-src-animeflv" onclick="seleccionarFuenteAnime('animeflv')">
-                <div class="mod-overlay-badge">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </div>
-                <div class="mod-overlay-logo">
-                  <img src="assets/AnimeFLV.jpg" width="52" height="52"
-                       style="border-radius:12px;object-fit:cover;object-position:center center;display:block;flex-shrink:0"
-                       alt="AnimeFLV">
-                </div>
-                <div class="mod-overlay-info">
-                  <div class="mod-overlay-name">AnimeFLV</div>
-                  <div class="mod-overlay-src">animeflv.net</div>
-                </div>
-              </div>
+              <!-- AnimeFLV se sacó del selector: el sitio se quedó sin catálogo -->
 
               <!-- MonosChinos -->
               <div class="mod-overlay-card" id="modcard-src-monoschinos" onclick="seleccionarFuenteAnime('monoschinos')">
@@ -1774,7 +1798,7 @@ setTimeout(function(){;(function(){
   <!-- MODAL CONFIGURACIÓN -->
     <!-- CONFIGURACIÓN DRILL-DOWN -->
   <div id="overlay-config" style="position:fixed;inset:0;z-index:999;pointer-events:none">
-    <div style="position:absolute;inset:0;pointer-events:all" onclick="cerrarConfig()"></div>
+    <div class="cfg-backdrop" onclick="cerrarConfig()"></div>
     <div class="cfg-panel" style="pointer-events:all">
       <div class="cfg-header">
         <div style="display:flex;align-items:center;gap:8px">
@@ -2022,11 +2046,17 @@ setTimeout(function(){;(function(){
       document.getElementById('update-progress-wrap').style.display = 'block'
       window.api.updateDownload()
     }
-    // Mostrar versión real desde package.json
-    window.api.getAppVersion?.().then(v => {
-      const badge = document.getElementById('app-version-badge')
-      if (badge) badge.textContent = 'v' + v
-    }).catch(() => {})
+    // Mostrar versión real (síncrona vía preload)
+    ;(function() {
+      var badge = document.getElementById('app-version-badge')
+      if (!badge) return
+      var v = window.__ryokuVersion
+      if (v) { badge.textContent = 'v' + v; return }
+      // Fallback async
+      window.api.getAppVersion?.().then(function(v2) {
+        if (badge && v2) badge.textContent = 'v' + v2
+      }).catch(function() {})
+    })()
 
     window.api.onUpdateAvailable((version) => {
       document.getElementById('update-version').textContent = 'Versión ' + version + ' lista para instalar'
@@ -2042,7 +2072,6 @@ setTimeout(function(){;(function(){
       document.getElementById('update-btn').onclick = () => window.api.updateInstall()
       document.getElementById('update-progress-wrap').style.display = 'none'
     })
-    window._checkForUpdates = function() {
     window._checkForUpdates = function() {
       var btn = document.getElementById('update-check-btn')
       var status = document.getElementById('update-check-status')

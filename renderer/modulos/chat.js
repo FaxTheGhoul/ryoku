@@ -13,8 +13,9 @@ var _currentRoomId   = null
 var _msgsUnsub   = null
 var _typingUnsub = null
 var _roomsUnsub  = null
-var _convosUnsubs = []
-var _convos      = {}          // dmId -> metadata
+var _convosUnsubs    = []
+var _convosInterval  = null    // setInterval para _refreshConvoListeners
+var _convos          = {}          // dmId -> metadata
 var _rooms       = []
 var _unreadTotal = 0
 var _replyTo     = null        // { id, text, fromName }
@@ -138,14 +139,25 @@ function _onAuthChange(user) {
 }
 
 function _cleanupListeners() {
-  if (_msgsUnsub)   { _msgsUnsub();   _msgsUnsub   = null }
-  if (_typingUnsub) { _typingUnsub(); _typingUnsub = null }
-  if (_roomsUnsub)  { _roomsUnsub();  _roomsUnsub  = null }
+  if (_msgsUnsub)      { _msgsUnsub();   _msgsUnsub   = null }
+  if (_typingUnsub)    { _typingUnsub(); _typingUnsub = null }
+  if (_roomsUnsub)     { _roomsUnsub();  _roomsUnsub  = null }
+  if (_convosInterval) { clearInterval(_convosInterval); _convosInterval = null }
   _convosUnsubs.forEach(function (u) { u() })
   _convosUnsubs = []
   _convos      = {}
   _rooms       = []
   _unreadTotal = 0
+  // Los listeners de presencia (RTDB) de _listenFriendPresence() quedaban
+  // vivos despues de logout — si otra cuenta iniciaba sesion en la misma
+  // instancia de la app, seguian disparando .on('value', ...) para los
+  // amigos del usuario ANTERIOR indefinidamente (fuga de listeners +
+  // re-renders de una lista de DMs que ya no corresponde a nadie logueado).
+  Object.keys(_presenceRefs).forEach(function (uid) {
+    try { _presenceRefs[uid].off() } catch (e) {}
+  })
+  _presenceRefs    = {}
+  _friendLastSeen  = {}
 }
 
 // ─── Presence ────────────────────────────────────────────────────────────────
@@ -220,7 +232,8 @@ function _listenConvos() {
       _retries++
       setTimeout(_tryListen, 500)
     } else {
-      setInterval(_refreshConvoListeners, 15000)
+      if (_convosInterval) clearInterval(_convosInterval)
+      _convosInterval = setInterval(_refreshConvoListeners, 15000)
     }
   }
   _tryListen()
@@ -303,7 +316,13 @@ function _listenRooms() {
     .where('members', 'array-contains', _currentUser.uid)
     .orderBy('lastAt', 'desc')
     .onSnapshot(_handleRoomSnap, function () {
-      _db.collection('rooms').where('members', 'array-contains', _currentUser.uid).onSnapshot(_handleRoomSnap)
+      // Fallback sin orderBy (p.ej. si falta el índice compuesto en Firestore).
+      // Antes esto no guardaba la función de unsubscribe en ningún lado — _roomsUnsub
+      // seguía apuntando al listener primario (ya caído, porque fue el que disparó
+      // este error callback), así que el fallback quedaba corriendo para siempre sin
+      // que _cleanupListeners() pudiera cortarlo: sobrevivía a logout/login y con
+      // cada ciclo se sumaba un listener más, duplicando notificaciones de salas.
+      _roomsUnsub = _db.collection('rooms').where('members', 'array-contains', _currentUser.uid).onSnapshot(_handleRoomSnap)
     })
 }
 

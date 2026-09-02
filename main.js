@@ -8,8 +8,8 @@ const http  = require('http')
 const https = require('https')
 const extractors  = require('./extractors/anime')
 const latanime     = require('./extractors/anime/latanime')
-const animeflv     = require('./extractors/anime/animeflv')
 const monoschinos  = require('./extractors/anime/monoschinos')
+const { MIXDROP_LEGIT } = require('./extractors/anime/_base')
 
 // ── Servidor local para búsqueda con BrowserWindow (bypass Cloudflare) ──
 const _localServer = http.createServer(async (req, res) => {
@@ -21,7 +21,6 @@ const _localServer = http.createServer(async (req, res) => {
     try {
       let raw
       if (src === 'monoschinos') raw = await monoschinos.buscar(q)
-      else if (src === 'animeflv') raw = await animeflv.buscar(q)
       else raw = await latanime.getBiblioteca({ query: q })
       const data = Array.isArray(raw) ? raw : (raw?.lista || [])
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -39,7 +38,6 @@ const _localServer = http.createServer(async (req, res) => {
     try {
       let result
       if (src === 'monoschinos') result = await monoschinos.getBiblioteca({ query, genero, tipo, page })
-      else if (src === 'animeflv') result = await animeflv.getBiblioteca({ query, genero, tipo, page })
       else result = await latanime.getBiblioteca({ query, genero, tipo, page })
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result))
@@ -60,6 +58,12 @@ const _localServer = http.createServer(async (req, res) => {
 _localServer.listen(3001, '127.0.0.1', () => console.log('[local-server] puerto 3001'))
 const DiscordRPC  = require('discord-rpc')
 const { autoUpdater } = require('electron-updater')
+
+// Red de seguridad global: un error async sin capturar (p.ej. un evento
+// del autoUpdater disparando webContents.send sobre una ventana ya
+// destruida) no debe tumbar todo el proceso principal.
+process.on('uncaughtException', (err) => { console.error('[uncaughtException]', err) })
+process.on('unhandledRejection', (err) => { console.error('[unhandledRejection]', err) })
 
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
@@ -101,6 +105,12 @@ function guardarJikanCache() { try { const o={}; jikanCache.forEach((v,k)=>{o[k]
 const _buscarAnimeCache  = new Map()
 const _buscarMangaCache  = new Map()
 const _BUSCAR_TTL        = 5 * 60 * 1000  // 5 minutos
+// Cleanup periódico para evitar que los mapas crezcan sin límite en sesiones largas
+setInterval(() => {
+  const n = Date.now()
+  for (const [k,v] of _buscarAnimeCache) if (n - v.ts > _BUSCAR_TTL) _buscarAnimeCache.delete(k)
+  for (const [k,v] of _buscarMangaCache) if (n - v.ts > _BUSCAR_TTL) _buscarMangaCache.delete(k)
+}, 10 * 60 * 1000)
 
 // Ratings de MAL que indican contenido +18
 const MAL_ADULTO_RATINGS = ['Rx', 'R+'] // Rx=hentai, R+=mild nudity
@@ -206,9 +216,14 @@ try { appConfig = JSON.parse(fs.readFileSync(APP_CONFIG_FILE, 'utf8')) } catch(e
 function guardarConfig() { try { fs.writeFileSync(APP_CONFIG_FILE, JSON.stringify(appConfig)) } catch(e) {} }
 
 // ─── MULTI-SOURCE ANIME ───────────────────────────────────────────────────────
+// AnimeFLV se sacó de acá — el sitio dejó de tener catálogo (todos los animes
+// aparecían caídos), así que ya no es una fuente seleccionable. El resto del
+// código (_SRCS, _srcFromUrl, _DOMAIN_MAP más abajo) se deja intacto a propósito:
+// sigue clasificando favoritos/historial VIEJOS que ya tenían URLs de
+// animeflv.net, para no perder esos datos guardados — solo se quita la
+// posibilidad de elegirlo como fuente activa para navegar.
 const ANIME_SOURCES = {
   latanime:    { id: 'latanime',    nombre: 'Latanime',     BASE: 'https://latanime.org' },
-  animeflv:    { id: 'animeflv',    nombre: 'AnimeFLV',     BASE: 'https://www4.animeflv.net' },
   monoschinos: { id: 'monoschinos', nombre: 'MonosChinos',  BASE: 'https://monoschinos.st' }
 }
 const _savedAnimeSource  = appConfig?.['anime-source']
@@ -296,25 +311,22 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.executeJavaScript("window._RYOKU_SERVER = 'http://localhost:3001'").catch(() => {})
-    // Mostrar ventana si app-ready nunca llega (fallback)
+    // Fallback: mostrar si app-ready nunca llega (error de red, etc.)
     setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show() }, 6000)
   })
   mainWindow.on('maximize',   () => mainWindow.webContents.send('window-maximize-change', true))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-maximize-change', false))
 
   // Guardar en cloud antes de cerrar
-  let _quitReady = false
+  // Único mecanismo de cierre, compartido con el botón custom de la titlebar
+  // (ver ipcMain.on('close-window', ...) más abajo) — evita registrar un
+  // listener 'save-before-quit-done' distinto por cada intento de cierre,
+  // que antes podía disparar mainWindow.close() dos veces en la misma
+  // pasada (riesgo de "Object has been destroyed").
   mainWindow.on('close', (e) => {
-    if (_quitReady) return
+    if (_quitting) return
     e.preventDefault()
-    let _done = false
-    const _timer = setTimeout(() => {
-      if (!_done) { _done = true; _quitReady = true; mainWindow.close() }
-    }, 4000)
-    ipcMain.once('save-before-quit-done', () => {
-      if (!_done) { _done = true; clearTimeout(_timer); _quitReady = true; mainWindow.close() }
-    })
-    mainWindow.webContents.send('save-before-quit')
+    _requestQuit()
   })
 }
 
@@ -325,15 +337,26 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 ipcMain.on('minimize-window', () => mainWindow.minimize())
 ipcMain.on('win-drag', (_, x, y) => { if(mainWindow) mainWindow.setPosition(Math.round(x), Math.round(y)) })
 ipcMain.on('maximize-window', () => { if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize() })
-let _quitting = false
-ipcMain.on('close-window', () => {
+let _quitting  = false
+let _quitTimer = null
+
+// Pide al renderer que guarde antes de salir (con fallback si nunca responde).
+// Llamado tanto por el botón custom de la titlebar (close-window) como por
+// el cierre nativo de la ventana (mainWindow.on('close', ...)) — un único
+// timer/guard evita que ambos caminos disparen el cierre por duplicado.
+function _requestQuit() {
+  if (_quitting || _quitTimer) return
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('save-before-quit')
+  _quitTimer = setTimeout(_doQuit, 4000)
+}
+function _doQuit() {
   if (_quitting) return
-  mainWindow.webContents.send('save-before-quit')
-})
-ipcMain.on('save-before-quit-done', () => {
   _quitting = true
-  mainWindow.close()
-})
+  if (_quitTimer) { clearTimeout(_quitTimer); _quitTimer = null }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+}
+ipcMain.on('close-window', () => { _requestQuit() })
+ipcMain.on('save-before-quit-done', () => { _doQuit() })
 
 // ANILIST - portada
 async function getInfoAnilist(titulo) {
@@ -402,9 +425,7 @@ const _RECIENTES_TTL  = 5 * 60 * 1000
 async function _fetchRecientes(srcId) {
   try {
     let result
-    if (srcId === 'animeflv') {
-      result = await animeflv.getRecientes()
-    } else if (srcId === 'monoschinos') {
+    if (srcId === 'monoschinos') {
       result = await monoschinos.getRecientes()
     } else {
       result = await latanime.getRecientes()
@@ -416,12 +437,11 @@ async function _fetchRecientes(srcId) {
 
 // Prefetch de la fuente no activa en background
 function _prefetchOtraFuente(activeSrcId) {
-  const otra = activeSrcId === 'latanime' ? 'animeflv' : activeSrcId === 'animeflv' ? 'latanime' : null
-  if (otra) {
-    const cached = _recientesCache[otra]
-    if (!cached || Date.now() - cached.ts > _RECIENTES_TTL) {
-      setTimeout(() => _fetchRecientes(otra), 500)
-    }
+  // Solo quedan latanime y monoschinos como fuentes activas — prefetch de la otra.
+  const otra = activeSrcId === 'latanime' ? 'monoschinos' : 'latanime'
+  const cached = _recientesCache[otra]
+  if (!cached || Date.now() - cached.ts > _RECIENTES_TTL) {
+    setTimeout(() => _fetchRecientes(otra), 500)
   }
 }
 
@@ -561,14 +581,12 @@ ipcMain.handle('buscar', async (_, query, filtros = {}) => {
   if (hit && Date.now() - hit.ts < _BUSCAR_TTL) return hit.data
   try {
     const srcId = _activeAnimeSource?.id || 'latanime'
-    const data = srcId === 'animeflv'
-      ? await animeflv.buscar(query, filtros)
-      : srcId === 'monoschinos'
+    const data = srcId === 'monoschinos'
         ? await monoschinos.buscar(query, filtros)
-        : await latanime.getBiblioteca({ query, ...filtros })
+        : await latanime.buscar(query, filtros)
     _buscarAnimeCache.set(cacheKey, { data, ts: Date.now() })
     return data
-  } catch(e) { console.error('[buscar]', e.message); return { lista: [], hayMas: false, page: 1 } }
+  } catch(e) { console.error('[buscar]', e.message); return [] }
 })
 
 ipcMain.handle('get-anime-biblioteca', async (_, params = {}) => {
@@ -577,9 +595,6 @@ ipcMain.handle('get-anime-biblioteca', async (_, params = {}) => {
     const tipo = categoria || ''
     const srcId = _activeAnimeSource?.id || 'latanime'
 
-    if (srcId === 'animeflv') {
-      return await animeflv.getBiblioteca({ query, genero, tipo, page })
-    }
     if (srcId === 'monoschinos') {
       return await monoschinos.getBiblioteca({ query, genero, tipo, page })
     }
@@ -766,7 +781,10 @@ ipcMain.handle('get-servidores', async (_, url) => {
 // get-anime — delega por fuente activa
 ipcMain.handle('get-anime', async (_, url) => {
   try {
-    if (url?.includes('animeflv.net/anime/'))  return await animeflv.getAnime(url)
+    // AnimeFLV ya no es una fuente activa (sitio caído) — si queda algún
+    // favorito/historial viejo con link a animeflv.net, no hay de dónde traer
+    // sus datos actualizados.
+    if (url?.includes('animeflv.net/anime/'))  return null
     if (url?.includes('monoschinos.st/anime/')) return await monoschinos.getAnime(url)
     return await latanime.getAnime(url, { coverCache, jikanBuscar })
   } catch(e) { return null }
@@ -899,14 +917,23 @@ ipcMain.handle('get-stream', async (_, serverUrl) => {
       resultado = await extractors.getStream(serverUrl)
     }
 
-    // Transferir cookies de Mixdrop a la sesión principal para reproducción
+    // Transferir cookies de Mixdrop a la sesión que realmente las usa.
+    // Ojo: el proxy de reproducción para mxcontent.net/mxcdn.net (más abajo,
+    // en startProxyServer) pide el video con
+    // electron.session.fromPartition('persist:mixdrop_v3') — NO con
+    // session.defaultSession. Antes estas cookies recién extraídas se
+    // guardaban en defaultSession, una sesión que el proxy de Mixdrop nunca
+    // lee, así que la transferencia no tenía ningún efecto real sobre la
+    // reproducción (el renderer siempre pide estas URLs via getProxyUrl(),
+    // nunca directo con defaultSession). Se guardan ahora en la misma
+    // partition que usa el proxy.
     if (resultado?.sessionCookies?.length) {
       const { session: elSess } = require('electron')
-      const mainSess = elSess.defaultSession
+      const mixdropSess = elSess.fromPartition('persist:mixdrop_v3')
       for (const c of resultado.sessionCookies) {
         try {
           const domain = c.domain.replace(/^\./, '')
-          await mainSess.cookies.set({
+          await mixdropSess.cookies.set({
             url: `https://${domain}`, name: c.name, value: c.value,
             domain: c.domain, path: c.path || '/', secure: c.secure, httpOnly: c.httpOnly,
           })
@@ -1022,49 +1049,232 @@ const _favsD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('favs',    
 const _histD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('historial', s), [])]))
 const _progD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('progreso',  s), {})]))
 
+// ── Tombstones (borrados) ─────────────────────────────────────────────────────
+// Bug: guardarEnCloud()/cargarDesdeCloud() en sync.js mergean favoritos/
+// historial/progreso como una UNION simple entre lo local y lo que hay en la
+// nube. Eso significa que si borrás un favorito acá, la próxima vez que se
+// sincroniza, el ítem sigue estando en el doc de la nube (nadie lo borró ahí)
+// y el merge lo vuelve a traer — "resucita". Mismo problema entre dos
+// dispositivos: si lo borrás en el celular pero la PC todavía lo tiene local
+// sin sincronizar, al guardar la PC lo vuelve a subir.
+// La solución es un tombstone por ítem borrado (con timestamp) que viaja
+// junto con favs/hist/prog: el merge, antes de unir, descarta cualquier ítem
+// cuya clave tenga un tombstone. Volver a agregar el mismo ítem limpia su
+// tombstone (ver toggle-fav más abajo).
+const _tombD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('tombstones', s), { favs: {}, hist: {}, prog: {} })]))
+function _tomb(s) { s = s || _src(); if (!_tombD[s]) _tombD[s] = { favs: {}, hist: {}, prog: {} }; return _tombD[s] }
+function _saveTomb(s) { s = s || _src(); _saveJ(_srcFile('tombstones', s), _tomb(s)) }
+function _markTomb(tipo, key, s) {
+  const t = _tomb(s)
+  t[tipo][key] = Date.now()
+  _saveTomb(s)
+}
+function _clearTomb(tipo, key, s) {
+  const t = _tomb(s)
+  if (t[tipo] && key in t[tipo]) { delete t[tipo][key]; _saveTomb(s) }
+}
+
+// Migración: redistribuye ítems al archivo de su fuente correcta según URL.
+// La redistribución en memoria es inmediata (los IPC ya ven datos limpios desde
+// el primer tick). Los writes a disco se difieren con setImmediate para no
+// bloquear el startup ni la splash screen.
+;(function _migrarFuentesCruzadas() {
+  const _urlToSrc = url => {
+    if (!url) return null
+    if (url.includes('latanime.org'))  return 'latanime'
+    if (url.includes('animeflv.net'))  return 'animeflv'
+    if (url.includes('monoschinos'))   return 'monoschinos'
+    return null
+  }
+  let changed = false
+  // Favs — solo redistribuye en memoria
+  for (const src of _SRCS) {
+    const wrongItems = _favsD[src].filter(f => { const s=_urlToSrc(f.url); return s && s !== src })
+    if (!wrongItems.length) continue
+    changed = true
+    _favsD[src] = _favsD[src].filter(f => { const s=_urlToSrc(f.url); return !s || s === src })
+    for (const f of wrongItems) {
+      const dest = _urlToSrc(f.url)
+      if (!_favsD[dest]) _favsD[dest] = []
+      if (!_favsD[dest].some(x => x.url === f.url)) _favsD[dest].push(f)
+    }
+  }
+  // Historial — solo redistribuye en memoria
+  for (const src of _SRCS) {
+    const wrongItems = _histD[src].filter(h => { const s=_urlToSrc(h.link); return s && s !== src })
+    if (!wrongItems.length) continue
+    changed = true
+    _histD[src] = _histD[src].filter(h => { const s=_urlToSrc(h.link); return !s || s === src })
+    for (const h of wrongItems) {
+      const dest = _urlToSrc(h.link)
+      if (!_histD[dest]) _histD[dest] = []
+      if (!_histD[dest].some(x => x.link === h.link)) _histD[dest].unshift(h)
+    }
+  }
+  // Progreso — solo redistribuye en memoria
+  for (const src of _SRCS) {
+    const wrongKeys = Object.keys(_progD[src]).filter(link => { const s=_urlToSrc(link); return s && s !== src })
+    if (!wrongKeys.length) continue
+    changed = true
+    for (const link of wrongKeys) {
+      const dest = _urlToSrc(link)
+      if (!_progD[dest]) _progD[dest] = {}
+      if (!_progD[dest][link]) _progD[dest][link] = _progD[src][link]
+      delete _progD[src][link]
+    }
+  }
+  // Writes diferidos: no bloquean el arranque ni la splash
+  if (changed) {
+    setImmediate(() => {
+      console.log('[migración] guardando redistribución de fuentes a disco...')
+      for (const src of _SRCS) {
+        _saveJ(_srcFile('favs',      src), _favsD[src])
+        _saveJ(_srcFile('historial', src), _histD[src])
+        _saveJ(_srcFile('progreso',  src), _progD[src])
+      }
+      console.log('[migración] completada')
+    })
+  }
+})()
+
 function _src()  { return _activeAnimeSource?.id || 'latanime' }
+// Detecta la fuente por la URL del ítem (evita que un episodio se guarde bajo la fuente
+// incorrecta si el usuario cambia de fuente mientras el reproductor sigue activo)
+function _srcFromUrl(url) {
+  if (!url) return null
+  if (url.includes('latanime.org'))  return 'latanime'
+  if (url.includes('animeflv.net'))  return 'animeflv'
+  if (url.includes('monoschinos'))   return 'monoschinos'
+  return null
+}
 // Defensivo: si en el futuro se agrega otra fuente, init al vuelo
-function _favs() { const s=_src(); if(!_favsD[s]) _favsD[s]=[]; return _favsD[s] }
-function _hist() { const s=_src(); if(!_histD[s]) _histD[s]=[]; return _histD[s] }
-function _prog() { const s=_src(); if(!_progD[s]) _progD[s]={}; return _progD[s] }
-function _setF(v) { _favsD[_src()] = v; _saveJ(_srcFile('favs',      _src()), v) }
-function _setH(v) { _histD[_src()] = v; _saveJ(_srcFile('historial', _src()), v) }
-function _setP(k,v){ _prog()[k] = v; _saveJ(_srcFile('progreso',_src()), _prog()) }
-function _delP(k)  { delete _prog()[k]; _saveJ(_srcFile('progreso',_src()), _prog()) }
+function _favs(s) { s=s||_src(); if(!_favsD[s]) _favsD[s]=[]; return _favsD[s] }
+function _hist(s) { s=s||_src(); if(!_histD[s]) _histD[s]=[]; return _histD[s] }
+function _prog(s) { s=s||_src(); if(!_progD[s]) _progD[s]={}; return _progD[s] }
+function _setF(v,s) { s=s||_src(); _favsD[s] = v; _saveJ(_srcFile('favs',      s), v) }
+function _setH(v,s) { s=s||_src(); _histD[s] = v; _saveJ(_srcFile('historial', s), v) }
+function _setP(k,v,s){ s=s||_src(); _prog(s)[k] = v; _saveJ(_srcFile('progreso',s), _prog(s)) }
+function _delP(k,s)  { s=s||_src(); delete _prog(s)[k]; _saveJ(_srcFile('progreso',s), _prog(s)) }
 
 ipcMain.handle('get-favs',   ()        => _favs())
-ipcMain.handle('toggle-fav', (_, anime) => {
-  let list = [..._favs()]
-  const idx = list.findIndex(f => f.url === anime.url)
-  if (idx >= 0) list.splice(idx, 1); else list.unshift(anime)
-  _setF(list); return list
+// ── Getters multi-fuente: devuelven datos de TODAS las fuentes combinados ──────
+ipcMain.handle('get-all-favs-flat', () => _SRCS.flatMap(s => _favsD[s] || []))
+ipcMain.handle('get-all-hist-flat', () => _SRCS.flatMap(s => _histD[s] || []))
+ipcMain.handle('get-all-prog-flat', () => Object.assign({}, ..._SRCS.map(s => _progD[s] || {})))
+ipcMain.handle('get-all-tombstones-flat', () => {
+  const out = { favs: {}, hist: {}, prog: {} }
+  for (const s of _SRCS) {
+    const t = _tomb(s)
+    Object.assign(out.favs, t.favs)
+    Object.assign(out.hist, t.hist)
+    Object.assign(out.prog, t.prog)
+  }
+  return out
 })
-ipcMain.handle('is-fav', (_, url) => _favs().some(f => f.url === url))
+// Mergea tombstones entrantes (de la nube/otro dispositivo) en el store local,
+// quedándose con el timestamp más reciente por clave, y purga de favs/hist/
+// prog local cualquier ítem que ese tombstone diga que ya está borrado (así
+// un dispositivo que nunca vio el borrado también lo aplica localmente).
+ipcMain.handle('restore-all-tombstones', (_, tombs) => {
+  if (!tombs || typeof tombs !== 'object') return
+  for (const s of _SRCS) {
+    const t = _tomb(s)
+    let changed = false
+    for (const tipo of ['favs', 'hist', 'prog']) {
+      for (const [key, ts] of Object.entries(tombs[tipo] || {})) {
+        if (!t[tipo][key] || ts > t[tipo][key]) { t[tipo][key] = ts; changed = true }
+      }
+    }
+    if (changed) _saveTomb(s)
+    // Purgar ítems locales que ya tienen tombstone
+    const favsAntes = _favsD[s].length
+    _favsD[s] = _favsD[s].filter(f => !(f.url in t.favs))
+    if (_favsD[s].length !== favsAntes) _saveJ(_srcFile('favs', s), _favsD[s])
+    const histAntes = _histD[s].length
+    _histD[s] = _histD[s].filter(h => !(h.link in t.hist))
+    if (_histD[s].length !== histAntes) _saveJ(_srcFile('historial', s), _histD[s])
+    let progChanged = false
+    for (const key of Object.keys(t.prog)) {
+      if (key in _progD[s]) { delete _progD[s][key]; progChanged = true }
+    }
+    if (progChanged) _saveJ(_srcFile('progreso', s), _progD[s])
+  }
+})
+ipcMain.handle('toggle-fav', (_, anime) => {
+  const s = _srcFromUrl(anime.url) || _src()
+  let list = [..._favs(s)]
+  const idx = list.findIndex(f => f.url === anime.url)
+  if (idx >= 0) { list.splice(idx, 1); _markTomb('favs', anime.url, s) }
+  else { list.unshift(anime); _clearTomb('favs', anime.url, s) }
+  _setF(list, s); return list
+})
+ipcMain.handle('is-fav', (_, url) => _favs(_srcFromUrl(url) || _src()).some(f => f.url === url))
 
 // HISTORIAL
 ipcMain.handle('get-historial',    ()        => _hist())
 ipcMain.handle('add-historial',    (_, ep)   => {
-  let list = _hist().filter(h => h.link !== ep.link)
+  const s = _srcFromUrl(ep.link) || _src()
+  let list = _hist(s).filter(h => h.link !== ep.link)
   list.unshift(ep)
   if (list.length > 500) list = list.slice(0, 500)
-  _setH(list); return list
+  _clearTomb('hist', ep.link, s)
+  _setH(list, s); return list
 })
-ipcMain.handle('remove-historial', (_, link) => { _setH(_hist().filter(h => h.link !== link)) })
-ipcMain.handle('remove-progreso',  (_, link) => { _delP(link) })
-ipcMain.handle('clear-historial',  ()        => { _setH([]); return [] })
+ipcMain.handle('remove-historial', (_, link) => {
+  const s = _srcFromUrl(link) || _src()
+  _markTomb('hist', link, s)
+  _setH(_hist(s).filter(h => h.link !== link), s)
+})
+ipcMain.handle('remove-progreso',  (_, link) => {
+  const s = _srcFromUrl(link) || _src()
+  _markTomb('prog', link, s)
+  _delP(link, s)
+})
+ipcMain.handle('clear-historial',  ()        => {
+  const s = _src()
+  for (const h of _hist(s)) _markTomb('hist', h.link, s)
+  _setH([], s); return []
+})
 ipcMain.handle('restore-favs',     (_, lista) => { _setF(lista) })
 ipcMain.handle('restore-historial',(_, lista) => { _setH(lista) })
 ipcMain.handle('restore-progresos',(_, datos) => {
   if (!datos || typeof datos !== 'object') return
-  _progD[_src()] = datos
-  _saveJ(_srcFile('progreso', _src()), _prog())
+  const s = _src()
+  _progD[s] = datos
+  _saveJ(_srcFile('progreso', s), _prog(s))
+})
+// ── Restore multi-fuente: distribuye los ítems a la fuente correcta por URL ───
+const _DOMAIN_MAP = { latanime: 'latanime.org', animeflv: 'animeflv.net', monoschinos: 'monoschinos.st' }
+ipcMain.handle('restore-all-favs', (_, lista) => {
+  if (!Array.isArray(lista)) return
+  for (const src of _SRCS) {
+    const dom = _DOMAIN_MAP[src] || src
+    _setF(lista.filter(f => (f.url||'').includes(dom)), src)
+  }
+})
+ipcMain.handle('restore-all-hist', (_, lista) => {
+  if (!Array.isArray(lista)) return
+  for (const src of _SRCS) {
+    const dom = _DOMAIN_MAP[src] || src
+    _setH(lista.filter(h => (h.link||'').includes(dom)), src)
+  }
+})
+ipcMain.handle('restore-all-prog', (_, datos) => {
+  if (!datos || typeof datos !== 'object') return
+  for (const src of _SRCS) {
+    const dom = _DOMAIN_MAP[src] || src
+    const srcProg = Object.fromEntries(Object.entries(datos).filter(([link]) => link.includes(dom)))
+    Object.assign(_progD[src], srcProg)
+    _saveJ(_srcFile('progreso', src), _progD[src])
+  }
 })
 
 // PROGRESO DE EPISODIOS
 ipcMain.handle('set-progreso',        (_, link, currentTime, duration) => {
-  _setP(link, { currentTime, duration, porcentaje: duration > 0 ? (currentTime/duration)*100 : 0 })
+  const s = _srcFromUrl(link) || _src()
+  _setP(link, { currentTime, duration, porcentaje: duration > 0 ? (currentTime/duration)*100 : 0 }, s)
 })
-ipcMain.handle('get-progreso',        (_, link) => _prog()[link] || null)
+ipcMain.handle('get-progreso',        (_, link) => (_prog(_srcFromUrl(link) || _src()))[link] || null)
 ipcMain.handle('get-todos-progresos', ()        => _prog())
 
 ipcMain.handle('clear-stream-cache', (_, url) => {
@@ -1091,8 +1301,20 @@ function startProxyServer() {
       const referer   = parsedReq.searchParams.get('referer') || ''
       if (!target) { clientRes.writeHead(400); clientRes.end(); return }
 
-      // Mixdrop CDN requiere cookies de sesión → usar electron.net con persist:mixdrop_v3
-      const isMxCDN = target.includes('mxcontent.net') || target.includes('mxcdn.net')
+      // Validar el host del target ANTES de decidir qué credenciales/sesión
+      // usar para pedirlo. Antes esto se hacía con target.includes('mxcontent.net')
+      // sobre la URL completa como string — un host tipo
+      // "mxcontent.net.evil.com" o "evil-mxcontent.net-cdn.com" también
+      // "incluye" ese substring sin ser el dominio real, así que un target
+      // armado a propósito podía colarse en la rama que adjunta las cookies
+      // de sesión autenticadas de Mixdrop (persist:mixdrop_v3). Acá se valida
+      // el HOSTNAME real contra la lista de dominios legítimos de Mixdrop.
+      let targetHost = ''
+      try { targetHost = new URL(target).hostname.toLowerCase() } catch(e) {
+        clientRes.writeHead(400); clientRes.end(); return
+      }
+      const _hostMatch = (host, dominio) => host === dominio || host.endsWith('.' + dominio)
+      const isMxCDN = MIXDROP_LEGIT.some(d => _hostMatch(targetHost, d))
       if (isMxCDN) {
         try {
           const { net, session: elSession } = require('electron')
@@ -2157,7 +2379,12 @@ ipcMain.handle('is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.on('set-win-bg', (_, color) => {
   try { if (mainWindow && color) mainWindow.setBackgroundColor(color) } catch(e) {}
 })
-ipcMain.on('app-ready', () => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show() })
+// 'app-ready': el contenido terminó de cargar → mostrar la ventana ahora.
+// El splash ya lleva corriendo varios segundos en background; el usuario
+// verá la animación de puertas abriéndose con los animes ya cargados debajo.
+ipcMain.on('app-ready', () => {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
+})
 ipcMain.on('cfg-sync', (e) => { e.returnValue = appConfig })
 
 // ─── CONFIG HANDLERS ─────────────────────────────────────────────────────────
@@ -2193,7 +2420,10 @@ ipcMain.handle('check-nuevos-eps', async (_, items) => {
   const nuevos = []
   for (const item of items.slice(0, 10)) {
     try {
-      const src = item.url?.includes('animeflv.net') ? animeflv : latanime
+      // AnimeFLV ya no es una fuente activa — sin módulo para chequear episodios
+      // nuevos de favoritos viejos con link a animeflv.net, se saltean.
+      if (item.url?.includes('animeflv.net')) continue
+      const src = item.url?.includes('monoschinos') ? monoschinos : latanime
       const info = await src.getAnime(item.url)
       const lastEp = info?.episodios?.length ? info.episodios[info.episodios.length - 1].num : 0
       if (lastEp > (item.lastEp || 0)) nuevos.push({ ...item, newEp: lastEp })
@@ -2213,25 +2443,32 @@ autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
 
 function initUpdater(win) {
+  // La ventana puede haber sido cerrada/destruida para cuando llega un
+  // evento del updater (p.ej. checkForUpdates tarda, el usuario cierra la
+  // app antes) — sin este guard, webContents.send tira y como no hay nada
+  // capturando el evento del EventEmitter, tumbaba todo el proceso.
+  const _send = (channel, ...args) => {
+    if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
+  }
   autoUpdater.on('update-available', (info) => {
-    win.webContents.send('update-available', info.version)
+    _send('update-available', info.version)
   })
   autoUpdater.on('download-progress', (p) => {
-    win.webContents.send('update-progress', Math.round(p.percent))
+    _send('update-progress', Math.round(p.percent))
   })
   autoUpdater.on('update-downloaded', () => {
-    win.webContents.send('update-downloaded')
+    _send('update-downloaded')
   })
   autoUpdater.on('error', (e) => {
     console.error('[Updater]', e.message)
-    win.webContents.send('update-error', e.message)
+    _send('update-error', e.message)
   })
   autoUpdater.on('update-not-available', () => {
-    win.webContents.send('update-error', 'update-not-available (ya tienes la última versión)')
+    _send('update-error', 'update-not-available (ya tienes la última versión)')
   })
   // Chequear al abrir, con delay para no bloquear el splash
   setTimeout(() => autoUpdater.checkForUpdates().catch((e) => {
-    win.webContents.send('update-error', 'checkForUpdates catch: ' + e.message)
+    _send('update-error', 'checkForUpdates catch: ' + e.message)
   }), 8000)
 }
 
@@ -2241,16 +2478,39 @@ ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates().catch((e) => { throw e }))
 
 // ─── GOOGLE AUTH — abre en navegador del sistema ──────────────────────────────
+let _pendingGoogleAuthResolve = null
+// El usuario puede cerrar la pestaña del navegador del sistema (shell.openExternal)
+// sin que eso le avise a Electron de ninguna forma — no es una BrowserWindow que
+// podamos escuchar. Por eso el renderer, cuando cierra el modal de cuenta con un
+// login en curso, manda esto para destrabar el botón al toque en vez de esperar
+// el timeout de más abajo.
+ipcMain.on('google-auth-cancel', () => {
+  if (_pendingGoogleAuthResolve) _pendingGoogleAuthResolve({ error: 'cancelled' })
+})
+
 ipcMain.handle('google-auth', () => {
   return new Promise((resolve) => {
     let resolved = false
 
+    // Sin esto, si el usuario cierra la pestaña del navegador sin terminar el
+    // login (o nunca la abre) Y tampoco cierra el modal de cuenta (lo que
+    // dispara google-auth-cancel), nada llama a doResolve(): la promesa de
+    // window.api.googleAuth() en el renderer queda colgada para siempre (el
+    // botón de "Continuar con Google" se traba) y el server HTTP local sigue
+    // escuchando en su puerto sin cerrarse nunca, acumulándose con cada
+    // intento fallido. Este timeout es la red de seguridad final.
+    const TIMEOUT_MS = 5 * 60 * 1000 // 5 min — suficiente para elegir cuenta/2FA
+    const timeoutTimer = setTimeout(() => doResolve({ error: 'timeout' }), TIMEOUT_MS)
+
     function doResolve (data) {
       if (resolved) return
       resolved = true
+      clearTimeout(timeoutTimer)
+      if (_pendingGoogleAuthResolve === doResolve) _pendingGoogleAuthResolve = null
       try { server.close() } catch (e) {}
       resolve(data)
     }
+    _pendingGoogleAuthResolve = doResolve
 
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://localhost')
@@ -2307,8 +2567,9 @@ ipcMain.handle('google-auth', () => {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ idToken: idToken, accessToken: accessToken })
+      }).then(function() {
+        box.innerHTML = '<h2 class="ok">&#10003; Sesion iniciada</h2><p>Puedes cerrar esta pestana y volver a RYOKU.</p>'
       })
-      box.innerHTML = '<h2 class="ok">&#10003; Sesion iniciada</h2><p>Puedes cerrar esta pestana y volver a RYOKU.</p>'
     }).catch(function(err) {
       var code = err && err.code || 'unknown'
       fetch('/auth-result', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({error:code})})

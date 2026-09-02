@@ -23,7 +23,19 @@ function fetchPassMd5(url) {
   })
 }
 
+// Cuántas extracciones de doodstream hay en curso ahora mismo — todas
+// comparten la misma partition ('persist:dood_v4') a propósito, para no
+// perder la cookie cf_clearance de Cloudflare entre reproducciones. Antes,
+// clearCache()/clearStorageData() se ejecutaban sin mirar si había otra
+// extracción en curso sobre esa misma sesión compartida, así que la que
+// terminaba primero podía borrarle a la otra el caché/service worker que
+// todavía estaba usando (p.ej. al precargar el próximo episodio).
+let _activeDoodExtractions = 0
+
 async function getStream(serverUrl) {
+  _activeDoodExtractions++
+  let _counted = true
+  const _uncount = () => { if (_counted) { _counted = false; _activeDoodExtractions-- } }
   return new Promise((resolve) => {
     let done = false, win = null, _fetching = false, _playerReferer = 'https://doodstream.com/'
     const timer = setTimeout(() => {
@@ -32,15 +44,21 @@ async function getStream(serverUrl) {
 
     function cleanup() {
       clearTimeout(timer)
+      _uncount()
       if (win && !win.isDestroyed()) {
         // Detach CDP antes de destruir para evitar bad IPC message
         try { const d = win.webContents.debugger; if (d.isAttached()) d.detach() } catch(e) {}
-        // Limpiar serviceworkers — CF los usa para cachear; sin esto pass_md5 no se re-emite
-        try {
-          win.webContents.session.clearStorageData({
-            storages: ['appcache','indexdb','localstorage','serviceworkers']
-          }).catch(() => {})
-        } catch(e) {}
+        // Limpiar serviceworkers — CF los usa para cachear; sin esto pass_md5 no se re-emite.
+        // Solo si no queda otra extracción de doodstream en curso: la partition
+        // 'persist:dood_v4' es compartida, así que limpiar acá mientras otra
+        // extracción sigue cargando le borraría el service worker que necesita.
+        if (_activeDoodExtractions === 0) {
+          try {
+            win.webContents.session.clearStorageData({
+              storages: ['appcache','indexdb','localstorage','serviceworkers']
+            }).catch(() => {})
+          } catch(e) {}
+        }
         try { win.destroy() } catch(e) {}
       }
     }
@@ -61,6 +79,12 @@ async function getStream(serverUrl) {
         }
       })
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      // Evita que la página intente armar candidatos ICE de WebRTC (gathering
+      // de IP vía STUN) — muchos embeds de video traen scripts de tracking/anti-
+      // adblock que lo disparan, y como esta VM no resuelve stun.cloudflare.com
+      // ni los STUN de Google, spamea la consola con errores de resolución DNS
+      // sin aportar nada a la extracción del video.
+      win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
 
       // Bloquear anuncios y hostnames inválidos
       win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
@@ -146,19 +170,25 @@ async function getStream(serverUrl) {
         if (!done) { done = true; cleanup(); resolve(null) }
       })
 
-      // Limpiar caché HTTP antes de cargar — fuerza re-fetch de pass_md5
-      // No afecta cookies (cf_clearance se mantiene)
-      win.webContents.session.clearCache()
-        .catch(() => {})
-        .finally(() => {
-          if (done || !win || win.isDestroyed()) return
-          win.loadURL(serverUrl, {
-            userAgent: UA,
-            extraHeaders: 'Referer: https://doodstream.com/\nOrigin: https://doodstream.com\n'
-          })
+      // Limpiar caché HTTP antes de cargar — fuerza re-fetch de pass_md5.
+      // No afecta cookies (cf_clearance se mantiene). Solo si esta es la única
+      // extracción activa: limpiar el caché HTTP de la sesión compartida
+      // mientras otra extracción de doodstream sigue cargando le puede hacer
+      // perder recursos que esa carga en curso todavía necesita.
+      const _doLoad = () => {
+        if (done || !win || win.isDestroyed()) return
+        win.loadURL(serverUrl, {
+          userAgent: UA,
+          extraHeaders: 'Referer: https://doodstream.com/\nOrigin: https://doodstream.com\n'
         })
+      }
+      if (_activeDoodExtractions <= 1) {
+        win.webContents.session.clearCache().catch(() => {}).finally(_doLoad)
+      } else {
+        _doLoad()
+      }
 
-    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } }
+    } catch(e) { if (!done) { done = true; cleanup(); resolve(null) } else { _uncount() } }
   })
 }
 

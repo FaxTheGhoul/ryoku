@@ -490,7 +490,6 @@ public class MainActivity extends BridgeActivity {
                 ws.setUserAgentString(UA);
                 ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-                // JS que extrae el array de animes desde el data-page de Inertia
                 final String extractJs =
                     "(function(){" +
                     "try{" +
@@ -502,28 +501,17 @@ public class MainActivity extends BridgeActivity {
                     "  var props=d.props||{};" +
                     "  var list=null;" +
                     "  var KEYS=['animes','series','data','resultados'];" +
-                    "  for(var i=0;i<KEYS.length;i++){" +
-                    "    if(props[KEYS[i]]){list=props[KEYS[i]];break;}" +
-                    "  }" +
-                    "  if(!list){" +
-                    "    for(var k in props){" +
-                    "      var v=props[k];" +
-                    "      if(Array.isArray(v)||(v&&Array.isArray(v.data))){list=v;break;}" +
-                    "    }" +
-                    "  }" +
+                    "  for(var i=0;i<KEYS.length;i++){if(props[KEYS[i]]){list=props[KEYS[i]];break;}}" +
+                    "  if(!list){for(var k in props){var v=props[k];if(Array.isArray(v)||(v&&Array.isArray(v.data))){list=v;break;}}}" +
                     "  if(!list)return 'WAIT';" +
                     "  if(!Array.isArray(list)&&list.data)list=list.data;" +
                     "  if(!Array.isArray(list))return '[]';" +
                     "  var out=list.map(function(a){" +
                     "    var url=a.slug?'https://monoschinos.st/anime/'+a.slug:(a.url||a.link||'');" +
-                    "    return{" +
-                    "      titulo:a.titulo||a.name||a.title||''," +
+                    "    return{titulo:a.titulo||a.name||a.title||''," +
                     "      imagen:a.imagen||a.portada||a.cover||a.image||''," +
-                    "      url:url," +
-                    "      tipo:a.tipo||a.type||''," +
-                    "      estado:a.estado||a.status||''," +
-                    "      source:'monoschinos'" +
-                    "    };" +
+                    "      url:url,tipo:a.tipo||a.type||''," +
+                    "      estado:a.estado||a.status||'',source:'monoschinos'};" +
                     "  }).filter(function(a){return a.titulo&&a.url;});" +
                     "  return JSON.stringify(out);" +
                     "}catch(e){return 'ERR:'+e.message;}" +
@@ -533,15 +521,17 @@ public class MainActivity extends BridgeActivity {
                     @Override
                     public void onPageFinished(WebView view, String url) {
                         if (done.get()) return;
-                        // Poll hasta que Inertia renderice (max 15s, cada 500ms)
                         new Runnable() {
                             int tries = 0;
                             @Override public void run() {
                                 if (done.get()) return;
                                 view.evaluateJavascript(extractJs, result -> {
                                     if (done.get()) return;
-                                    if (result == null || result.equals("null") ||
-                                            result.equals(""WAIT"")) {
+                                    boolean isWait = result == null
+                                        || result.equals("null")
+                                        || result.equals("\"WAIT\"")
+                                        || result.startsWith("\"ERR:");
+                                    if (isWait) {
                                         if (tries++ < 30) {
                                             mainHandler.postDelayed(this, 500);
                                         } else {
@@ -549,14 +539,15 @@ public class MainActivity extends BridgeActivity {
                                         }
                                         return;
                                     }
-                                    // evaluateJavascript devuelve el string JSON-encoded
-                                    // (con comillas y escapes extra) — limpiar
+                                    // evaluateJavascript envuelve strings en comillas JSON
                                     String json = result;
-                                    if (json.startsWith(""") && json.endsWith(""")) {
+                                    if (json.length() > 1
+                                            && json.charAt(0) == '"'
+                                            && json.charAt(json.length()-1) == '"') {
                                         json = json.substring(1, json.length() - 1)
-                                            .replace("\"", """)
-                                            .replace("\\", "\")
-                                            .replace("\/", "/");
+                                            .replace("\\\"", "\"")
+                                            .replace("\\\\", "\\")
+                                            .replace("\\/", "/");
                                     }
                                     finishMc(done, callbackId, json, bg);
                                 });
@@ -566,14 +557,11 @@ public class MainActivity extends BridgeActivity {
                 });
 
                 bg.loadUrl(pageUrl);
-
-                // Timeout global: 20s
-                mainHandler.postDelayed(() ->
-                    finishMc(done, callbackId, "[]", bg), 20000);
+                mainHandler.postDelayed(() -> finishMc(done, callbackId, "[]", bg), 20000);
             });
         }
 
-        private void finishMc(AtomicBoolean done, String callbackId, String json, WebView bg) {
+                private void finishMc(AtomicBoolean done, String callbackId, String json, WebView bg) {
             if (!done.compareAndSet(false, true)) return;
             mcResultCache.put(callbackId, json);
             final WebView main = getBridge().getWebView();

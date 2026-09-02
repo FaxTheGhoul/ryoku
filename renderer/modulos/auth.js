@@ -336,6 +336,12 @@ function abrirAccountModal() {
 function cerrarAccountModal() {
   const modal = document.getElementById('account-modal')
   if (modal) modal.style.display = 'none'
+  // Si había un login con Google en curso (el usuario cerró la pestaña del
+  // navegador del sistema y volvió a la app sin terminarlo), avisarle a
+  // Electron para que corte el server local de inmediato en vez de esperar
+  // el timeout de 5 minutos — así el botón queda listo para un nuevo intento.
+  const btn = document.querySelector('.acm-google-btn')
+  if (btn && btn.disabled) window.api?.cancelGoogleAuth?.()
 }
 
 // ─── Funciones de username ────────────────────────────────────────────────────
@@ -448,18 +454,24 @@ window._cerrarAccountModal = cerrarAccountModal
 window._authLoginGoogle = async () => {
   const btn = document.querySelector('.acm-google-btn')
   if (btn) { btn.disabled = true; btn.textContent = 'Redirigiendo a Google...' }
+  let user = null
   try {
-    await loginGoogle()
+    user = await loginGoogle()
     // signInWithRedirect hace navigate — si llegamos aquí es Electron (popup)
   } catch(e) {
     console.warn('[auth] loginGoogle error', e)
-    // Restaurar botón solo si no hubo redirect (Electron)
-    if (!_currentUser) {
-      const body = document.getElementById('account-modal-body')
-      if (body) _renderModal(null)
-      const b2 = document.querySelector('.acm-google-btn')
-      if (b2) { b2.disabled = false; b2.textContent = 'Iniciar sesión con Google' }
-    }
+  }
+  // loginGoogle() atrapa sus propios errores (cancelado, sin window.api.googleAuth,
+  // fallo de OAuth, etc.) y devuelve null en vez de relanzar — así que el catch de
+  // arriba casi nunca se disparaba en Electron y el botón quedaba trabado en
+  // "Redirigiendo a Google..." para siempre. Ahora restauramos según el resultado,
+  // no solo cuando hay excepción. Si hubo un redirect real (web/Android), la
+  // página está navegando y esto no llega a importar.
+  if (!user && !_currentUser) {
+    const body = document.getElementById('account-modal-body')
+    if (body) _renderModal(null)
+    const b2 = document.querySelector('.acm-google-btn')
+    if (b2) { b2.disabled = false; b2.textContent = 'Iniciar sesión con Google' }
   }
 }
 window._authLogout = async () => { await logout() }
