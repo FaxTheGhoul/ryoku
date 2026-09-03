@@ -80,6 +80,17 @@ function interceptarVideo(win, onUrl) {
     const u  = details.url
     const ul = u.toLowerCase()
     if (AD_DOMAINS.some(d => ul.includes(d))) { cb({ cancel: true }); return }
+    // Algunos mirrors (dsvplay.com, luluvdo.com) arman del lado del cliente
+    // una URL con una variable de plantilla rota que queda como
+    // "https://undefined/<token>" -- _bloquearNavInvalida ya corta esto para
+    // navegaciones de pagina, pero un fetch/XHR/script roto hacia ese host
+    // no pasa por ahi. Sin este chequeo, cada uno de esos requests gasta
+    // varios segundos esperando la resolucion DNS (ERR_NAME_NOT_RESOLVED)
+    // antes de fallar solo.
+    try {
+      const h = new URL(u).hostname
+      if (h === 'undefined' || h === 'null' || h === '') { cb({ cancel: true }); return }
+    } catch(e) {}
     // Verificar por PATH para evitar falso positivo con mp4upload.com en el dominio
     let esVideo = false
     try {

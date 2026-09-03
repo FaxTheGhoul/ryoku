@@ -16,7 +16,7 @@ const { extraer } = require('./_base')
 async function getStream(serverUrl) {
   let referer = 'https://latanime.org/'
   try { referer = new URL(serverUrl).origin + '/' } catch(e) {}
-  const url = await extraer(serverUrl, referer, 25000)
+  const url = await extraer(serverUrl, referer, 25000, 'generico')
   if (!url) return null
   return { tipo: url.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url }
 }
