@@ -1057,7 +1057,7 @@ const _streamCache = {}
 // literalmente "Mxdrop", así que 'mixdrop' solo no lo matcheaba — mismo
 // problema que ya vimos con Filemoon/Byse, el nombre visible no siempre
 // coincide con el nombre "oficial" del proveedor.
-const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','streamwish','sw','filemoon','byse','hexload']
+const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','dsvplay','ds2play','streamwish','sw','filemoon','byse','hexload']
 const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
 
 function _preFetchServidores(lista) {
@@ -1572,7 +1572,10 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
       const ref = resultado.referer || 'https://doodstream.com/'
       url = await window.api.getProxyUrl(url, ref)
     } catch(e) {}
-  } else if (_sNombre.includes('hexload') && resultado.referer && window.api?.getProxyUrl) {
+  } else if (resultado.referer && window.api?.getProxyUrl) {
+    // Cualquier otro extractor que haya devuelto su propio Referer (hexload,
+    // dsvplay/ds2play con el dominio real de turno, futuros servidores) --
+    // sin necesitar un branch a mano por cada nombre/dominio nuevo.
     try {
       url = await window.api.getProxyUrl(url, resultado.referer)
     } catch(e) {}
