@@ -112,6 +112,18 @@ async function guardarEnCloud() {
     const cloudTomb = cloudTombDoc && typeof cloudTombDoc === 'object' ? cloudTombDoc : { favs: {}, hist: {}, prog: {} }
     // 1er arg = "local" (gana en caso de duplicado), 2do = "cloud"
     const mergedTomb = _mergeTomb(localTomb, cloudTomb)
+    // Un tombstone representa un borrado real. Si el ítem SIGUE existiendo
+    // en los datos locales ahora mismo (p.ej. un episodio que se desmarcó y
+    // se volvió a marcar como visto después), ese tombstone quedó obsoleto.
+    // _mergeTomb es pura unión y nunca "olvida" un tombstone una vez creado
+    // -- sin podar acá, un tombstone viejo de la nube se resubía a Firestore
+    // (y se reaplicaba localmente vía restoreAllTombstones más abajo) en
+    // cada guardado, borrando para siempre un progreso recién marcado por
+    // más veces que se volviera a marcar. Se descarta cualquier tombstone
+    // cuyo ítem exista en los datos locales actuales, antes de aplicar/subir.
+    for (const f of allLocalFavs) { if (f?.url) delete mergedTomb.favs[f.url] }
+    for (const h of allLocalHist) { if (h?.link) delete mergedTomb.hist[h.link] }
+    for (const link of Object.keys(allLocalProg)) delete mergedTomb.prog[link]
     let mergedFavs = _mergeFavs(allLocalFavs, allCloudFavs)
     let mergedHist = _mergeHist(allLocalHist, allCloudHist)
     // Antes esto se guardaba directo (allLocalProg) pisando el doc de cloud
@@ -226,15 +238,24 @@ async function cargarDesdeCloud() {
     const localTomb = await (window.api?.getAllTombstonesFlat?.()) || { favs: {}, hist: {}, prog: {} }
     const cloudTomb = tombDoc && typeof tombDoc === 'object' ? tombDoc : { favs: {}, hist: {}, prog: {} }
     const mergedTomb = _mergeTomb(localTomb, cloudTomb)
-    // Adoptar el merge en el store local — esto también purga de favs/hist/
-    // prog local cualquier ítem que ya esté tombstoned en otro lado.
+    // Leer los datos locales ACTUALES (todas las fuentes) antes de aplicar
+    // el merge de tombstones, para poder podarlo primero -- ver comentario
+    // largo en guardarEnCloud() sobre por qué un tombstone viejo de la nube
+    // no debe pisar para siempre un ítem que localmente sí existe ahora.
+    const allLocalFavs = await (window.api?.getAllFavsFlat?.() ?? window.api?.getFavs?.()) || []
+    const allLocalHist = await (window.api?.getAllHistFlat?.() ?? window.api?.getHistorial?.()) || []
+    const allLocalProg = await (window.api?.getAllProgFlat?.() ?? window.api?.getTodosProgresos?.()) || {}
+    for (const f of allLocalFavs) { if (f?.url) delete mergedTomb.favs[f.url] }
+    for (const h of allLocalHist) { if (h?.link) delete mergedTomb.hist[h.link] }
+    for (const link of Object.keys(allLocalProg)) delete mergedTomb.prog[link]
+    // Adoptar el merge (ya podado) en el store local — esto también purga de
+    // favs/hist/prog local cualquier ítem que sí siga borrado en otro lado.
     if (window.api?.restoreAllTombstones) await window.api.restoreAllTombstones(mergedTomb).catch(() => {})
 
     // ── Favs: merge cloud + local de TODAS las fuentes → restaurar todo ───
     // getAllFavsFlat devuelve favs de todas las fuentes; si no está disponible,
-    // getFavs devuelve solo la fuente activa (fallback).
+    // getFavs devuelve solo la fuente activa (fallback). Ya leídos arriba.
     const favDoc       = await _getDoc(user.uid, 'anime_favoritos')
-    const allLocalFavs = await (window.api?.getAllFavsFlat?.() ?? window.api?.getFavs?.()) || []
     const allCloudFavs = favDoc?.lista && Array.isArray(favDoc.lista) ? favDoc.lista : []
     let allMergedFavs = _mergeFavs(allLocalFavs, allCloudFavs)  // local gana duplicados
     allMergedFavs = allMergedFavs.filter(f => !(f?.url && mergedTomb.favs[f.url]))
@@ -248,7 +269,6 @@ async function cargarDesdeCloud() {
 
     // ── Historial: idem — todas las fuentes ───────────────────────────────
     const histDoc      = await _getDoc(user.uid, 'anime_historial')
-    const allLocalHist = await (window.api?.getAllHistFlat?.() ?? window.api?.getHistorial?.()) || []
     const allCloudHist = histDoc?.lista && Array.isArray(histDoc.lista) ? histDoc.lista : []
     let allMergedHist = _mergeHist(allLocalHist, allCloudHist)
     allMergedHist = allMergedHist.filter(h => !(h?.link && mergedTomb.hist[h.link]))
@@ -261,7 +281,6 @@ async function cargarDesdeCloud() {
 
     // ── Progreso: merge cloud + local, todas las fuentes ──────────────────
     const progDoc      = await _getDoc(user.uid, 'anime_progresos')
-    const allLocalProg = await (window.api?.getAllProgFlat?.() ?? window.api?.getTodosProgresos?.()) || {}
     const allCloudProg = progDoc?.datos && typeof progDoc.datos === 'object' ? progDoc.datos : {}
     let allMergedProg = _mergeProg(allLocalProg, allCloudProg)
     for (const link of Object.keys(mergedTomb.prog)) delete allMergedProg[link]

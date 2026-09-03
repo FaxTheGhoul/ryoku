@@ -1336,6 +1336,11 @@ ipcMain.handle('set-progreso',        (_, link, currentTime, duration) => {
   // (remove-progreso) puede revertir un episodio ya completado.
   const previo = _prog(s)[link]
   if (previo && previo.porcentaje >= 95 && nuevoPct < 95) return previo
+  // Igual que add-historial/toggle-fav: al escribir un progreso hay que
+  // limpiar cualquier tombstone de 'prog' que hubiera quedado de un borrado
+  // anterior (desmarcar visto) -- si no, el próximo sync con la nube lo
+  // vuelve a encontrar tombstoned y lo borra de nuevo (ver sync.js).
+  _clearTomb('prog', link, s)
   _setP(link, { currentTime, duration, porcentaje: nuevoPct }, s)
 })
 ipcMain.handle('get-progreso',        (_, link) => (_prog(_srcFromUrl(link) || _src()))[link] || null)
