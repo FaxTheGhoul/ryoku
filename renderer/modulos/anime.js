@@ -2842,6 +2842,11 @@ async function _animeBibCargar() {
       grilla.innerHTML = _filtrarLista(lista)
         .map(r => renderTarjeta({...r, adulto: r.adulto || _esAdulto(r)}))
         .join('')
+      // Sin este llamado, las portadas que nunca disparan load NI error (pasa
+      // con algunos hosts de imágenes de MonosChinos) se quedaban con el
+      // shimmer animando para siempre -- en una captura se ve como un cuadro
+      // negro/oscuro fijo, sin la letra de fallback ni la portada real.
+      checkLoadedImgs(grilla)
       _enriquecerEnBackground(_filtrarLista(lista), 'grilla-anime-biblioteca')
     }
 
@@ -2880,7 +2885,10 @@ async function animeBibGenero(genero) {
   if (titulo)  titulo.textContent = genero.charAt(0).toUpperCase() + genero.slice(1)
   const lista = await window.api.buscar('', { genero })
   if (!lista?.length) { if (grilla) grilla.innerHTML = '<div class="mn-loading" style="color:var(--text-muted)">Sin resultados.</div>'; return }
-  if (grilla) grilla.innerHTML = _filtrarLista(lista).map(r => renderTarjeta({...r, adulto: r.adulto || _esAdulto(r)})).join('')
+  if (grilla) {
+    grilla.innerHTML = _filtrarLista(lista).map(r => renderTarjeta({...r, adulto: r.adulto || _esAdulto(r)})).join('')
+    checkLoadedImgs(grilla)
+  }
 }
 function animeBibAplicarOrden() {
   const v = document.getElementById('anime-bib-orden')?.value || ''

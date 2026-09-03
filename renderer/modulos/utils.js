@@ -70,9 +70,23 @@ function checkLoadedImgs(container) {
   check()
   setTimeout(check, 300)
   setTimeout(check, 1500)
-  // Forzar stop del shimmer después de 5s
+  // Forzar stop del shimmer después de 5s. Antes esto solo apagaba la
+  // animación de carga (clase .loaded en el wrapper) sin tocar la <img> --
+  // si la imagen nunca termina de cargar NI tira error (se queda "colgada":
+  // pasa con algunas portadas, ej. MonosChinos, cuyo host de imágenes a
+  // veces no responde ni con error), el <img> se queda con opacity:0 para
+  // siempre y la tarjeta se ve como un cuadro negro vacío en vez de mostrar
+  // el fallback con la letra. Ahora, si a los 5s la imagen sigue sin cargar,
+  // se dispara a mano su propio onerror (imgError / imgErrorCal, el que
+  // corresponda según el tipo de tarjeta) para que al menos se vea la letra.
   setTimeout(() => {
-    container?.querySelectorAll('.tarjeta-img-wrap:not(.loaded), .cal-card-img-wrap:not(.loaded), .manga-card-img-wrap:not(.loaded), .mn-card-img-wrap:not(.loaded)').forEach(w => w.classList.add('loaded'))
+    container?.querySelectorAll('.tarjeta-img-wrap:not(.loaded), .cal-card-img-wrap:not(.loaded), .manga-card-img-wrap:not(.loaded), .mn-card-img-wrap:not(.loaded)').forEach(w => {
+      const img = w.querySelector('img')
+      if (img && !(img.complete && img.naturalWidth > 0)) {
+        try { img.onerror?.() } catch(e) {}
+      }
+      w.classList.add('loaded')
+    })
   }, 5000)
 }
 
