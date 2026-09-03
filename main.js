@@ -1325,7 +1325,18 @@ ipcMain.handle('restore-all-prog', (_, datos) => {
 // PROGRESO DE EPISODIOS
 ipcMain.handle('set-progreso',        (_, link, currentTime, duration) => {
   const s = _srcFromUrl(link) || _src()
-  _setP(link, { currentTime, duration, porcentaje: duration > 0 ? (currentTime/duration)*100 : 0 }, s)
+  const nuevoPct = duration > 0 ? (currentTime/duration)*100 : 0
+  // No pisar un episodio ya completado (>=95%, marcado a mano con el ojito o
+  // por reproduccion real) con un progreso mas bajo. Esto pasaba, por
+  // ejemplo, al reabrir/reproducir de nuevo un episodio que ya se habia
+  // marcado como visto: el intervalo de progreso real cada 15s (o el flush
+  // al cerrar el reproductor) pisaba el 100% guardado con el tiempo real de
+  // reproduccion -- mucho mas bajo -- y el episodio volvia a aparecer como
+  // "no visto" al volver a entrar. Solo un "quitar de visto" explicito
+  // (remove-progreso) puede revertir un episodio ya completado.
+  const previo = _prog(s)[link]
+  if (previo && previo.porcentaje >= 95 && nuevoPct < 95) return previo
+  _setP(link, { currentTime, duration, porcentaje: nuevoPct }, s)
 })
 ipcMain.handle('get-progreso',        (_, link) => (_prog(_srcFromUrl(link) || _src()))[link] || null)
 ipcMain.handle('get-todos-progresos', ()        => _prog())

@@ -1679,7 +1679,16 @@ window._rpFlushProgresoActual = async function () {
   if (!overlay || !overlay.classList.contains('activo')) return
   const video = document.getElementById('player-video')
   if (!video || !video.duration || !_urlEpisodioActual) return
-  try { await window.api.setProgreso(_urlEpisodioActual, video.currentTime, video.duration) } catch (e) {}
+  try {
+    // No pisar un episodio que el usuario ya marcó como visto (100%) con el
+    // tiempo real de reproducción, más bajo -- pasa si se marca "visto" a
+    // mano mientras sigue reproduciéndose y se cierra la app sin cerrar
+    // antes el reproductor: este flush corría igual y lo dejaba como no
+    // visto de nuevo al volver a abrir la app.
+    const previo = await window.api.getProgreso(_urlEpisodioActual)
+    if (previo && previo.porcentaje >= 95) return
+    await window.api.setProgreso(_urlEpisodioActual, video.currentTime, video.duration)
+  } catch (e) {}
 }
 
 async function cerrarReproductor() {

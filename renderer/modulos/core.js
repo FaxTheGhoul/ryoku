@@ -1251,4 +1251,25 @@ async function initConfig() {
   } catch(e) {}
 }
 
+// ── Fullscreen + cursor temático (Miku/Neru) ─────────────────────────────
+// #miku-cursor-fx / #neru-cursor-fx cuelgan directo de <body> (ver
+// miku.js/neru.js). La Fullscreen API del navegador solo pinta el elemento
+// que entra en pantalla completa (.rp-shell del reproductor) y sus
+// descendientes -- cualquier otra cosa colgada de <body> por fuera de ese
+// árbol deja de renderizarse aunque siga en el DOM. Como el cursor nativo
+// del sistema también está oculto en estos temas (cursor:none), el
+// resultado era un cursor completamente invisible dentro del reproductor
+// en pantalla completa. Se reubica el div dentro del elemento fullscreen
+// mientras dure, y se devuelve a <body> al salir.
+function _reubicarCursorTematicoFullscreen() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.body
+  ;['miku-cursor-fx', 'neru-cursor-fx'].forEach(id => {
+    const el = document.getElementById(id)
+    if (el && el.parentNode !== fsEl) fsEl.appendChild(el)
+  })
+}
+document.addEventListener('fullscreenchange', _reubicarCursorTematicoFullscreen)
+document.addEventListener('webkitfullscreenchange', _reubicarCursorTematicoFullscreen)
+window._reubicarCursorTematicoFullscreen = _reubicarCursorTematicoFullscreen
+
 initConfig()

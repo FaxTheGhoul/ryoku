@@ -78,6 +78,11 @@
     cursorEl.id = 'neru-cursor-fx'
     cursorEl.setAttribute('aria-hidden', 'true')
     document.body.appendChild(cursorEl)
+    // Si ya estábamos en pantalla completa (p.ej. se cambió de tema con el
+    // reproductor fullscreen abierto), reubicar de una dentro del elemento
+    // fullscreen -- si no, hasta el próximo fullscreenchange quedaría
+    // colgado de <body> e invisible (ver core.js).
+    if (typeof window._reubicarCursorTematicoFullscreen === 'function') window._reubicarCursorTematicoFullscreen()
     return cursorEl
   }
 
