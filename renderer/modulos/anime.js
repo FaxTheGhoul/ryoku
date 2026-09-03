@@ -1259,8 +1259,14 @@ async function elegirServidor(idx) {
     return
   }
 
-  // Éxito — cerrar selector y abrir player
-  document.getElementById('overlay-servidor').classList.remove('activo')
+  // Éxito — el link del servidor sirvió, pero eso no garantiza que el video
+  // arranque de verdad (streams "muertos", geo-bloqueados, etc.). En vez de
+  // abrir el player ya mismo, se prepara todo en segundo plano (el overlay
+  // del player sigue oculto por CSS) y el selector se queda a la vista con
+  // el botón en "checking" -- recién se abre el player cuando reproducir()
+  // confirma que el video realmente puede reproducirse (ver onListo más
+  // abajo). Si falla, _volverASelectorTrasFallo() nunca tuvo que cerrar nada
+  // visible: el usuario no llega a ver el player roto ni por un instante.
   // Si hay episodio pendiente (cambio desde el player), confirmar ahora
   if (_pendingEp) {
     _urlEpisodioActual = _pendingEp.url
@@ -1271,8 +1277,6 @@ async function elegirServidor(idx) {
     if (_vid) _vid.src = ''
   }
   _idxActivo = idx
-  const overlay = document.getElementById('overlay-player')
-  overlay.classList.add('activo')
   if (window._chatUpdateFAB) window._chatUpdateFAB()
   spinnerShow(true)
   initCanvasControls()
@@ -1572,6 +1576,11 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
 
   const _isMobilePlayer = document.body.classList.contains('mobile-mode')
   const onListo = async () => {
+    // Recién acá se confirmó que el video arranca de verdad -- mostrar el
+    // player (si todavía no estaba, p.ej. viniendo de elegirServidor) y
+    // asegurar que el selector quede cerrado.
+    document.getElementById('overlay-servidor')?.classList.remove('activo')
+    document.getElementById('overlay-player')?.classList.add('activo')
     if (!_isMobilePlayer) spinnerShow(false) // desktop: ocultar en canplay
     // mobile: ocultar spinner y mostrar video cuando hay frame real (timeupdate)
     if (_isMobilePlayer) {
