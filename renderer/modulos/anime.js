@@ -170,7 +170,7 @@ async function cargarRecientes(onDone) {
       return `
       <div class="tarjeta" onclick="abrirAnime('${_esc(animeUrl)}','${_esc(ep.titulo)}')">
         <div class="play-overlay">▶</div>
-        <div class="tarjeta-img-wrap tarjeta-ep" data-letra="${letra}">${imgHtml}
+        <div class="tarjeta-img-wrap tarjeta-ep${tieneImg ? '' : ' loaded'}" data-letra="${letra}">${imgHtml}
           ${_isMobileCards ? '<div class="tarjeta-badge-nuevo">★ NUEVO</div>' : ''}
         </div>
         <div class="tarjeta-info">
@@ -197,7 +197,7 @@ async function cargarRecientes(onDone) {
     const rankColor = _rankColors[idx] || '#6b7280'
     return `
     <div class="tarjeta tarjeta-serie" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">
-      <div class="tarjeta-img-wrap tarjeta-serie-cover" data-letra="${letra}">
+      <div class="tarjeta-img-wrap tarjeta-serie-cover${tieneImg ? '' : ' loaded'}" data-letra="${letra}">
         ${tieneImg
           ? `<img src="${s.imagen}" onload="imgLoaded(this)" onerror="imgError(this)" />`
           : `<div class="tarjeta-letra-grande">${letra}</div>`}
@@ -625,7 +625,7 @@ function _historialPortadaCard(h, progresos) {
     data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}"
     data-anime-visto="${visto}" onclick="continuarClickAnime(this)">
     <div class="play-overlay">▶</div>
-    <div class="tarjeta-img-wrap" data-letra="${letra}">${imgHtml}${progBar}</div>
+    <div class="tarjeta-img-wrap${h.imagen ? '' : ' loaded'}" data-letra="${letra}">${imgHtml}${progBar}</div>
     <div class="tarjeta-info"><div class="tarjeta-titulo">${nombre}</div></div>
   </div>`
 }
@@ -717,7 +717,7 @@ function selCalDia(dia) {
       : `<div class="cal-card-img-placeholder">${letra}</div>`
     return `<div class="cal-card" onclick="abrirAnime('${a.link}','${_esc(a.titulo)}')">
       ${esHoy ? '<div class="cal-card-live">● EN VIVO</div>' : ''}
-      <div class="cal-card-img-wrap" data-letra="${letra}">${imgHtml}</div>
+      <div class="cal-card-img-wrap${a.imagen ? '' : ' loaded'}" data-letra="${letra}">${imgHtml}</div>
       <div class="cal-card-info">
         <div class="cal-card-titulo">${a.titulo}</div>
         <div class="cal-card-meta">
@@ -2737,7 +2737,7 @@ function renderTarjeta(r) {
     data-titulo="${r.titulo.replace(/"/g,'&quot;')}">
     <div class="play-overlay">▶</div>
     ${badge18}
-    <div class="tarjeta-img-wrap${esAdulto ? ' adulto-img' : ''}" data-letra="${letra}">${imgHtml}</div>
+    <div class="tarjeta-img-wrap${esAdulto ? ' adulto-img' : ''}${r.imagen ? '' : ' loaded'}" data-letra="${letra}">${imgHtml}</div>
     <div class="tarjeta-info">
       <div class="tarjeta-titulo">${r.titulo}</div>
       <div class="tarjeta-meta">${catBadge}${anio}${scoreBadge}</div>
