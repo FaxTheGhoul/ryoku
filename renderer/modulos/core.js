@@ -321,7 +321,7 @@ const BG_GRADIENTS = {
   // manual propio guardado (_appBgPosition/_appBgScale) — si el usuario
   // ajusta el encuadre después, eso sigue mandando como siempre.
   neru:       { nombre: 'Akita Neru', css: "url('assets/neru-bg.jpg')", posDefault: '48.3% 55%', scaleDefault: 1 },
-  berserker:  { nombre: 'Berserker',  css: "url('assets/berserker-bg.png')", posDefault: '50% 50%', scaleDefault: 1 },
+  berserker:  { nombre: 'Berserker',  css: "url('assets/berserker-bg.jpg')", posDefault: '50% 50%', scaleDefault: 1 },
 }
 
 // ── Temas completos (presets curados) ─────────────────────────────────────
