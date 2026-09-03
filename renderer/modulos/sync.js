@@ -126,7 +126,7 @@ async function guardarEnCloud() {
     ;({ favs: mergedFavs, hist: mergedHist, prog: mergedProg } = _aplicarTomb(mergedFavs, mergedHist, mergedProg, mergedTomb))
 
     // Configuración
-    const cfgKeys = ['app-modo', 'app-accent', 'app-18', 'sidebar-autohide']
+    const cfgKeys = ['app-modo', 'app-accent', 'app-18', 'sidebar-autohide', 'app-accent-custom-hex', 'app-corners', 'app-densidad', 'app-glass', 'app-bg-gradient', 'app-bg-mode', 'app-bg-blur', 'app-bg-position', 'app-bg-scale', 'sidebar-neon', 'neon-intensidad', 'app-tema-id', 'app-miku-sonido']
     const cfgData = {}
     const cfgObj = cfg || {}
     for (const k of cfgKeys) { if (cfgObj[k] !== undefined) cfgData[k] = cfgObj[k] }
@@ -278,7 +278,7 @@ async function cargarDesdeCloud() {
     // ── Configuración ──────────────────────────────────────────────────────
     const cfgDoc = await _getDoc(user.uid, 'config')
     if (cfgDoc?.data) {
-      const claves = ['app-modo', 'app-accent', 'app-18', 'sidebar-autohide']
+      const claves = ['app-modo', 'app-accent', 'app-18', 'sidebar-autohide', 'app-accent-custom-hex', 'app-corners', 'app-densidad', 'app-glass', 'app-bg-gradient', 'app-bg-mode', 'app-bg-blur', 'app-bg-position', 'app-bg-scale', 'sidebar-neon', 'neon-intensidad', 'app-tema-id', 'app-miku-sonido']
       for (const k of claves) {
         if (cfgDoc.data[k] !== undefined) await window.api?.configSet?.(k, cfgDoc.data[k])
       }
@@ -292,6 +292,65 @@ async function cargarDesdeCloud() {
       if (d['app-accent'] !== undefined && typeof setAppAccent === 'function') {
         const _orig = window._syncGuardar; window._syncGuardar = null
         setAppAccent(d['app-accent'])
+        window._syncGuardar = _orig
+      }
+      // Acento personalizado: si llegó como 'custom', re-aplicar con el hex sincronizado
+      if (d['app-accent'] === 'custom' && d['app-accent-custom-hex'] !== undefined && typeof setAppAccentCustom === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setAppAccentCustom(d['app-accent-custom-hex'])
+        window._syncGuardar = _orig
+      }
+      if (d['sidebar-neon'] !== undefined && typeof setSidebarNeon === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setSidebarNeon(!!d['sidebar-neon'])
+        window._syncGuardar = _orig
+      }
+      if (d['neon-intensidad'] !== undefined && typeof setNeonIntensidad === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setNeonIntensidad(d['neon-intensidad'])
+        window._syncGuardar = _orig
+      }
+      if (d['app-corners'] !== undefined && typeof setAppCorners === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setAppCorners(d['app-corners'])
+        window._syncGuardar = _orig
+      }
+      if (d['app-densidad'] !== undefined && typeof setAppDensidad === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setAppDensidad(d['app-densidad'])
+        window._syncGuardar = _orig
+      }
+      if (d['app-glass'] !== undefined && typeof setAppGlass === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setAppGlass(!!d['app-glass'])
+        window._syncGuardar = _orig
+      }
+      if (d['app-tema-id'] !== undefined) {
+        document.body.dataset.temaId = d['app-tema-id'] || ''
+        document.querySelectorAll('.cfg-preset-btn').forEach(b => b.classList.toggle('activo', b.dataset.preset === d['app-tema-id']))
+        if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(d['app-tema-id'])
+        if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(d['app-tema-id'])
+      }
+      if (d['app-miku-sonido'] !== undefined && typeof setMikuSonido === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setMikuSonido(!!d['app-miku-sonido'])
+        const _cfgMikuSonido = document.getElementById('cfg-tog-miku-sonido')
+        if (_cfgMikuSonido) _cfgMikuSonido.checked = !!d['app-miku-sonido']
+        window._syncGuardar = _orig
+      }
+      if (d['app-bg-gradient'] !== undefined && d['app-bg-mode'] === 'gradiente' && typeof setBgGradiente === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setBgGradiente(d['app-bg-gradient'])
+        window._syncGuardar = _orig
+      }
+      if (d['app-bg-blur'] !== undefined && typeof setBgBlur === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setBgBlur(!!d['app-bg-blur'])
+        window._syncGuardar = _orig
+      }
+      if ((d['app-bg-position'] !== undefined || d['app-bg-scale'] !== undefined) && typeof setBgEncuadre === 'function') {
+        const _orig = window._syncGuardar; window._syncGuardar = null
+        setBgEncuadre(d['app-bg-position'], d['app-bg-scale'])
         window._syncGuardar = _orig
       }
       // setConfig18 llama cargarRecientes() — aplicar directamente sin ese efecto
@@ -384,9 +443,17 @@ function initSync() {
   }, 200)
 
   // Guardar al cerrar la app
-  window.api?.onSaveBeforeQuit?.(() => {
+  window.api?.onSaveBeforeQuit?.(async () => {
     const overlay = document.getElementById('ryoku-quit-overlay')
     if (overlay) overlay.classList.add('visible')
+    // Si hay un episodio reproduciéndose, guardar su avance exacto ANTES que
+    // nada — sin esto, cerrar la app (no el reproductor) a mitad de un
+    // episodio podía perder hasta ~15s de avance (lo que tardaba el
+    // intervalo periódico en tickear de nuevo), y ese progreso viejo era
+    // encima lo que se subía a la nube en el paso siguiente.
+    if (typeof window._rpFlushProgresoActual === 'function') {
+      try { await window._rpFlushProgresoActual() } catch (e) {}
+    }
     if (_getUser()) {
       guardarEnCloud().finally(() => window.api?.saveBeforeQuitDone?.())
     } else {

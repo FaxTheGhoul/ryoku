@@ -7,6 +7,9 @@
   <title>RYOKU</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js" defer></script>
   <link rel="stylesheet" href="styles.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.44.0/dist/tabler-icons.min.css" media="print" onload="this.media='all'"/>
   <style>
     body.mobile-mode .tarjeta-img-wrap::after { display: none !important; }
@@ -62,6 +65,8 @@ setTimeout(function(){;(function(){
     cyan:   { primary:'#0891B2', rgb:'8,145,178'   },
     gold:   { primary:'#D97706', rgb:'217,119,6'   },
     pink:   { primary:'#DB2777', rgb:'219,39,119'  },
+    miku:   { primary:'#39C5BB', rgb:'57,197,187'  },
+    neru:   { primary:'#F2A30E', rgb:'242,163,14'  },
   }
   var m = MODOS[_modo]     || MODOS.oscuro
   var a = ACCENTS[_accent] || ACCENTS.blue
@@ -277,6 +282,7 @@ setTimeout(function(){;(function(){
       <div class="titlebar-logo">
         <img src="assets/icon.png" width="20" height="20" style="border-radius:4px" />
         <span class="titlebar-title">RYOKU</span>
+        <span class="titlebar-theme-logo" aria-hidden="true"></span>
       </div>
 
     </div>
@@ -1818,6 +1824,16 @@ setTimeout(function(){;(function(){
       </div>
       <!-- APARIENCIA -->
       <div class="cfg-view" id="cfg-view-apariencia" style="display:none">
+        <div class="cfg-section"><div class="cfg-section-label">Temas</div><div class="cfg-presets">
+          <button class="cfg-preset-btn" data-preset="clasico" onclick="aplicarPreset('clasico')" title="Clásico"><span class="cfg-preset-swatch" style="background:#2563EB"></span>Clásico</button>
+          <button class="cfg-preset-btn" data-preset="medianoche" onclick="aplicarPreset('medianoche')" title="Medianoche violeta"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#232526,#3f2b96)"></span>Medianoche</button>
+          <button class="cfg-preset-btn" data-preset="sakura" onclick="aplicarPreset('sakura')" title="Sakura"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#ffdde1,#ee9ca7)"></span>Sakura</button>
+          <button class="cfg-preset-btn" data-preset="cyberpunk" onclick="aplicarPreset('cyberpunk')" title="Cyberpunk"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#0f2027,#ff2fb0)"></span>Cyberpunk</button>
+          <button class="cfg-preset-btn" data-preset="esmeralda" onclick="aplicarPreset('esmeralda')" title="Esmeralda"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#059669,#43cea2)"></span>Esmeralda</button>
+          <button class="cfg-preset-btn" data-preset="atardecer" onclick="aplicarPreset('atardecer')" title="Atardecer"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#ff9966,#ff5e62)"></span>Atardecer</button>
+          <button class="cfg-preset-btn cfg-preset-miku" data-preset="miku" onclick="aplicarPreset('miku')" title="Hatsune Miku"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#39C5BB,#FF2E92)"></span>Miku</button>
+          <button class="cfg-preset-btn cfg-preset-neru" data-preset="neru" onclick="aplicarPreset('neru')" title="Akita Neru"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#F2A30E,#8FBF3F)"></span>Neru</button>
+        </div></div>
         <div class="cfg-section"><div class="cfg-section-label">Modo</div><div class="cfg-row">
           <button class="cfg-mode-btn activo" id="cfg-modo-oscuro" onclick="setAppModo('oscuro')">Oscuro</button>
           <button class="cfg-mode-btn" id="cfg-modo-claro" onclick="setAppModo('claro')">Claro</button>
@@ -1833,12 +1849,23 @@ setTimeout(function(){;(function(){
           <button class="cfg-color"         data-accent="cyan"   onclick="setAppAccent('cyan')"   title="Cian"    style="background:#0891B2"></button>
           <button class="cfg-color"         data-accent="gold"   onclick="setAppAccent('gold')"   title="Dorado"  style="background:#D97706"></button>
           <button class="cfg-color"         data-accent="pink"   onclick="setAppAccent('pink')"   title="Fucsia"  style="background:#DB2777"></button>
+          <input type="color" class="cfg-color cfg-color-custom" data-accent="custom" id="cfg-accent-custom-input" value="#2563EB" title="Personalizado" oninput="setAppAccentCustom(this.value)">
         </div></div>
         <div class="cfg-section"><div class="cfg-section-label">Fondo personalizado</div>
           <div class="cfg-bg-preview" id="cfg-bg-preview"><span id="cfg-bg-label">Sin fondo</span></div>
+          <div class="cfg-bg-gradients">
+            <button class="cfg-bg-gradient-swatch" data-grad="sakura" onclick="setBgGradiente('sakura')" title="Sakura" style="background:linear-gradient(135deg,#ffdde1,#ee9ca7)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="cyberpunk" onclick="setBgGradiente('cyberpunk')" title="Cyberpunk" style="background:linear-gradient(135deg,#0f2027,#ff2fb0)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="atardecer" onclick="setBgGradiente('atardecer')" title="Atardecer" style="background:linear-gradient(135deg,#ff9966,#ff5e62)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="aurora" onclick="setBgGradiente('aurora')" title="Aurora" style="background:linear-gradient(135deg,#43cea2,#185a9d)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="medianoche" onclick="setBgGradiente('medianoche')" title="Medianoche" style="background:linear-gradient(135deg,#232526,#3f2b96)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="miku" onclick="setBgGradiente('miku')" title="Hatsune Miku" style="background:linear-gradient(135deg,#39C5BB,#FF2E92)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="neru" onclick="setBgGradiente('neru')" title="Akita Neru" style="background:linear-gradient(135deg,#F2A30E,#8FBF3F)"></button>
+          </div>
           <div class="cfg-bg-actions">
             <button class="cfg-bg-btn" onclick="setBgImagen()">Seleccionar imagen</button>
             <button class="cfg-bg-apply" id="cfg-bg-apply" onclick="aplicarBgImagen()" style="display:none">Aplicar</button>
+            <button class="cfg-bg-btn" id="cfg-bg-encuadre" onclick="_bgOpenPosModal()" style="display:none">✦ Encuadre</button>
             <button class="cfg-bg-remove" id="cfg-bg-remove" onclick="quitarBgImagen()" style="display:none">Quitar</button>
           </div>
           <div class="cfg-bg-opacity-row" id="cfg-bg-opacity-row" style="display:none">
@@ -1846,10 +1873,37 @@ setTimeout(function(){;(function(){
             <input type="range" id="cfg-bg-opacity" min="5" max="60" value="20" oninput="setBgOpacidad(this.value)">
             <span class="cfg-bg-opacity-val" id="cfg-bg-opacity-val">20%</span>
           </div>
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Difuminar fondo</div><div class="cfg-toggle-desc">Suaviza la imagen o el gradiente de fondo</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-bgblur" onchange="setBgBlur(this.checked)"><span class="rl-toggle-track"></span></label></div>
         </div>
         <div class="cfg-section">
-          <div class="cfg-section-label">Sidebar</div>
-          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Modo neon</div><div class="cfg-toggle-desc">Indicador y glow en el color de acento</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-neon" onchange="setSidebarNeon(this.checked)"><span class="rl-toggle-track"></span></label></div>
+          <div class="cfg-section-label">Modo neon</div>
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Activar</div><div class="cfg-toggle-desc">Glow de acento en sidebar, controles activos y tarjetas</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-neon" onchange="setSidebarNeon(this.checked)"><span class="rl-toggle-track"></span></label></div>
+          <div class="cfg-toggle-title" style="margin-top:10px">Intensidad</div>
+          <div class="cfg-row" style="margin-top:6px">
+            <button class="cfg-num-btn cfg-neon-btn" data-val="sutil" onclick="setNeonIntensidad('sutil')">Sutil</button>
+            <button class="cfg-num-btn cfg-neon-btn activo" data-val="medio" onclick="setNeonIntensidad('medio')">Medio</button>
+            <button class="cfg-num-btn cfg-neon-btn" data-val="intenso" onclick="setNeonIntensidad('intenso')">Intenso</button>
+          </div>
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-section-label">Esquinas</div>
+          <div class="cfg-row">
+            <button class="cfg-num-btn cfg-corners-btn activo" data-val="redondeado" onclick="setAppCorners('redondeado')">Redondeadas</button>
+            <button class="cfg-num-btn cfg-corners-btn" data-val="cuadrado" onclick="setAppCorners('cuadrado')">Cuadradas</button>
+          </div>
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-section-label">Densidad</div>
+          <div class="cfg-row">
+            <button class="cfg-num-btn cfg-densidad-btn activo" data-val="comoda" onclick="setAppDensidad('comoda')">Cómoda</button>
+            <button class="cfg-num-btn cfg-densidad-btn" data-val="compacta" onclick="setAppDensidad('compacta')">Compacta</button>
+          </div>
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Vidrio esmerilado</div><div class="cfg-toggle-desc">Efecto de desenfoque en paneles y menús</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-glass" checked onchange="setAppGlass(this.checked)"><span class="rl-toggle-track"></span></label></div>
+        </div>
+        <div class="cfg-section" id="cfg-miku-sonido-row">
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Sonido del tema</div><div class="cfg-toggle-desc">Blip sintetizado al marcar visto o favorito</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-miku-sonido" checked onchange="setMikuSonido(this.checked)"><span class="rl-toggle-track"></span></label></div>
         </div>
       </div>
       <!-- INTERFAZ -->
@@ -2004,6 +2058,8 @@ setTimeout(function(){;(function(){
   <script src="api-bridge.js"></script>
   <script src="modulos/utils.js"></script>
   <script src="modulos/core.js"></script>
+  <script src="modulos/miku.js"></script>
+  <script src="modulos/neru.js"></script>
 <!-- Firebase SDK local — no depende de CDN externo -->
 <script src="assets/firebase/firebase-app-compat.js"></script>
   <script src="assets/firebase/firebase-auth-compat.js"></script>

@@ -1002,6 +1002,8 @@ async function toggleEpVisto(btn) {
     btn.title = 'Marcar como no visto'
     btn.innerHTML = iconOjoSlash
     if (estado) estado.innerHTML = ''
+    if (typeof window._mikuSparkle === 'function') window._mikuSparkle(btn)
+    if (typeof window._neruSparkle === 'function') window._neruSparkle(btn)
   }
   // Refrescar "Continuar viendo"
   if (typeof cargarContinuarViendo === 'function') cargarContinuarViendo()
@@ -1029,6 +1031,11 @@ async function toggleFav() {
   const esFav = favs.some(f => f.url === _animeActual.url)
   _actualizarEstadoFav(esFav)
   cargarFavoritos()
+  if (esFav) {
+    const btnFav = document.getElementById('btn-fav')
+    if (btnFav && typeof window._mikuSparkle === 'function') window._mikuSparkle(btnFav)
+    if (btnFav && typeof window._neruSparkle === 'function') window._neruSparkle(btnFav)
+  }
 }
 
 async function cargarFavoritos() {
@@ -1660,6 +1667,19 @@ window._rpGetCurrentInfo = function () {
     img:        _animeActual ? (_animeActual.imagen || '') : '',
     url:        _animeActual ? (_animeActual.url    || '') : ''
   }
+}
+
+// Guarda YA el avance del episodio que se está reproduciendo en este
+// instante, sin cerrar el reproductor. Se usa antes de cerrar la app entera
+// (ver sync.js / save-before-quit): el intervalo normal guarda cada 15s, así
+// que cerrar la ventana en el peor momento podía perder hasta ~15s de avance
+// que nunca llegaban a guardarse. Esto lo cubre.
+window._rpFlushProgresoActual = async function () {
+  const overlay = document.getElementById('overlay-player')
+  if (!overlay || !overlay.classList.contains('activo')) return
+  const video = document.getElementById('player-video')
+  if (!video || !video.duration || !_urlEpisodioActual) return
+  try { await window.api.setProgreso(_urlEpisodioActual, video.currentTime, video.duration) } catch (e) {}
 }
 
 async function cerrarReproductor() {

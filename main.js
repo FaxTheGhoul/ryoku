@@ -11,6 +11,60 @@ const latanime     = require('./extractors/anime/latanime')
 const monoschinos  = require('./extractors/anime/monoschinos')
 const { MIXDROP_LEGIT } = require('./extractors/anime/_base')
 
+// ─── Instancia única ───────────────────────────────────────────────────────
+// Sin esto, abrir la app dos veces (doble clic al acceso directo mientras ya
+// está abierta, etc.) hace que dos procesos lean el mismo JSON de favoritos/
+// historial/progreso al arrancar y después escriban cada uno por su cuenta:
+// el que se cierra último pisa silenciosamente los cambios que hizo el otro.
+// Con el lock, el segundo intento de abrir la app no crea un proceso nuevo:
+// solo le avisa al primero (evento 'second-instance') que traiga la ventana
+// existente al frente.
+const _gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!_gotSingleInstanceLock) {
+  app.quit()
+  process.exit(0)
+}
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
+
+// ─── Guardado atómico con backup ──────────────────────────────────────────
+// Reemplaza los fs.writeFileSync directos para los datos que realmente
+// importa no perder (config, favoritos, historial, progreso, tombstones):
+// 1) Escribe a un .tmp en la MISMA carpeta y hace fs.renameSync sobre el
+//    archivo final. rename() es atómico dentro del mismo volumen (en
+//    Windows y en POSIX): si la app se cierra de golpe, se corta la luz o
+//    lo mata el sistema a mitad de una escritura, el .tmp queda a medio
+//    escribir pero el archivo real nunca se toca hasta que el rename ya
+//    tiene los bytes completos listos — nunca queda un JSON a medias.
+// 2) Antes de pisar el archivo, si el que ya está en disco es JSON válido,
+//    lo copia a .bak. Así, si algún día el archivo real aparece corrupto
+//    igual (disco con errores, antivirus raro, etc.), _loadJSONSeguro
+//    puede recuperar la versión anterior en vez de tirar todo y arrancar
+//    de cero en silencio.
+function _guardarJSONSeguro(f, data) {
+  try {
+    const json = JSON.stringify(data)
+    const tmp = f + '.tmp'
+    fs.writeFileSync(tmp, json)
+    try {
+      if (fs.existsSync(f)) {
+        JSON.parse(fs.readFileSync(f, 'utf8'))
+        fs.copyFileSync(f, f + '.bak')
+      }
+    } catch (eBak) {}
+    fs.renameSync(tmp, f)
+  } catch (e) {}
+}
+function _loadJSONSeguro(f, fallback) {
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) {
+    try { return JSON.parse(fs.readFileSync(f + '.bak', 'utf8')) } catch (e2) { return fallback }
+  }
+}
+
 // ── Servidor local para búsqueda con BrowserWindow (bypass Cloudflare) ──
 const _localServer = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -211,9 +265,8 @@ ipcMain.on('discord-clear',  ()       => { if (_rpcReady && _rpc) _rpc.clearActi
 
 // ─── APP CONFIG ──────────────────────────────────────────────────────────────
 const APP_CONFIG_FILE = path.join(app.getPath('userData'), 'anistream-appconfig.json')
-let appConfig = {}
-try { appConfig = JSON.parse(fs.readFileSync(APP_CONFIG_FILE, 'utf8')) } catch(e) {}
-function guardarConfig() { try { fs.writeFileSync(APP_CONFIG_FILE, JSON.stringify(appConfig)) } catch(e) {} }
+let appConfig = _loadJSONSeguro(APP_CONFIG_FILE, {})
+function guardarConfig() { _guardarJSONSeguro(APP_CONFIG_FILE, appConfig) }
 
 // ─── MULTI-SOURCE ANIME ───────────────────────────────────────────────────────
 // AnimeFLV se sacó de acá — el sitio dejó de tener catálogo (todos los animes
@@ -1041,8 +1094,8 @@ ipcMain.handle('get-calendario', async () => {
 })
 // ─── DATOS POR FUENTE: favs, historial, progreso ─────────────────────────────
 function _srcFile(prefix, srcId) { return require('path').join(app.getPath('userData'), `anistream-${prefix}-${srcId}.json`) }
-function _loadJ(f, fb) { try { return JSON.parse(fs.readFileSync(f,'utf8')) } catch(e) { return fb } }
-function _saveJ(f, d)  { try { fs.writeFileSync(f, JSON.stringify(d)) } catch(e) {} }
+function _loadJ(f, fb) { return _loadJSONSeguro(f, fb) }
+function _saveJ(f, d)  { _guardarJSONSeguro(f, d) }
 
 const _SRCS = ['latanime', 'animeflv', 'monoschinos']
 const _favsD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('favs',      s), [])]))

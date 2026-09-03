@@ -78,6 +78,41 @@ body.is-fullscreen:not(.sidebar-autohide) .sidebar  { display: flex; }
   font-size: 11px; font-weight: 800; letter-spacing: 5px;
   color: var(--text-1);
 }
+
+/* ── Logo del tema junto al nombre de la app en la barra de título — solo
+   visible con Miku/Neru activo, separado del "RYOKU" por una barra "/"
+   (más liviana, no hereda el peso/tracking del wordmark principal). ────── */
+.titlebar-theme-logo { display: none; }
+body[data-tema-id="miku"] .titlebar-theme-logo,
+body[data-tema-id="neru"] .titlebar-theme-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+body[data-tema-id="miku"] .titlebar-theme-logo::before,
+body[data-tema-id="neru"] .titlebar-theme-logo::before {
+  content: '/';
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: 0.35;
+}
+body[data-tema-id="miku"] .titlebar-theme-logo::after,
+body[data-tema-id="neru"] .titlebar-theme-logo::after {
+  content: '';
+  display: block;
+  height: 18px;
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: contain;
+}
+body[data-tema-id="miku"] .titlebar-theme-logo::after {
+  width: 42px;
+  background-image: url("assets/titlebar-miku-logo.png");
+}
+body[data-tema-id="neru"] .titlebar-theme-logo::after {
+  width: 43px;
+  background-image: url("assets/titlebar-neru-logo.png");
+}
 .titlebar-controls { display: flex; -webkit-app-region: no-drag; padding: 0 4px; gap: 2px; align-items: center; }
 .titlebar-controls button {
   width: 32px; height: 22px;
@@ -181,35 +216,89 @@ body.searchbar-autohide #page-inicio:hover .search-bar { opacity: 1; transform: 
   background: var(--blue); border-radius: 0 2px 2px 0;
 }
 
-/* ── SIDEBAR NEON ── */
+/* ── MODO NEON — niveles de intensidad ──────────────────────────────────
+   Cada nivel define el tamaño de los tres halos de glow y su opacidad base;
+   el resto de las reglas de abajo solo usan estas variables. */
+body[data-neon-intensidad="sutil"] {
+  --neon-b1: 4px; --neon-b2: 9px;  --neon-b3: 16px; --neon-op: 0.6;
+}
+body[data-neon-intensidad="medio"] {
+  --neon-b1: 8px; --neon-b2: 18px; --neon-b3: 30px; --neon-op: 0.85;
+}
+body[data-neon-intensidad="intenso"] {
+  --neon-b1: 13px; --neon-b2: 28px; --neon-b3: 48px; --neon-op: 1;
+}
+
+@keyframes neon-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 var(--neon-b1) var(--primary-neon),
+      0 0 var(--neon-b2) var(--primary),
+      0 0 var(--neon-b3) rgba(var(--primary-neon-rgb, 37,99,235), var(--neon-op));
+  }
+  50% {
+    box-shadow:
+      0 0 calc(var(--neon-b1) * 1.6) var(--primary-neon),
+      0 0 calc(var(--neon-b2) * 1.4) var(--primary),
+      0 0 calc(var(--neon-b3) * 1.3) rgba(var(--primary-neon-rgb, 37,99,235), var(--neon-op));
+  }
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
 body.sidebar-neon .nav-btn.activo {
-  background: rgba(var(--primary-rgb, 37,99,235), 0.12);
-  color: var(--primary-glow);
+  background: rgba(var(--primary-neon-rgb, 37,99,235), 0.16);
+  color: var(--primary-neon);
 }
 body.sidebar-neon .nav-btn.activo::before {
   width: 3px; height: 32px;
-  background: var(--primary-glow);
-  box-shadow: 0 0 10px var(--primary-glow), 0 0 20px var(--primary), 0 0 4px var(--primary-glow);
+  background: var(--primary-neon);
   border-radius: 0 3px 3px 0;
+  animation: neon-pulse 2.6s ease-in-out infinite;
 }
 body.sidebar-neon .nav-btn.activo svg {
-  filter: drop-shadow(0 0 5px var(--primary-glow));
-  stroke: var(--primary-glow);
+  filter: drop-shadow(0 0 var(--neon-b1) var(--primary-neon));
+  stroke: var(--primary-neon);
 }
 body.sidebar-neon .nav-btn:hover:not(.mod-switcher) {
-  color: var(--primary-glow);
-  background: rgba(var(--primary-rgb, 37,99,235), 0.08);
+  color: var(--primary-neon);
+  background: rgba(var(--primary-neon-rgb, 37,99,235), 0.1);
 }
 body.sidebar-neon .sidebar {
-  border-right: 1px solid var(--primary);
-  box-shadow: 2px 0 18px rgba(var(--primary-rgb, 37,99,235), 0.25);
+  border-right: 1px solid var(--primary-neon);
+  box-shadow:
+    2px 0 var(--neon-b2) rgba(var(--primary-neon-rgb, 37,99,235), calc(var(--neon-op) * 0.45)),
+    2px 0 var(--neon-b3) rgba(var(--primary-rgb, 37,99,235), calc(var(--neon-op) * 0.3));
   background: var(--bg-1);
 }
 body.sidebar-neon .sidebar-logo {
-  border-bottom-color: rgba(var(--primary-rgb, 37,99,235), 0.3);
+  border-bottom-color: rgba(var(--primary-neon-rgb, 37,99,235), 0.35);
 }
 body.sidebar-neon .sidebar-bottom {
-  border-top-color: rgba(var(--primary-rgb, 37,99,235), 0.3);
+  border-top-color: rgba(var(--primary-neon-rgb, 37,99,235), 0.35);
+}
+
+/* ── Extendido: controles activos del panel de configuración ───────────── */
+body.sidebar-neon .cfg-mode-btn.activo,
+body.sidebar-neon .cfg-num-btn.activo {
+  border-color: var(--primary-neon);
+  color: var(--primary-neon);
+  box-shadow:
+    0 0 var(--neon-b1) rgba(var(--primary-neon-rgb, 37,99,235), var(--neon-op)),
+    0 0 var(--neon-b2) rgba(var(--primary-rgb, 37,99,235), calc(var(--neon-op) * 0.5));
+}
+body.sidebar-neon .cfg-color.activo {
+  border-color: var(--primary-neon);
+  box-shadow:
+    0 0 var(--neon-b2) var(--primary-neon),
+    0 0 var(--neon-b3) rgba(var(--primary-neon-rgb, 37,99,235), calc(var(--neon-op) * 0.6));
+}
+
+/* ── Extendido: tarjetas al pasar el mouse ──────────────────────────────── */
+body.sidebar-neon .tarjeta:hover {
+  border-color: var(--primary-neon);
+  box-shadow:
+    0 0 var(--neon-b1) var(--primary-neon),
+    0 8px calc(var(--neon-b3) * 0.8) rgba(var(--primary-neon-rgb, 37,99,235), calc(var(--neon-op) * 0.5));
 }/* ─────────────────────────────────────────────
    CONTENIDO PRINCIPAL
 ───────────────────────────────────────────── */
@@ -4381,6 +4470,34 @@ body.pip-activo .detalle-floating-btns { bottom: 122px; }
 .nfx-hero-dot.activo { background: #fff; transform: scale(1.3); }
 .nfx-hero-dot:hover:not(.activo) { background: rgba(255,255,255,0.6); }
 
+/* ── Modo claro — el degradé negro + texto blanco del hero está pensado
+   para modo oscuro; en claro queda una mancha oscura fea sobre una interfaz
+   pálida. Se invierte a un velo claro (mismo tono que el fondo de la app en
+   modo claro) con texto oscuro, para que se integre en vez de contrastar
+   feo. Aplica a cualquier tema en modo claro (Neru incluido), no es algo
+   puntual de un tema. ──────────────────────────────────────────────────── */
+body.modo-claro .nfx-hero-grad {
+  background:
+    linear-gradient(to right, rgba(241,245,249,0.94) 0%, rgba(241,245,249,0.6) 45%, rgba(241,245,249,0.05) 100%),
+    linear-gradient(to top, rgba(241,245,249,0.92) 0%, rgba(241,245,249,0.0) 35%);
+}
+body.modo-claro .nfx-hero-h1 {
+  color: var(--text-1);
+  text-shadow: 0 1px 2px rgba(241,245,249,0.7);
+}
+body.modo-claro .nfx-hero-sinopsis { color: var(--text-2); }
+body.modo-claro .nfx-hero-meta { color: var(--text-3); }
+body.modo-claro .nfx-btn-info {
+  border-color: rgba(15,23,42,0.22);
+  background: rgba(15,23,42,0.05);
+  color: var(--text-1);
+}
+body.modo-claro .nfx-btn-info:hover { background: rgba(15,23,42,0.1); border-color: rgba(15,23,42,0.35); }
+body.modo-claro .nfx-btn-watch { border: 1px solid var(--border); }
+body.modo-claro .nfx-hero-dot { background: rgba(15,23,42,0.2); }
+body.modo-claro .nfx-hero-dot.activo { background: var(--text-1); }
+body.modo-claro .nfx-hero-dot:hover:not(.activo) { background: rgba(15,23,42,0.4); }
+
 /* ── Filas horizontales ────────────────────────────────────────────────── */
 .nfx-rows {
   padding: 4px 24px 32px;
@@ -5707,6 +5824,65 @@ mark.cw-highlight {
   display: flex; align-items: center; justify-content: center;
   padding: 0 4px;
   border: 2px solid var(--bg-1, #0f172a);
+}
+
+/* ══════════════════════════════════════════════════════
+   FABs de chat/amigos en PC — cuadrados redondeados que se
+   autoocultan, con la MISMA lógica que la sidebar (acercar el mouse a la
+   esquina los revela, alejarse los oculta), en vez del tap+temporizador de
+   10s que usa la versión mobile (no hay mouse en celular). El mousemove
+   que decide esto vive en core.js (_socialEdgeMouseMove), junto a
+   _sidebarMouseMove que sigue el mismo patrón.
+   ══════════════════════════════════════════════════════ */
+body:not(.mobile-mode) #chat-fab,
+body:not(.mobile-mode) #friends-fab {
+  border-radius: 14px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.7);
+  pointer-events: none;
+}
+/* Entrar: pop con un poco de rebote (cubic-bezier con overshoot), y un
+   pequeño desfase entre los dos botones para que no aparezcan pegados —
+   se sienten como una cascada. Salir: fundido simple y rápido, sin rebote
+   (la transición de "salir" vive en la regla base de arriba; la de
+   "entrar" en la .social-edge-visible de abajo — cada una con su curva). */
+body:not(.mobile-mode) #friends-fab {
+  transition: opacity .16s ease, transform .16s ease;
+}
+body:not(.mobile-mode) #chat-fab {
+  transition: opacity .16s ease .04s, transform .16s ease .04s;
+}
+body:not(.mobile-mode).social-edge-visible #friends-fab {
+  opacity: 1; transform: translateY(0) scale(1); pointer-events: all;
+  transition: opacity .22s ease, transform .4s cubic-bezier(0.34,1.56,0.64,1);
+}
+body:not(.mobile-mode).social-edge-visible #chat-fab {
+  opacity: 1; transform: translateY(0) scale(1); pointer-events: all;
+  transition: opacity .22s ease .06s, transform .4s cubic-bezier(0.34,1.56,0.64,1) .06s;
+}
+/* El :hover de siempre (más arriba en el archivo) pone scale(1.08); esto
+   solo le da la especificidad para ganarle al transform "ya asentado" de
+   arriba, así el hover se sigue notando una vez que el botón apareció. */
+body:not(.mobile-mode).social-edge-visible #chat-fab:hover,
+body:not(.mobile-mode).social-edge-visible #friends-fab:hover {
+  transform: scale(1.08);
+}
+
+/* ── Modo neón: el mismo glow pulsante que ya usan el borde de la sidebar
+   y los controles activos de Configuración — reutiliza @keyframes
+   neon-pulse y las variables de intensidad (--neon-b1/b2/b3/op) tal cual
+   están, así respeta el nivel de intensidad que haya elegido el usuario. */
+body.sidebar-neon:not(.mobile-mode).social-edge-visible #chat-fab,
+body.sidebar-neon:not(.mobile-mode).social-edge-visible #friends-fab {
+  border-color: var(--primary-neon);
+  color: var(--primary-neon);
+  animation: neon-pulse 2.6s ease-in-out infinite;
+}
+/* Sin esto, el color de texto/ícono en hover+neón quedaría casi del mismo
+   tono que el fondo (--primary) que pone el :hover normal — poco contraste. */
+body.sidebar-neon:not(.mobile-mode).social-edge-visible #chat-fab:hover,
+body.sidebar-neon:not(.mobile-mode).social-edge-visible #friends-fab:hover {
+  color: #fff;
 }
 
 #friends-window {
@@ -7349,7 +7525,9 @@ body.mobile-mode .grilla {
   gap: 6px !important;
 }
 body.mobile-mode .grilla-series {
-  grid-template-columns: repea
+  grid-template-columns: repeat(3, 1fr) !important;
+}
+
 /* ═══════════════════════════════════════════════════════════
    MOBILE — Rediseño portadas (grilla-recientes scroll / grilla-series grid)
    ═══════════════════════════════════════════════════════════ */
@@ -7403,7 +7581,7 @@ body.mobile-mode #grilla-series .tarjeta-rating-badge {
   bottom: 4px !important;
   right: 4px !important;
 }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+
 
 /* ══════════════════════════════════════════════════════
    MOBILE PLAYER FIXES
@@ -7535,4 +7713,1030 @@ body.mobile-mode .tarjeta-img-wrap.loaded::after {
   font-size: 0 !important;
   color: transparent !important;
   min-height: 180px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   PERSONALIZACIÓN AMPLIADA — temas, acento libre, esquinas/densidad/vidrio
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Temas completos (presets) ────────────────────────────────────────── */
+.cfg-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.cfg-preset-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 8px 6px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-muted);
+  font-size: 10px; font-weight: 600; cursor: pointer;
+  font-family: Inter,sans-serif; transition: all 0.13s; width: 66px;
+}
+.cfg-preset-btn:hover { color: var(--text-main); border-color: rgba(255,255,255,0.2); transform: translateY(-1px); }
+.cfg-preset-swatch {
+  width: 100%; height: 26px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+/* ── Acento personalizado (color picker) ──────────────────────────────── */
+input.cfg-color-custom {
+  padding: 0; background: conic-gradient(from 0deg, #ef4444, #f59e0b, #22c55e, #06b6d4, #6366f1, #ec4899, #ef4444);
+  cursor: pointer;
+}
+input.cfg-color-custom::-webkit-color-swatch-wrapper { padding: 0; border-radius: 50%; overflow: hidden; }
+input.cfg-color-custom::-webkit-color-swatch { border: none; border-radius: 50%; }
+
+/* ── Fondo: presets de gradiente ──────────────────────────────────────── */
+.cfg-bg-gradients { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.cfg-bg-gradient-swatch {
+  width: 40px; height: 28px; border-radius: 6px;
+  border: 2px solid transparent; cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.cfg-bg-gradient-swatch:hover { transform: scale(1.08); }
+.cfg-bg-gradient-swatch.activo { border-color: var(--text-main); transform: scale(1.08); }
+
+/* ── Vidrio esmerilado on/off ──────────────────────────────────────────── */
+body.sin-vidrio * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body:not(.sin-vidrio) .cfg-panel {
+  background: color-mix(in srgb, var(--bg-secondary, #1e293b) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+
+/* ── Vidrio esmerilado — resto de ventanas flotantes ─────────────────── */
+body:not(.sin-vidrio) #chat-window {
+  background: color-mix(in srgb, var(--bg-1, #0f172a) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+body:not(.sin-vidrio) .pf-panel {
+  background: color-mix(in srgb, var(--bg-2, #111827) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+body:not(.sin-vidrio) .mod-overlay-panel {
+  background: color-mix(in srgb, var(--bg-2, #111827) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+body:not(.sin-vidrio) .account-modal-box {
+  background: color-mix(in srgb, var(--bg-2, #111827) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+body:not(.sin-vidrio) .mnbib-drop-panel {
+  background: color-mix(in srgb, var(--bg-secondary, #1e293b) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+body:not(.sin-vidrio) .card-servidor {
+  background: color-mix(in srgb, var(--bg-2, #111827) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  border-color: rgba(255,255,255,0.14);
+}
+
+/* ── Vidrio: ajuste de borde/opacidad segun el modo (oscuro/claro/oled) ── */
+body:not(.sin-vidrio)[data-tema="claro"] .cfg-panel,
+body:not(.sin-vidrio)[data-tema="claro"] #chat-window,
+body:not(.sin-vidrio)[data-tema="claro"] .pf-panel,
+body:not(.sin-vidrio)[data-tema="claro"] .mod-overlay-panel,
+body:not(.sin-vidrio)[data-tema="claro"] .account-modal-box,
+body:not(.sin-vidrio)[data-tema="claro"] .mnbib-drop-panel,
+body:not(.sin-vidrio)[data-tema="claro"] .card-servidor {
+  background-color: color-mix(in srgb, var(--bg-2, #E2E8F0) 74%, transparent) !important;
+  border-color: rgba(15,23,42,0.14) !important;
+  box-shadow: 0 16px 48px rgba(15,23,42,0.12);
+}
+body:not(.sin-vidrio)[data-tema="oled"] .cfg-panel,
+body:not(.sin-vidrio)[data-tema="oled"] #chat-window,
+body:not(.sin-vidrio)[data-tema="oled"] .pf-panel,
+body:not(.sin-vidrio)[data-tema="oled"] .mod-overlay-panel,
+body:not(.sin-vidrio)[data-tema="oled"] .account-modal-box,
+body:not(.sin-vidrio)[data-tema="oled"] .mnbib-drop-panel,
+body:not(.sin-vidrio)[data-tema="oled"] .card-servidor {
+  background-color: color-mix(in srgb, var(--bg-2, #0a0a0a) 64%, transparent) !important;
+  border-color: rgba(255,255,255,0.10) !important;
+}
+
+/* ── Vidrio: texto secundario siempre legible ────────────────────────────
+   Con el fondo de la app (imagen/degradé) de por medio, un color de texto
+   fijo (--text-muted, --text-2, etc.) puede perder casi todo el contraste
+   en zonas claras de la foto difuminada. Se le agrega una sombra oscura
+   sutil SOLO dentro de los paneles de vidrio, así queda legible sin
+   importar qué haya detrás. */
+body:not(.sin-vidrio) .cfg-panel .cfg-menu-desc,
+body:not(.sin-vidrio) .cfg-panel .cfg-toggle-desc,
+body:not(.sin-vidrio) .cfg-panel .cfg-toggle-title,
+body:not(.sin-vidrio) .cfg-panel .cfg-section-label,
+body:not(.sin-vidrio) .cfg-panel .cfg-bg-opacity-label,
+body:not(.sin-vidrio) .cfg-panel .cfg-credit-role,
+body:not(.sin-vidrio) .cfg-panel .cfg-titulo,
+body:not(.sin-vidrio) .pf-panel .pf-bio-placeholder,
+body:not(.sin-vidrio) .mod-overlay-panel *,
+body:not(.sin-vidrio) .account-modal-box * {
+  text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+}
+
+/* ── Difuminar fondo personalizado ────────────────────────────────────── */
+body.bg-blur #app-bg-layer {
+  filter: blur(28px);
+  transform: scale(1.08);
+}
+
+/* ── Densidad compacta ─────────────────────────────────────────────────── */
+body[data-densidad="compacta"] .grilla { gap: 8px; }
+body[data-densidad="compacta"] .tarjeta-info { padding: 4px 6px 5px; }
+body[data-densidad="compacta"] .tarjeta-titulo { font-size: 10px; }
+body[data-densidad="compacta"] .tarjeta-sub { font-size: 9px; margin-top: 1px; }
+body[data-densidad="compacta"] .cfg-section { margin-bottom: 12px; }
+body[data-densidad="compacta"] .cfg-toggle-row { padding-top: 6px; padding-bottom: 6px; }
+/* Seguir viendo / continuar leyendo (anime y manga) */
+body[data-densidad="compacta"] #continuar-full-lista { gap: 8px; }
+body[data-densidad="compacta"] .mn-continuar-grid { gap: 8px; }
+body[data-densidad="compacta"] .ac-cont-card { margin-right: 6px; }
+body[data-densidad="compacta"] .ac-cont-info { padding: 6px 7px 5px; }
+body[data-densidad="compacta"] .ac-cont-title { font-size: 10px; }
+body[data-densidad="compacta"] .ac-cont-cap { font-size: 9px; margin-bottom: 4px; }
+body[data-densidad="compacta"] .mn-cont-info { padding: 6px 7px 5px; }
+body[data-densidad="compacta"] .mn-cont-title { font-size: 10px; }
+body[data-densidad="compacta"] .mn-cont-cap { font-size: 9px; margin-bottom: 4px; }
+
+/* ── Esquinas cuadradas — generado a partir de todos los border-radius de la
+   hoja de estilos (excepto círculos/píldoras: 50%, 999px, 0) para que el
+   ajuste cubra tarjetas, badges, botones y paneles de toda la app ────────── */
+body[data-esquinas="cuadrado"] #ao-cf-toast,
+body[data-esquinas="cuadrado"] #chat-fab-badge,
+body[data-esquinas="cuadrado"] #chat-window,
+body[data-esquinas="cuadrado"] #continuar-ctx-menu,
+body[data-esquinas="cuadrado"] #friends-fab-badge,
+body[data-esquinas="cuadrado"] #friends-window,
+body[data-esquinas="cuadrado"] #fw-search-input,
+body[data-esquinas="cuadrado"] #hist-ctx-menu,
+body[data-esquinas="cuadrado"] #manga-pip,
+body[data-esquinas="cuadrado"] #ptr-spinner,
+body[data-esquinas="cuadrado"] #ryoku-toast,
+body[data-esquinas="cuadrado"] #ryoku-warmup-banner,
+body[data-esquinas="cuadrado"] #toast-progreso button,
+body[data-esquinas="cuadrado"] .ac-cont-card,
+body[data-esquinas="cuadrado"] .ac-cont-dots,
+body[data-esquinas="cuadrado"] .ac-cont-prog,
+body[data-esquinas="cuadrado"] .ac-cont-prog-fill,
+body[data-esquinas="cuadrado"] .account-modal-box,
+body[data-esquinas="cuadrado"] .account-modal-close,
+body[data-esquinas="cuadrado"] .acm-google-btn,
+body[data-esquinas="cuadrado"] .acm-logout-btn,
+body[data-esquinas="cuadrado"] .acm-profile-btn,
+body[data-esquinas="cuadrado"] .acm-sync-load-btn,
+body[data-esquinas="cuadrado"] .acm-sync-pill,
+body[data-esquinas="cuadrado"] .acm-sync-save-btn,
+body[data-esquinas="cuadrado"] .acm-uname-cancel,
+body[data-esquinas="cuadrado"] .acm-uname-edit-btn,
+body[data-esquinas="cuadrado"] .acm-uname-input,
+body[data-esquinas="cuadrado"] .acm-uname-save,
+body[data-esquinas="cuadrado"] .acm-username-pill,
+body[data-esquinas="cuadrado"] .anime-hero,
+body[data-esquinas="cuadrado"] .anime-portada,
+body[data-esquinas="cuadrado"] .anime-portada-wrap,
+body[data-esquinas="cuadrado"] .badge-18,
+body[data-esquinas="cuadrado"] .badge-18-slider,
+body[data-esquinas="cuadrado"] .btn-cerrar,
+body[data-esquinas="cuadrado"] .btn-fav,
+body[data-esquinas="cuadrado"] .btn-limpiar,
+body[data-esquinas="cuadrado"] .btn-primary,
+body[data-esquinas="cuadrado"] .btn-renovar,
+body[data-esquinas="cuadrado"] .btn-volver,
+body[data-esquinas="cuadrado"] .cal-card,
+body[data-esquinas="cuadrado"] .cal-card-badge,
+body[data-esquinas="cuadrado"] .cal-card-live,
+body[data-esquinas="cuadrado"] .cal-tab,
+body[data-esquinas="cuadrado"] .card-servidor,
+body[data-esquinas="cuadrado"] .cfg-back,
+body[data-esquinas="cuadrado"] .cfg-bg-apply,
+body[data-esquinas="cuadrado"] .cfg-bg-btn,
+body[data-esquinas="cuadrado"] .cfg-bg-gradient-swatch,
+body[data-esquinas="cuadrado"] .cfg-bg-preview,
+body[data-esquinas="cuadrado"] .cfg-bg-remove,
+body[data-esquinas="cuadrado"] .cfg-cache-btn,
+body[data-esquinas="cuadrado"] .cfg-close,
+body[data-esquinas="cuadrado"] .cfg-credit-badge,
+body[data-esquinas="cuadrado"] .cfg-credit-item,
+body[data-esquinas="cuadrado"] .cfg-credit-version,
+body[data-esquinas="cuadrado"] .cfg-menu-icon,
+body[data-esquinas="cuadrado"] .cfg-menu-item,
+body[data-esquinas="cuadrado"] .cfg-mode-btn,
+body[data-esquinas="cuadrado"] .cfg-num-btn,
+body[data-esquinas="cuadrado"] .cfg-panel,
+body[data-esquinas="cuadrado"] .cfg-preset-btn,
+body[data-esquinas="cuadrado"] .cfg-preset-swatch,
+body[data-esquinas="cuadrado"] .chat-float-pill,
+body[data-esquinas="cuadrado"] .chat-home-pill,
+body[data-esquinas="cuadrado"] .cine-ep-item,
+body[data-esquinas="cuadrado"] .cine-ep-nav-btn,
+body[data-esquinas="cuadrado"] .cine-itab,
+body[data-esquinas="cuadrado"] .cine-pag-btn,
+body[data-esquinas="cuadrado"] .cine-temp-btn,
+body[data-esquinas="cuadrado"] .cine-toggle-btn,
+body[data-esquinas="cuadrado"] .continuar-menu-item,
+body[data-esquinas="cuadrado"] .continuar-ver-mas,
+body[data-esquinas="cuadrado"] .crb-close,
+body[data-esquinas="cuadrado"] .cw-back-btn,
+body[data-esquinas="cuadrado"] .cw-body::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .cw-bubble.mine,
+body[data-esquinas="cuadrado"] .cw-bubble.theirs,
+body[data-esquinas="cuadrado"] .cw-create-friend-row,
+body[data-esquinas="cuadrado"] .cw-ctx-item,
+body[data-esquinas="cuadrado"] .cw-ctx-menu,
+body[data-esquinas="cuadrado"] .cw-date-sep span,
+body[data-esquinas="cuadrado"] .cw-emoji-picker,
+body[data-esquinas="cuadrado"] .cw-icon-btn,
+body[data-esquinas="cuadrado"] .cw-img-bar button,
+body[data-esquinas="cuadrado"] .cw-img-btn,
+body[data-esquinas="cuadrado"] .cw-inline-edit,
+body[data-esquinas="cuadrado"] .cw-input,
+body[data-esquinas="cuadrado"] .cw-msg-img,
+body[data-esquinas="cuadrado"] .cw-new-room-btn,
+body[data-esquinas="cuadrado"] .cw-react-pill,
+body[data-esquinas="cuadrado"] .cw-reply-quote,
+body[data-esquinas="cuadrado"] .cw-room-avatar,
+body[data-esquinas="cuadrado"] .cw-sala-chip,
+body[data-esquinas="cuadrado"] .cw-share-cancel,
+body[data-esquinas="cuadrado"] .cw-share-card,
+body[data-esquinas="cuadrado"] .cw-share-img,
+body[data-esquinas="cuadrado"] .cw-typing-dots,
+body[data-esquinas="cuadrado"] .det3-ep-row,
+body[data-esquinas="cuadrado"] .det3-ep-thumb,
+body[data-esquinas="cuadrado"] .det3-fav-btn,
+body[data-esquinas="cuadrado"] .det3-info-chip,
+body[data-esquinas="cuadrado"] .det3-play-btn,
+body[data-esquinas="cuadrado"] .det3-poster,
+body[data-esquinas="cuadrado"] .det3-season-sel,
+body[data-esquinas="cuadrado"] .det3-sec-label::before,
+body[data-esquinas="cuadrado"] .det3-srv-row,
+body[data-esquinas="cuadrado"] .detail-col-hero,
+body[data-esquinas="cuadrado"] .ep-item,
+body[data-esquinas="cuadrado"] .ep-prog-bar,
+body[data-esquinas="cuadrado"] .ep-prog-fill,
+body[data-esquinas="cuadrado"] .ep-thumb-wrap,
+body[data-esquinas="cuadrado"] .ep-toggle,
+body[data-esquinas="cuadrado"] .filtro-clear,
+body[data-esquinas="cuadrado"] .filtro-dd-btn,
+body[data-esquinas="cuadrado"] .filtro-dd-item,
+body[data-esquinas="cuadrado"] .filtro-dd-menu,
+body[data-esquinas="cuadrado"] .filtro-toggle,
+body[data-esquinas="cuadrado"] .fw-add-btn,
+body[data-esquinas="cuadrado"] .fw-add-input,
+body[data-esquinas="cuadrado"] .fw-btn-accept,
+body[data-esquinas="cuadrado"] .fw-btn-reject,
+body[data-esquinas="cuadrado"] .fw-friend-row,
+body[data-esquinas="cuadrado"] .fw-hdr-btn,
+body[data-esquinas="cuadrado"] .fw-icon-btn,
+body[data-esquinas="cuadrado"] .fw-req-badge,
+body[data-esquinas="cuadrado"] .fw-tab,
+body[data-esquinas="cuadrado"] .genre-pill,
+body[data-esquinas="cuadrado"] .hist-item,
+body[data-esquinas="cuadrado"] .hist-thumb,
+body[data-esquinas="cuadrado"] .manga-badge,
+body[data-esquinas="cuadrado"] .manga-cap-item,
+body[data-esquinas="cuadrado"] .manga-hero,
+body[data-esquinas="cuadrado"] .manga-hero-img,
+body[data-esquinas="cuadrado"] .manga-search-bar button,
+body[data-esquinas="cuadrado"] .manga-search-bar input,
+body[data-esquinas="cuadrado"] .md-btn-primary,
+body[data-esquinas="cuadrado"] .md-btn-secondary,
+body[data-esquinas="cuadrado"] .md-cap-badge-nuevo,
+body[data-esquinas="cuadrado"] .md-cap-item,
+body[data-esquinas="cuadrado"] .md-cap-prog-bar,
+body[data-esquinas="cuadrado"] .md-cap-prog-fill,
+body[data-esquinas="cuadrado"] .md-cap-thumb-wrap,
+body[data-esquinas="cuadrado"] .md-cap-toggle,
+body[data-esquinas="cuadrado"] .md-caps-ctrl,
+body[data-esquinas="cuadrado"] .md-caps-titulo::before,
+body[data-esquinas="cuadrado"] .md-col-panel,
+body[data-esquinas="cuadrado"] .md-cont-btn,
+body[data-esquinas="cuadrado"] .md-cont-prog-bar,
+body[data-esquinas="cuadrado"] .md-cont-prog-fill,
+body[data-esquinas="cuadrado"] .md-cont-thumb,
+body[data-esquinas="cuadrado"] .md-continuar-card,
+body[data-esquinas="cuadrado"] .md-cover-wrap,
+body[data-esquinas="cuadrado"] .md-cover-wrap::before,
+body[data-esquinas="cuadrado"] .md-fav-btn,
+body[data-esquinas="cuadrado"] .md-panel-genre-pill,
+body[data-esquinas="cuadrado"] .md-rating-badge,
+body[data-esquinas="cuadrado"] .md-shimmer,
+body[data-esquinas="cuadrado"] .md-skel-line,
+body[data-esquinas="cuadrado"] .md-skel-line.cap-row,
+body[data-esquinas="cuadrado"] .md-skel-line.tag,
+body[data-esquinas="cuadrado"] .md-skel-line.title,
+body[data-esquinas="cuadrado"] .md-tag,
+body[data-esquinas="cuadrado"] .md-vol-badge,
+body[data-esquinas="cuadrado"] .mh-btn,
+body[data-esquinas="cuadrado"] .mh-icon,
+body[data-esquinas="cuadrado"] .mlo-icon,
+body[data-esquinas="cuadrado"] .mn-btn-biblioteca,
+body[data-esquinas="cuadrado"] .mn-btn-fav,
+body[data-esquinas="cuadrado"] .mn-btn-volver,
+body[data-esquinas="cuadrado"] .mn-cont-card,
+body[data-esquinas="cuadrado"] .mn-cont-cover-ph,
+body[data-esquinas="cuadrado"] .mn-cont-dots,
+body[data-esquinas="cuadrado"] .mn-cont-prog,
+body[data-esquinas="cuadrado"] .mn-cont-prog-fill,
+body[data-esquinas="cuadrado"] .mn-cont-src-badge,
+body[data-esquinas="cuadrado"] .mn-ctx-item,
+body[data-esquinas="cuadrado"] .mn-filtro,
+body[data-esquinas="cuadrado"] .mn-genre-pill,
+body[data-esquinas="cuadrado"] .mn-new-badge,
+body[data-esquinas="cuadrado"] .mn-new-card,
+body[data-esquinas="cuadrado"] .mn-new-img,
+body[data-esquinas="cuadrado"] .mn-new-row::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .mn-rec-card,
+body[data-esquinas="cuadrado"] .mn-rec-tag,
+body[data-esquinas="cuadrado"] .mn-searchbar,
+body[data-esquinas="cuadrado"] .mn-searchbar button,
+body[data-esquinas="cuadrado"] .mn-sec-bar,
+body[data-esquinas="cuadrado"] .mn-sec-tab,
+body[data-esquinas="cuadrado"] .mn-sec-vertodo,
+body[data-esquinas="cuadrado"] .mn-sidebar-genre,
+body[data-esquinas="cuadrado"] .mn-tend-cover,
+body[data-esquinas="cuadrado"] .mn-tend-placeholder,
+body[data-esquinas="cuadrado"] .mn-tend-rank,
+body[data-esquinas="cuadrado"] .mn-tend-tag,
+body[data-esquinas="cuadrado"] .mn-tend-tipo,
+body[data-esquinas="cuadrado"] .mnbib-back,
+body[data-esquinas="cuadrado"] .mnbib-btn-pag,
+body[data-esquinas="cuadrado"] .mnbib-count,
+body[data-esquinas="cuadrado"] .mnbib-drop-btn,
+body[data-esquinas="cuadrado"] .mnbib-drop-panel,
+body[data-esquinas="cuadrado"] .mnbib-drop-panel .mnbib-tipo,
+body[data-esquinas="cuadrado"] .mnbib-drop-val,
+body[data-esquinas="cuadrado"] .mnbib-genero,
+body[data-esquinas="cuadrado"] .mnbib-orden,
+body[data-esquinas="cuadrado"] .mnbib-reset-btn,
+body[data-esquinas="cuadrado"] .mnbib-search-btn,
+body[data-esquinas="cuadrado"] .mnbib-search-wrap,
+body[data-esquinas="cuadrado"] .mnbib-select,
+body[data-esquinas="cuadrado"] .mnbib-tipo,
+body[data-esquinas="cuadrado"] .mod-badge,
+body[data-esquinas="cuadrado"] .mod-card,
+body[data-esquinas="cuadrado"] .mod-logo-wrap,
+body[data-esquinas="cuadrado"] .mod-overlay-back,
+body[data-esquinas="cuadrado"] .mod-overlay-card,
+body[data-esquinas="cuadrado"] .mod-overlay-card::before,
+body[data-esquinas="cuadrado"] .mod-overlay-logo,
+body[data-esquinas="cuadrado"] .mod-overlay-panel,
+body[data-esquinas="cuadrado"] .modulo-badge,
+body[data-esquinas="cuadrado"] .modulo-item,
+body[data-esquinas="cuadrado"] .modulo-logo,
+body[data-esquinas="cuadrado"] .nav-btn,
+body[data-esquinas="cuadrado"] .nav-btn.activo::before,
+body[data-esquinas="cuadrado"] .nc-fuente-btn,
+body[data-esquinas="cuadrado"] .nc-fuente-num,
+body[data-esquinas="cuadrado"] .nf-badge,
+body[data-esquinas="cuadrado"] .nf-card,
+body[data-esquinas="cuadrado"] .nf-cargar-mas-btn,
+body[data-esquinas="cuadrado"] .nfx-btn-info,
+body[data-esquinas="cuadrado"] .nfx-btn-watch,
+body[data-esquinas="cuadrado"] .nfx-card-img,
+body[data-esquinas="cuadrado"] .nfx-card-img .nf-badge,
+body[data-esquinas="cuadrado"] .nfx-main::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .nfx-row-skeleton::after,
+body[data-esquinas="cuadrado"] .nfx-row-skeleton::before,
+body[data-esquinas="cuadrado"] .nfx-sb-link,
+body[data-esquinas="cuadrado"] .pf-banner-edit-btn,
+body[data-esquinas="cuadrado"] .pf-bio-input,
+body[data-esquinas="cuadrado"] .pf-cancel-btn,
+body[data-esquinas="cuadrado"] .pf-edit-btn,
+body[data-esquinas="cuadrado"] .pf-fav-item,
+body[data-esquinas="cuadrado"] .pf-fav-item img,
+body[data-esquinas="cuadrado"] .pf-fav-pick-item,
+body[data-esquinas="cuadrado"] .pf-fav-pick-item .pf-pick-thumb-empty,
+body[data-esquinas="cuadrado"] .pf-fav-pick-item img,
+body[data-esquinas="cuadrado"] .pf-fav-pick-thumb-empty,
+body[data-esquinas="cuadrado"] .pf-fav-picker-list::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .pf-fav-slot,
+body[data-esquinas="cuadrado"] .pf-favs-tab,
+body[data-esquinas="cuadrado"] .pf-panel,
+body[data-esquinas="cuadrado"] .pf-pos-modal-box,
+body[data-esquinas="cuadrado"] .pf-pos-preview-banner,
+body[data-esquinas="cuadrado"] .pf-privacy-btn,
+body[data-esquinas="cuadrado"] .pf-save-btn,
+body[data-esquinas="cuadrado"] .pf-uname,
+body[data-esquinas="cuadrado"] .pip-btn,
+body[data-esquinas="cuadrado"] .pip-img-wrap,
+body[data-esquinas="cuadrado"] .pip-progress-bar,
+body[data-esquinas="cuadrado"] .play-overlay,
+body[data-esquinas="cuadrado"] .rl-back,
+body[data-esquinas="cuadrado"] .rl-cap-item,
+body[data-esquinas="cuadrado"] .rl-cap-toggle,
+body[data-esquinas="cuadrado"] .rl-caps-lista::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .rl-download-btn,
+body[data-esquinas="cuadrado"] .rl-icon-btn,
+body[data-esquinas="cuadrado"] .rl-nav-arrow,
+body[data-esquinas="cuadrado"] .rl-opt,
+body[data-esquinas="cuadrado"] .rl-panel::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .rl-prog-btn,
+body[data-esquinas="cuadrado"] .rl-prog-slider,
+body[data-esquinas="cuadrado"] .rl-tipo-badge,
+body[data-esquinas="cuadrado"] .rl-toggle-track,
+body[data-esquinas="cuadrado"] .rl-vol-select,
+body[data-esquinas="cuadrado"] .rl-zoom-btn,
+body[data-esquinas="cuadrado"] .rl-zoom-slider,
+body[data-esquinas="cuadrado"] .rp-back-btn,
+body[data-esquinas="cuadrado"] .rp-dd-item,
+body[data-esquinas="cuadrado"] .rp-ep-bar,
+body[data-esquinas="cuadrado"] .rp-ep-bar-fill,
+body[data-esquinas="cuadrado"] .rp-ep-item,
+body[data-esquinas="cuadrado"] .rp-ep-playing span,
+body[data-esquinas="cuadrado"] .rp-ep-toggle,
+body[data-esquinas="cuadrado"] .rp-eps-close-btn,
+body[data-esquinas="cuadrado"] .rp-eps-list::-webkit-scrollbar-thumb,
+body[data-esquinas="cuadrado"] .rp-exit-btn,
+body[data-esquinas="cuadrado"] .rp-fs-btn,
+body[data-esquinas="cuadrado"] .rp-fs-fill,
+body[data-esquinas="cuadrado"] .rp-fs-track,
+body[data-esquinas="cuadrado"] .rp-genre-tag,
+body[data-esquinas="cuadrado"] .rp-ib-ep-card,
+body[data-esquinas="cuadrado"] .rp-ib-ep-thumb,
+body[data-esquinas="cuadrado"] .rp-ib-eps-list-btn,
+body[data-esquinas="cuadrado"] .rp-ib-like-btn,
+body[data-esquinas="cuadrado"] .rp-pill-btn,
+body[data-esquinas="cuadrado"] .rp-prog-preview,
+body[data-esquinas="cuadrado"] .rp-skip-intro,
+body[data-esquinas="cuadrado"] .rp-speed-dropdown,
+body[data-esquinas="cuadrado"] .rp-srv-dropdown,
+body[data-esquinas="cuadrado"] .rp-srv-pill,
+body[data-esquinas="cuadrado"] .rp-topbtn,
+body[data-esquinas="cuadrado"] .rp-vbtn,
+body[data-esquinas="cuadrado"] .rp-vc-btn,
+body[data-esquinas="cuadrado"] .rp-vc-fill,
+body[data-esquinas="cuadrado"] .rp-vc-track,
+body[data-esquinas="cuadrado"] .rp-vol-bar-fill,
+body[data-esquinas="cuadrado"] .rp-vol-bar-wrap,
+body[data-esquinas="cuadrado"] .rz-ne,
+body[data-esquinas="cuadrado"] .rz-nw,
+body[data-esquinas="cuadrado"] .rz-se,
+body[data-esquinas="cuadrado"] .rz-sw,
+body[data-esquinas="cuadrado"] .sb-hist-clear-all,
+body[data-esquinas="cuadrado"] .sb-history-dropdown,
+body[data-esquinas="cuadrado"] .search-bar button,
+body[data-esquinas="cuadrado"] .search-bar input,
+body[data-esquinas="cuadrado"] .seccion-titulo::before,
+body[data-esquinas="cuadrado"] .sidebar-logo.mod-switcher,
+body[data-esquinas="cuadrado"] .slider-arrow,
+body[data-esquinas="cuadrado"] .slider-btn-info,
+body[data-esquinas="cuadrado"] .slider-btn-ver,
+body[data-esquinas="cuadrado"] .slider-ep-badge,
+body[data-esquinas="cuadrado"] .slider-nuevo-badge,
+body[data-esquinas="cuadrado"] .slider-wrap,
+body[data-esquinas="cuadrado"] .srv-badge,
+body[data-esquinas="cuadrado"] .srv-btn,
+body[data-esquinas="cuadrado"] .srv-icono,
+body[data-esquinas="cuadrado"] .srv-sin-resultado,
+body[data-esquinas="cuadrado"] .tarjeta,
+body[data-esquinas="cuadrado"] .tarjeta-badge-nuevo,
+body[data-esquinas="cuadrado"] .tarjeta-cat,
+body[data-esquinas="cuadrado"] .tarjeta-genero,
+body[data-esquinas="cuadrado"] .tarjeta-prog-bar div,
+body[data-esquinas="cuadrado"] .tarjeta-rank-badge,
+body[data-esquinas="cuadrado"] .tarjeta-rating-badge,
+body[data-esquinas="cuadrado"] .tarjeta-score,
+body[data-esquinas="cuadrado"] .titlebar-controls button,
+body[data-esquinas="cuadrado"] .titlebar-controls button .tb-line,
+body[data-esquinas="cuadrado"] [data-lista-estilo="tarjetas"] .md-cap-item,
+body[data-esquinas="cuadrado"] [data-lista-estilo="tarjetas"] .md-cap-num,
+body[data-esquinas="cuadrado"] [data-lista-estilo="tarjetas"] .md-cap-thumb-wrap,
+body[data-esquinas="cuadrado"] body.mobile-mode #grilla-recientes,
+body[data-esquinas="cuadrado"] body.mobile-mode #grilla-series,
+body[data-esquinas="cuadrado"] body.mobile-mode .ac-cont-card,
+body[data-esquinas="cuadrado"] body.mobile-mode .ep-card,
+body[data-esquinas="cuadrado"] body.mobile-mode .ep-thumb,
+body[data-esquinas="cuadrado"] body.mobile-mode .home-hero-banner .slider-wrap,
+body[data-esquinas="cuadrado"] body.mobile-mode .mnbib-card,
+body[data-esquinas="cuadrado"] body.mobile-mode .nav-btn,
+body[data-esquinas="cuadrado"] body.mobile-mode .nav-btn.activo::before,
+body[data-esquinas="cuadrado"] body.mobile-mode .sidebar,
+body[data-esquinas="cuadrado"] body.mobile-mode .sidebar-logo.mod-switcher,
+body[data-esquinas="cuadrado"] body.mobile-mode .slider-btn-ver,
+body[data-esquinas="cuadrado"] body.mobile-mode .slider-dot,
+body[data-esquinas="cuadrado"] body.sidebar-neon .nav-btn.activo::before,
+body[data-esquinas="cuadrado"] mark.cw-highlight {
+  border-radius: 0 !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TEMA "HATSUNE MIKU" — más que colores
+   Paleta base (cian #39C5BB / magenta #FF2E92) ya la aplica _aplicarTema()
+   vía ACCENTS.miku. Todo lo de abajo son los extras: partículas, bordes
+   animados, scrollbar temático, "ecualizador" de carga, chispas y tipografía.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Botón de preset con mini-degradé animado (se nota entre los demás) ── */
+.cfg-preset-miku .cfg-preset-swatch {
+  background-size: 200% 200% !important;
+  animation: miku-borde-flujo 3s linear infinite;
+}
+
+/* ── Partículas de fondo (notas musicales + chispas flotando) ──────────── */
+#miku-particulas {
+  position: fixed; inset: 0; z-index: 4; pointer-events: none;
+  overflow: hidden; opacity: 0; transition: opacity 0.7s ease;
+}
+#miku-particulas.activo { opacity: 1; }
+.miku-nota, .miku-chispa-flot {
+  position: absolute; bottom: -5vh; left: 0;
+  animation: miku-flotar var(--miku-dur, 14s) linear forwards;
+  will-change: transform, opacity;
+}
+.miku-nota { text-shadow: 0 0 10px currentColor; line-height: 1; }
+.miku-chispa-flot { border-radius: 50%; box-shadow: 0 0 7px 1px currentColor; }
+@keyframes miku-flotar {
+  0%   { transform: translate(0, 0) rotate(0deg);   opacity: 0; }
+  10%  { opacity: 0.9; }
+  88%  { opacity: 0.6; }
+  100% { transform: translate(var(--miku-drift, 0px), -115vh) rotate(20deg); opacity: 0; }
+}
+
+/* ── Chispas — micro-interacción al marcar visto / favorito ────────────── */
+.miku-spark-burst {
+  position: fixed; width: 6px; height: 6px; border-radius: 50%;
+  pointer-events: none; z-index: 99998; top: 0; left: 0;
+  box-shadow: 0 0 8px 1px currentColor;
+  animation: miku-spark-anim 0.7s cubic-bezier(0.15,0.8,0.25,1) forwards;
+}
+@keyframes miku-spark-anim {
+  0%   { transform: translate(-50%, -50%) scale(1);   opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--sx, 0px)), calc(-50% + var(--sy, 0px))) scale(0.15); opacity: 0; }
+}
+
+/* ── Bordes animados en tarjetas al pasar el mouse ──────────────────────── */
+body[data-tema-id="miku"] .tarjeta,
+body[data-tema-id="miku"] .ac-cont-card,
+body[data-tema-id="miku"] .mod-card {
+  position: relative;
+}
+body[data-tema-id="miku"] .tarjeta::after,
+body[data-tema-id="miku"] .ac-cont-card::after,
+body[data-tema-id="miku"] .mod-card::after {
+  content: '';
+  position: absolute; inset: -2px; border-radius: inherit; padding: 2px;
+  background: linear-gradient(120deg, #39C5BB, #FF2E92, #8CFFF2, #39C5BB);
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0; transition: opacity 0.25s ease;
+  animation: miku-borde-flujo 2.6s linear infinite;
+  pointer-events: none; z-index: 3;
+}
+body[data-tema-id="miku"] .tarjeta:hover::after,
+body[data-tema-id="miku"] .ac-cont-card:hover::after,
+body[data-tema-id="miku"] .mod-card:hover::after {
+  opacity: 1;
+}
+@keyframes miku-borde-flujo {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+
+/* ── Scrollbar temático ─────────────────────────────────────────────────── */
+body[data-tema-id="miku"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #39C5BB, #FF2E92) !important;
+}
+body[data-tema-id="miku"] { scrollbar-color: #39C5BB transparent; }
+
+/* ── "Ecualizador" en los indicadores de carga ──────────────────────────── */
+body[data-tema-id="miku"] .loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+body[data-tema-id="miku"] .loading::before,
+body[data-tema-id="miku"] .loading::after {
+  content: '';
+  display: inline-block; width: 3px; height: 14px; border-radius: 2px;
+  background: linear-gradient(180deg, #39C5BB, #FF2E92);
+  animation: miku-eq 0.7s ease-in-out infinite alternate;
+}
+body[data-tema-id="miku"] .loading::after { animation-delay: 0.22s; }
+@keyframes miku-eq {
+  0%   { transform: scaleY(0.4); opacity: 0.6; }
+  100% { transform: scaleY(1.6); opacity: 1; }
+}
+
+/* Marca "01" quitada (daba problemas de solapamiento en paneles chicos
+   que no valía la pena seguir persiguiendo). Queda el reset de stacking
+   que ya estaba usando .cfg-panel para otra cosa, por si acaso. */
+body[data-tema-id="miku"] .cfg-panel > * { position: relative; z-index: 1; }
+
+/* ── Tipografía de acento en títulos destacados ─────────────────────────── */
+body[data-tema-id="miku"] .slider-info h2,
+body[data-tema-id="miku"] #anime-titulo {
+  font-family: 'Baloo 2', 'Inter', sans-serif !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.2px;
+}
+
+/* ── Extras Miku v2: cursor, halo, luz de escenario, progreso bicolor ──── */
+
+/* Fila del switch de sonido — solo visible con el tema Miku activo */
+#cfg-miku-sonido-row { display: none; }
+body[data-tema-id="miku"] #cfg-miku-sonido-row,
+body[data-tema-id="neru"] #cfg-miku-sonido-row { display: block; }
+
+/* Cursor temático — puntero de Miku (un solo cuadro, extraído del
+   Miku_Cursor.ani provisto por el usuario, con transparencia real). Se
+   oculta el cursor nativo del sistema en todo el tema y se reemplaza por
+   #miku-cursor-fx, un elemento que sigue al mouse (ver miku.js). Los
+   campos de texto conservan el cursor nativo por legibilidad del caret. */
+body[data-tema-id="miku"],
+body[data-tema-id="miku"] *:not(input):not(textarea):not([contenteditable="true"]) {
+  cursor: none !important;
+}
+#miku-cursor-fx {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 999999;
+  background-image: url("assets/miku-cursor.png");
+  background-repeat: no-repeat;
+  background-size: 40px 40px;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  transform: translate(-9999px, -9999px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  /* Glow cian/magenta de Miku alrededor de la silueta (drop-shadow sigue el
+     alfa del PNG, no tapa el dibujo como haría un box-shadow rectangular). */
+  filter: drop-shadow(0 0 2px rgba(57,197,187,0.95))
+          drop-shadow(0 0 4px rgba(57,197,187,0.75))
+          drop-shadow(0 0 7px rgba(255,46,146,0.55));
+}
+#miku-cursor-fx.activo { opacity: 1; }
+
+/* Halo de "respiración" en el logo de la sidebar */
+body[data-tema-id="miku"] #mod-switcher-icon img {
+  animation: miku-respirar 3.2s ease-in-out infinite;
+}
+@keyframes miku-respirar {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(57,197,187,0.4)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(57,197,187,0.9)) drop-shadow(0 0 4px rgba(255,46,146,0.55)); }
+}
+
+/* Luz de escenario — barrido continuo y sutil sobre el slider principal */
+body[data-tema-id="miku"] .slider-wrap::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(100deg,
+    transparent 42%,
+    rgba(140,232,255,0.14) 47%,
+    rgba(255,255,255,0.30) 50%,
+    rgba(255,46,146,0.14) 53%,
+    transparent 58%);
+  background-size: 260% 100%;
+  mix-blend-mode: screen;
+  animation: miku-luz-escenario 7s ease-in-out infinite;
+}
+@keyframes miku-luz-escenario {
+  0%   { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* Barras de progreso bicolor */
+body[data-tema-id="miku"] .ac-cont-prog-fill,
+body[data-tema-id="miku"] .ep-prog-fill,
+body[data-tema-id="miku"] .mn-cont-prog-fill,
+body[data-tema-id="miku"] .tarjeta-prog-bar div {
+  background: linear-gradient(90deg, #39C5BB, #7FF0E4, #FF2E92) !important;
+}
+
+/* Fondo con imagen del usuario — siempre cubre todo el rectángulo, sin
+   huecos ni márgenes, en cualquier tamaño de ventana. ::before es una
+   copia de respaldo difuminada (por si algo se llegara a asomar); ::after
+   es la imagen nítida en primer plano, la que realmente se ve, en cover
+   y centrada. */
+body[data-tema-id="miku"] #app-bg-layer {
+  background-size: cover;
+  background-position: center center;
+}
+body[data-tema-id="miku"] #app-bg-layer::before,
+body[data-tema-id="miku"] #app-bg-layer::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: var(--app-bg-image, none);
+  background-repeat: no-repeat;
+}
+body[data-tema-id="miku"] #app-bg-layer::before {
+  background-size: cover;
+  background-position: center;
+  filter: blur(38px) saturate(1.35) brightness(0.88);
+  transform: scale(1.12);
+}
+body[data-tema-id="miku"] #app-bg-layer::after {
+  /* Por defecto cubre TODO el rectángulo, sin ningún hueco (cover,
+     centrada). Si el usuario ajustó el encuadre desde Configuración
+     ("Ajustar encuadre del fondo"), _aplicarBg() sobreescribe estas dos
+     variables y esta capa usa exactamente ese recorte/zoom manual. */
+  background-size: var(--app-bg-size, cover);
+  background-position: var(--app-bg-position, center center);
+}
+
+/* "Difuminar fondo" aplica blur(28px) + scale(1.08) sobre TODO #app-bg-layer
+   (lo que incluiría a las dos capas de arriba) — eso recorta ~8% de la
+   imagen nítida sin importar cover/contain. Para el tema Miku la imagen
+   tiene que verse nítida y completa, así que se neutraliza acá. */
+body[data-tema-id="miku"].bg-blur #app-bg-layer {
+  filter: none;
+  transform: scale(1);
+}
+
+/* ── Cintas — la barrita de pestaña activa toma forma de cinta con cola en
+   V (como sus coletas), y los switches encendidos usan el mismo degradé
+   cian→magenta en vez de un color plano ──────────────────────────────── */
+body[data-tema-id="miku"] .nav-btn.activo::before {
+  width: 5px; height: 26px; border-radius: 0;
+  background: linear-gradient(180deg, #39C5BB, #7FF0E4 45%, #FF2E92);
+  clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%);
+}
+body.sidebar-neon[data-tema-id="miku"] .nav-btn.activo::before {
+  width: 5px; height: 30px;
+  background: linear-gradient(180deg, #39C5BB, #7FF0E4 45%, #FF2E92);
+  clip-path: polygon(0 0, 100% 0, 100% 80%, 50% 100%, 0 80%);
+  animation: none;
+  box-shadow: 0 0 10px rgba(57,197,187,0.6);
+}
+body[data-tema-id="miku"] .rl-toggle input:checked + .rl-toggle-track {
+  background: linear-gradient(90deg, #39C5BB, #FF2E92) !important;
+}
+body[data-tema-id="miku"] .rl-toggle input:checked + .rl-toggle-track::after {
+  box-shadow: 0 0 6px rgba(57,197,187,0.7);
+}
+
+/* ── "Now playing" — el título de la página de detalle, flanqueado por el
+   mismo ecualizador que ya usan los estados de carga (mismo @keyframes
+   miku-eq, cero código nuevo de animación) ───────────────────────────── */
+body[data-tema-id="miku"] #anime-titulo::before,
+body[data-tema-id="miku"] #anime-titulo::after {
+  content: '';
+  display: inline-block;
+  width: 3px; height: 16px; margin: 0 6px; border-radius: 2px;
+  vertical-align: middle;
+  background: linear-gradient(180deg, #39C5BB, #FF2E92);
+  animation: miku-eq 0.7s ease-in-out infinite alternate;
+}
+body[data-tema-id="miku"] #anime-titulo::after { animation-delay: 0.22s; }
+
+/* ── Marca "01" — versión simple y fija. La dinámica que evitaba paneles
+   se sacó por los bugs de solapamiento; esta va pegada al ícono del
+   selector de módulo en la sidebar (siempre presente, siempre el mismo
+   lugar), así que no hace falta ninguna lógica de colisión. ──────────── */
+body[data-tema-id="miku"] .sidebar-logo.mod-switcher {
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+body[data-tema-id="miku"] .sidebar-logo.mod-switcher::after {
+  content: '';
+  display: block;
+  order: -1;
+  width: 24px; height: 26.4px;
+  background-image: url("assets/miku-01-logo.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 3px rgba(57,197,187,0.6));
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TEMA "AKITA NERU" — mismo espíritu que el tema Miku, en su paleta:
+   ámbar/naranja #F2A30E (su color de pelo, sacado de la imagen que subió
+   el usuario) + verde oliva #8FBF3F (el listón). La paleta base ya la
+   aplica _aplicarTema() vía ACCENTS.neru — esto de acá son los extras:
+   partículas, bordes animados, scrollbar temático, "ecualizador" de carga,
+   luz de escenario y halo del logo. Reutiliza los @keyframes genéricos del
+   tema Miku (miku-flotar / miku-spark-anim / miku-borde-flujo / miku-eq)
+   porque son puramente de movimiento, no llevan color adentro — los que sí
+   tienen colores fijos (respirar, luz de escenario) tienen su propia copia
+   acá con la paleta de Neru.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Botón de preset con mini-degradé animado ───────────────────────────── */
+.cfg-preset-neru .cfg-preset-swatch {
+  background-size: 200% 200% !important;
+  animation: miku-borde-flujo 3s linear infinite;
+}
+
+/* ── Partículas de fondo (flores + chispas flotando) ────────────────────── */
+#neru-particulas {
+  position: fixed; inset: 0; z-index: 4; pointer-events: none;
+  overflow: hidden; opacity: 0; transition: opacity 0.7s ease;
+}
+#neru-particulas.activo { opacity: 1; }
+.neru-flor, .neru-chispa-flot {
+  position: absolute; bottom: -5vh; left: 0;
+  animation: miku-flotar var(--miku-dur, 14s) linear forwards;
+  will-change: transform, opacity;
+}
+.neru-flor { text-shadow: 0 0 10px currentColor; line-height: 1; }
+.neru-chispa-flot { border-radius: 50%; box-shadow: 0 0 7px 1px currentColor; }
+
+/* ── Chispas — micro-interacción al marcar visto / favorito ────────────── */
+.neru-spark-burst {
+  position: fixed; width: 6px; height: 6px; border-radius: 50%;
+  pointer-events: none; z-index: 99998; top: 0; left: 0;
+  box-shadow: 0 0 8px 1px currentColor;
+  animation: miku-spark-anim 0.7s cubic-bezier(0.15,0.8,0.25,1) forwards;
+}
+
+/* ── Bordes animados en tarjetas al pasar el mouse ──────────────────────── */
+body[data-tema-id="neru"] .tarjeta,
+body[data-tema-id="neru"] .ac-cont-card,
+body[data-tema-id="neru"] .mod-card {
+  position: relative;
+}
+body[data-tema-id="neru"] .tarjeta::after,
+body[data-tema-id="neru"] .ac-cont-card::after,
+body[data-tema-id="neru"] .mod-card::after {
+  content: '';
+  position: absolute; inset: -2px; border-radius: inherit; padding: 2px;
+  background: linear-gradient(120deg, #F2A30E, #8FBF3F, #FFE29A, #F2A30E);
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0; transition: opacity 0.25s ease;
+  animation: miku-borde-flujo 2.6s linear infinite;
+  pointer-events: none; z-index: 3;
+}
+body[data-tema-id="neru"] .tarjeta:hover::after,
+body[data-tema-id="neru"] .ac-cont-card:hover::after,
+body[data-tema-id="neru"] .mod-card:hover::after {
+  opacity: 1;
+}
+
+/* ── Scrollbar temático ─────────────────────────────────────────────────── */
+body[data-tema-id="neru"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #F2A30E, #8FBF3F) !important;
+}
+body[data-tema-id="neru"] { scrollbar-color: #F2A30E transparent; }
+
+/* ── "Ecualizador" en los indicadores de carga ──────────────────────────── */
+body[data-tema-id="neru"] .loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+body[data-tema-id="neru"] .loading::before,
+body[data-tema-id="neru"] .loading::after {
+  content: '';
+  display: inline-block; width: 3px; height: 14px; border-radius: 2px;
+  background: linear-gradient(180deg, #F2A30E, #8FBF3F);
+  animation: miku-eq 0.7s ease-in-out infinite alternate;
+}
+body[data-tema-id="neru"] .loading::after { animation-delay: 0.22s; }
+
+/* ── Ecualizador junto al título de detalle (mismo patrón que Miku) ─────── */
+body[data-tema-id="neru"] #anime-titulo::before,
+body[data-tema-id="neru"] #anime-titulo::after {
+  content: '';
+  display: inline-block;
+  width: 3px; height: 16px; margin: 0 6px; border-radius: 2px;
+  vertical-align: middle;
+  background: linear-gradient(180deg, #F2A30E, #8FBF3F);
+  animation: miku-eq 0.7s ease-in-out infinite alternate;
+}
+body[data-tema-id="neru"] #anime-titulo::after { animation-delay: 0.22s; }
+
+/* ── Tipografía de acento en títulos destacados ─────────────────────────── */
+body[data-tema-id="neru"] .slider-info h2,
+body[data-tema-id="neru"] #anime-titulo {
+  font-family: 'Baloo 2', 'Inter', sans-serif !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.2px;
+}
+
+/* ── Halo de "respiración" en el logo de la sidebar ─────────────────────── */
+body[data-tema-id="neru"] #mod-switcher-icon img {
+  animation: neru-respirar 3.2s ease-in-out infinite;
+}
+@keyframes neru-respirar {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(242,163,14,0.4)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(242,163,14,0.9)) drop-shadow(0 0 4px rgba(143,191,63,0.55)); }
+}
+
+/* ── Luz de escenario — barrido continuo y sutil sobre el slider principal ── */
+body[data-tema-id="neru"] .slider-wrap::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(100deg,
+    transparent 42%,
+    rgba(255,224,140,0.16) 47%,
+    rgba(255,255,255,0.30) 50%,
+    rgba(143,191,63,0.14) 53%,
+    transparent 58%);
+  background-size: 260% 100%;
+  mix-blend-mode: screen;
+  animation: miku-luz-escenario 7s ease-in-out infinite;
+}
+
+/* ── Barras de progreso bicolor ──────────────────────────────────────────── */
+body[data-tema-id="neru"] .ac-cont-prog-fill,
+body[data-tema-id="neru"] .ep-prog-fill,
+body[data-tema-id="neru"] .mn-cont-prog-fill,
+body[data-tema-id="neru"] .tarjeta-prog-bar div {
+  background: linear-gradient(90deg, #F2A30E, #FFE29A, #8FBF3F) !important;
+}
+
+/* ── Fondo con la imagen de Neru — mismo tratamiento que el de Miku:
+   ::before es la copia difuminada de respaldo, ::after es la nítida en
+   primer plano (cover, centrada; _aplicarBg() la pisa si el usuario ajustó
+   el encuadre manualmente). ─────────────────────────────────────────── */
+body[data-tema-id="neru"] #app-bg-layer {
+  background-size: cover;
+  background-position: center center;
+}
+body[data-tema-id="neru"] #app-bg-layer::before,
+body[data-tema-id="neru"] #app-bg-layer::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: var(--app-bg-image, none);
+  background-repeat: no-repeat;
+}
+body[data-tema-id="neru"] #app-bg-layer::before {
+  background-size: cover;
+  background-position: center;
+  filter: blur(38px) saturate(1.35) brightness(0.88);
+  transform: scale(1.12);
+}
+body[data-tema-id="neru"] #app-bg-layer::after {
+  background-size: var(--app-bg-size, cover);
+  background-position: var(--app-bg-position, center center);
+}
+body[data-tema-id="neru"].bg-blur #app-bg-layer {
+  filter: none;
+  transform: scale(1);
+}
+
+/* ── Cursor temático — puntero de Neru (chibi + flechita, provisto por el
+   usuario en 32x32; solo se le quitó el negro de fondo, mismo criterio que
+   con el cursor de Miku: un solo cuadro, transparencia real, sin retocar
+   el arte). Se oculta el cursor nativo del sistema en todo el tema y se
+   reemplaza por #neru-cursor-fx (ver neru.js). Los campos de texto
+   conservan el cursor nativo por legibilidad del caret. ────────────────── */
+body[data-tema-id="neru"],
+body[data-tema-id="neru"] *:not(input):not(textarea):not([contenteditable="true"]) {
+  cursor: none !important;
+}
+#neru-cursor-fx {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 999999;
+  background-image: url("assets/neru-cursor.png");
+  background-repeat: no-repeat;
+  background-size: 40px 40px;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  transform: translate(-9999px, -9999px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  /* Glow ámbar/oliva de Neru alrededor de la silueta */
+  filter: drop-shadow(0 0 2px rgba(242,163,14,0.95))
+          drop-shadow(0 0 4px rgba(242,163,14,0.75))
+          drop-shadow(0 0 7px rgba(143,191,63,0.55));
+}
+#neru-cursor-fx.activo { opacity: 1; }
+
+/* ── Marca "DEN2" — el logo que Neru lleva en el brazo, versión simple y
+   fija pegada al ícono del selector de módulo en la sidebar (mismo criterio
+   que la marca "01" de Miku: nada de posicionamiento dinámico, siempre el
+   mismo lugar). ─────────────────────────────────────────────────────── */
+body[data-tema-id="neru"] .sidebar-logo.mod-switcher {
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+body[data-tema-id="neru"] .sidebar-logo.mod-switcher::after {
+  content: '';
+  display: block;
+  order: -1;
+  width: 34px; height: 16.6px;
+  background-image: url("assets/neru-den2-logo.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 3px rgba(242,163,14,0.6));
+  pointer-events: none;
 }
