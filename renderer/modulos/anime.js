@@ -1102,20 +1102,10 @@ async function abrirSelector(url, titulo) {
   }
 
   // Renderizar: funcionales en verde, resto en neutro
-  const _indexados = _servidores.map((s, i) => ({ ...s, _idx: i }))
-  _indexados.sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
-
-  lista.innerHTML = _indexados.map(s => {
-    const ok = _esFuncional(s.nombre)
-    return `<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
-      <div class="srv-dot ${ok ? 'srv-dot-ok' : ''}"></div>
-      <span class="srv-nombre">${s.nombre}</span>
-    </button>`
-  }).join('')
+  const _indexados = _renderListaServidores()
 
   // Pre-fetch en background: los primeros funcionales primero, luego el resto
-  const ordenPrefetch = [..._indexados].sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
-  _preFetchServidores(ordenPrefetch)
+  _preFetchServidores(_indexados)
 }
 
 async function pedirServidorEp(url, titulo) {
@@ -1133,20 +1123,72 @@ async function pedirServidorEp(url, titulo) {
     return
   }
 
-  const _indexados2 = _servidores.map((s, i) => ({ ...s, _idx: i }))
-  _indexados2.sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
-
-  lista.innerHTML = _indexados2.map(s => {
-    const ok = _esFuncional(s.nombre)
-    return `<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
-      <div class="srv-dot ${ok ? 'srv-dot-ok' : ''}"></div>
-      <span class="srv-nombre">${s.nombre}</span>
-    </button>`
-  }).join('')
+  const _indexados2 = _renderListaServidores()
 
   // Pre-fetch en background
-  const ordenPrefetch2 = [..._indexados2].sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
-  _preFetchServidores(ordenPrefetch2)
+  _preFetchServidores(_indexados2)
+}
+
+// Renderiza #srv-lista a partir de _servidores (funcionales primero) y
+// devuelve el array indexado -- compartido por abrirSelector, pedirServidorEp
+// y por la vuelta al selector cuando un servidor falla a mitad de carga
+// (ver _volverASelectorTrasFallo), para que ese caso también tenga la lista
+// correcta y actualizada en vez de depender de un render viejo/ausente.
+function _renderListaServidores() {
+  const lista = document.getElementById('srv-lista')
+  const _indexados = _servidores.map((s, i) => ({ ...s, _idx: i }))
+  _indexados.sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
+  if (lista) {
+    lista.innerHTML = _indexados.map(s => {
+      const ok = _esFuncional(s.nombre)
+      return `<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
+        <div class="srv-dot ${ok ? 'srv-dot-ok' : ''}"></div>
+        <span class="srv-nombre">${s.nombre}</span>
+      </button>`
+    }).join('')
+  }
+  return _indexados
+}
+
+// Marca un botón del selector como fallido: punto rojo + nombre tachado +
+// etiqueta "sin resultado". Compartido entre el fallo de getStream() (antes
+// de intentar abrir el player) y el fallo de reproducción real (HLS/video
+// error) que antes abría el player igual y mostraba el error ahí adentro.
+function _marcarServidorFallido(idx) {
+  const btn = document.getElementById(`srv-btn-${idx}`)
+  if (!btn) return
+  const dot = btn.querySelector('.srv-dot')
+  btn.disabled = false
+  btn.classList.remove('srv-checking', 'srv-funcional')
+  btn.classList.add('srv-no-funcional')
+  if (dot) dot.className = 'srv-dot srv-dot-fail'
+  const nombreEl = btn.querySelector('.srv-nombre')
+  if (nombreEl) nombreEl.style.textDecoration = 'line-through'
+  if (!btn.querySelector('.srv-sin-resultado')) {
+    const lbl = document.createElement('span')
+    lbl.className = 'srv-sin-resultado'
+    lbl.textContent = 'sin resultado'
+    btn.appendChild(lbl)
+  }
+}
+
+// Un servidor que devolvió stream OK pero falla al reproducir de verdad
+// (HLS fatal / video error) ya no debe dejar al usuario mirando el player
+// roto con un cartel de error -- se cierra el player, se vuelve al selector
+// (re-renderizado por las dudas, por si _servidores cambió por un cambio de
+// episodio) y se marca ese servidor en rojo/tachado, igual que un servidor
+// que ya fallaba desde antes de abrir el player.
+async function _volverASelectorTrasFallo(idx) {
+  document.getElementById('player-error-msg')?.remove()
+  spinnerShow(false)
+  if (hls) { hls.destroy(); hls = null }
+  const video = document.getElementById('player-video')
+  if (video) { video.pause(); video.src = '' }
+  document.getElementById('overlay-player').classList.remove('activo')
+  if (window._chatUpdateFAB) window._chatUpdateFAB()
+  _renderListaServidores()
+  document.getElementById('overlay-servidor').classList.add('activo')
+  _marcarServidorFallido(idx)
 }
 
 document.getElementById('srv-cerrar').addEventListener('click', () => {
@@ -1213,20 +1255,7 @@ async function elegirServidor(idx) {
 
   if (!resultado?.url) {
     // Falló — tachado + pill rojo
-    if (btn) {
-      btn.disabled = false
-      btn.classList.remove('srv-checking', 'srv-funcional')
-      btn.classList.add('srv-no-funcional')
-      if (dot) dot.className = 'srv-dot srv-dot-fail'
-      const nombreEl = btn.querySelector('.srv-nombre')
-      if (nombreEl) nombreEl.style.textDecoration = 'line-through'
-      if (!btn.querySelector('.srv-sin-resultado')) {
-        const lbl = document.createElement('span')
-        lbl.className = 'srv-sin-resultado'
-        lbl.textContent = 'sin resultado'
-        btn.appendChild(lbl)
-      }
-    }
+    _marcarServidorFallido(idx)
     return
   }
 
@@ -1516,7 +1545,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
 
   if (!resultado || !resultado.url) {
     if (window.api.clearStreamCache) await window.api.clearStreamCache(s.url)
-    _mostrarErrorPlayer('No se pudo cargar este servidor. Probá otro desde el botón de servidores.')
+    _volverASelectorTrasFallo(idx)
     return
   }
 
@@ -1611,7 +1640,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
         return
       }
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
-      _mostrarErrorPlayer('Error reproduciendo este servidor. Probá otro desde el botón de servidores.')
+      _volverASelectorTrasFallo(idx)
     })
   } else {
     // Mobile: reproducción nativa del elemento <video> (Android soporta HLS
@@ -1622,7 +1651,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     video.onerror = () => {
       if (video.currentTime > 2) return
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
-      _mostrarErrorPlayer('Error reproduciendo este servidor. Probá otro desde el botón de servidores.')
+      _volverASelectorTrasFallo(idx)
     }
     video.load()
   }
