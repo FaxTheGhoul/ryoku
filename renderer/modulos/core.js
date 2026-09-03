@@ -235,6 +235,7 @@ const ACCENTS = {
   pink:   { primary:'#DB2777', hover:'#EC4899', glow:'#F472B6', dim:'rgba(219,39,119,0.15)', rgb:'219,39,119' },
   miku:   { primary:'#39C5BB', hover:'#4DD6CB', glow:'#7FF0E4', dim:'rgba(57,197,187,0.18)', rgb:'57,197,187' },
   neru:   { primary:'#F2A30E', hover:'#FFC94D', glow:'#FFE29A', dim:'rgba(242,163,14,0.18)', rgb:'242,163,14' },
+  berserker: { primary:'#C1121F', hover:'#E5383B', glow:'#FF5A5F', dim:'rgba(193,18,31,0.18)', rgb:'193,18,31' },
 }
 const MODOS = {
   oscuro: { main:'#0F172A', secondary:'#1E293B', card:'#111827', border:'#334155', textMain:'#F8FAFC', textSecondary:'#CBD5E1', textMuted:'#64748B' },
@@ -320,6 +321,7 @@ const BG_GRADIENTS = {
   // manual propio guardado (_appBgPosition/_appBgScale) — si el usuario
   // ajusta el encuadre después, eso sigue mandando como siempre.
   neru:       { nombre: 'Akita Neru', css: "url('assets/neru-bg.jpg')", posDefault: '48.3% 55%', scaleDefault: 1 },
+  berserker:  { nombre: 'Berserker',  css: "url('assets/berserker-bg.png')", posDefault: '50% 50%', scaleDefault: 1 },
 }
 
 // ── Temas completos (presets curados) ─────────────────────────────────────
@@ -332,6 +334,7 @@ const PRESETS = {
   atardecer:  { nombre: 'Atardecer',          modo: 'oscuro', accent: 'orange', bg: 'atardecer',   neon: false },
   miku:       { nombre: 'Hatsune Miku',       modo: 'oled',   accent: 'miku',   bg: 'miku',        neon: true  },
   neru:       { nombre: 'Akita Neru',          modo: 'claro',  accent: 'neru',   bg: 'neru',        neon: true  },
+  berserker:  { nombre: 'Berserker',            modo: 'oled',   accent: 'berserker', bg: 'berserker', neon: true  },
 }
 
 // Debounce para sync cloud — evita disparar un sync por cada clic en config
@@ -615,6 +618,7 @@ function _setTemaId(id) {
   document.querySelectorAll('.cfg-preset-btn').forEach(b => b.classList.toggle('activo', b.dataset.preset === id))
   if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(id)
   if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(id)
+  if (typeof window._berserkerTemaAplicado === 'function') window._berserkerTemaAplicado(id)
   _syncGuardarInmediato()
 }
 function setConfig18(val) {
@@ -1223,6 +1227,7 @@ async function initConfig() {
     document.querySelectorAll('.cfg-preset-btn').forEach(b => b.classList.toggle('activo', b.dataset.preset === _appTemaId))
     if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(_appTemaId)
     if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(_appTemaId)
+    if (typeof window._berserkerTemaAplicado === 'function') window._berserkerTemaAplicado(_appTemaId)
     const _cfgMikuSonido = document.getElementById('cfg-tog-miku-sonido')
     if (_cfgMikuSonido) _cfgMikuSonido.checked = _appMikuSonido
     document.querySelectorAll('.cfg-color').forEach(b => b.classList.toggle('activo', b.dataset.accent === _appAccent))
@@ -1264,7 +1269,7 @@ async function initConfig() {
 // mientras dure, y se devuelve a <body> al salir.
 function _reubicarCursorTematicoFullscreen() {
   const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.body
-  ;['miku-cursor-fx', 'neru-cursor-fx'].forEach(id => {
+  ;['miku-cursor-fx', 'neru-cursor-fx', 'berserker-cursor-fx'].forEach(id => {
     const el = document.getElementById(id)
     if (el && el.parentNode !== fsEl) fsEl.appendChild(el)
   })

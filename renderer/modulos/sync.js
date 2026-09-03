@@ -362,6 +362,7 @@ async function cargarDesdeCloud() {
         document.querySelectorAll('.cfg-preset-btn').forEach(b => b.classList.toggle('activo', b.dataset.preset === d['app-tema-id']))
         if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(d['app-tema-id'])
         if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(d['app-tema-id'])
+        if (typeof window._berserkerTemaAplicado === 'function') window._berserkerTemaAplicado(d['app-tema-id'])
       }
       if (d['app-miku-sonido'] !== undefined && typeof setMikuSonido === 'function') {
         const _orig = window._syncGuardar; window._syncGuardar = null

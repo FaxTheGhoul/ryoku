@@ -8718,6 +8718,40 @@ body[data-tema-id="neru"] *:not(input):not(textarea):not([contenteditable="true"
 }
 #neru-cursor-fx.activo { opacity: 1; }
 
+/* ── Tema "Berserker" — cursor temático (imagen de Guts con la armadura
+   Berserker provista por el usuario, 32x32 con transparencia real). Mismo
+   mecanismo que Miku/Neru: se oculta el cursor nativo en todo el tema y se
+   reemplaza por #berserker-cursor-fx, que sigue al mouse (ver
+   berserker.js). Los campos de texto conservan el cursor nativo por
+   legibilidad del caret. Sin partículas/sonido -- solo se pidió el cursor. */
+body[data-tema-id="berserker"],
+body[data-tema-id="berserker"] *:not(input):not(textarea):not([contenteditable="true"]) {
+  cursor: none !important;
+}
+#berserker-cursor-fx {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 999999;
+  background-image: url("assets/berserker-cursor.png");
+  background-repeat: no-repeat;
+  background-size: 40px 40px;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  transform: translate(-9999px, -9999px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  /* Glow rojo sangre alrededor de la silueta */
+  filter: drop-shadow(0 0 2px rgba(193,18,31,0.95))
+          drop-shadow(0 0 4px rgba(193,18,31,0.75))
+          drop-shadow(0 0 7px rgba(0,0,0,0.65));
+}
+#berserker-cursor-fx.activo { opacity: 1; }
+
+
 /* ── Marca "DEN2" — el logo que Neru lleva en el brazo, versión simple y
    fija pegada al ícono del selector de módulo en la sidebar (mismo criterio
    que la marca "01" de Miku: nada de posicionamiento dinámico, siempre el
