@@ -609,6 +609,7 @@ function aplicarPreset(nombre) {
   _setTemaId(nombre)
   if (nombre === 'miku' && typeof window._mikuTemaChime === 'function') window._mikuTemaChime()
   if (nombre === 'neru' && typeof window._neruTemaChime === 'function') window._neruTemaChime()
+  if (nombre === 'berserker' && typeof window._berserkerTemaChime === 'function') window._berserkerTemaChime()
   _mostrarToast(`Tema aplicado: ${p.nombre}`)
 }
 // ── Identidad del tema aplicado (para efectos especiales tipo Miku) ──────

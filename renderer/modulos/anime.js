@@ -1005,6 +1005,7 @@ async function toggleEpVisto(btn) {
     if (estado) estado.innerHTML = ''
     if (typeof window._mikuSparkle === 'function') window._mikuSparkle(btn)
     if (typeof window._neruSparkle === 'function') window._neruSparkle(btn)
+    if (typeof window._berserkerSparkle === 'function') window._berserkerSparkle(btn)
   }
   // Refrescar "Continuar viendo"
   if (typeof cargarContinuarViendo === 'function') cargarContinuarViendo()
@@ -1036,6 +1037,7 @@ async function toggleFav() {
     const btnFav = document.getElementById('btn-fav')
     if (btnFav && typeof window._mikuSparkle === 'function') window._mikuSparkle(btnFav)
     if (btnFav && typeof window._neruSparkle === 'function') window._neruSparkle(btnFav)
+    if (btnFav && typeof window._berserkerSparkle === 'function') window._berserkerSparkle(btnFav)
   }
 }
 

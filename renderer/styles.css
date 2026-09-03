@@ -8347,7 +8347,8 @@ body[data-tema-id="miku"] #anime-titulo {
 /* Fila del switch de sonido — solo visible con el tema Miku activo */
 #cfg-miku-sonido-row { display: none; }
 body[data-tema-id="miku"] #cfg-miku-sonido-row,
-body[data-tema-id="neru"] #cfg-miku-sonido-row { display: block; }
+body[data-tema-id="neru"] #cfg-miku-sonido-row,
+body[data-tema-id="berserker"] #cfg-miku-sonido-row { display: block; }
 
 /* Cursor temático — puntero de Miku (un solo cuadro, extraído del
    Miku_Cursor.ani provisto por el usuario, con transparencia real). Se
@@ -8750,6 +8751,69 @@ body[data-tema-id="berserker"] *:not(input):not(textarea):not([contenteditable="
           drop-shadow(0 0 7px rgba(0,0,0,0.65));
 }
 #berserker-cursor-fx.activo { opacity: 1; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   TEMA "BERSERKER" — efectos extra (partículas, chispas, borde animado)
+   Paleta rojo sangre (#C1121F) / gris ceniza (#9CA3AF) sobre negro.
+   Reutiliza los @keyframes genéricos de Miku (miku-flotar / miku-spark-
+   anim / miku-borde-flujo) porque son puramente de movimiento, sin color
+   embebido -- mismo criterio que ya usa Neru.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Botón de preset con mini-degradé animado ───────────────────────────── */
+.cfg-preset-berserker .cfg-preset-swatch {
+  background-size: 200% 200% !important;
+  animation: miku-borde-flujo 3s linear infinite;
+}
+
+/* ── Partículas de fondo (brasas + cenizas flotando) ────────────────────── */
+#berserker-particulas {
+  position: fixed; inset: 0; z-index: 4; pointer-events: none;
+  overflow: hidden; opacity: 0; transition: opacity 0.7s ease;
+}
+#berserker-particulas.activo { opacity: 1; }
+.berserker-brasa, .berserker-ceniza {
+  position: absolute; bottom: -5vh; left: 0; border-radius: 50%;
+  animation: miku-flotar var(--miku-dur, 14s) linear forwards;
+  will-change: transform, opacity;
+}
+.berserker-brasa  { box-shadow: 0 0 8px 1px currentColor; }
+.berserker-ceniza { box-shadow: 0 0 4px 1px currentColor; opacity: 0.7; }
+
+/* ── Chispas — micro-interacción al marcar visto / favorito ────────────── */
+.berserker-spark-burst {
+  position: fixed; width: 6px; height: 6px; border-radius: 50%;
+  pointer-events: none; z-index: 99998; top: 0; left: 0;
+  box-shadow: 0 0 8px 1px currentColor;
+  animation: miku-spark-anim 0.7s cubic-bezier(0.15,0.8,0.25,1) forwards;
+}
+
+/* ── Bordes animados en tarjetas al pasar el mouse ──────────────────────── */
+body[data-tema-id="berserker"] .tarjeta,
+body[data-tema-id="berserker"] .ac-cont-card,
+body[data-tema-id="berserker"] .mod-card {
+  position: relative;
+}
+body[data-tema-id="berserker"] .tarjeta::after,
+body[data-tema-id="berserker"] .ac-cont-card::after,
+body[data-tema-id="berserker"] .mod-card::after {
+  content: '';
+  position: absolute; inset: -2px; border-radius: inherit; padding: 2px;
+  background: linear-gradient(120deg, #C1121F, #1a1a1a, #E5383B, #C1121F);
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0; transition: opacity 0.25s ease;
+  animation: miku-borde-flujo 2.6s linear infinite;
+  pointer-events: none; z-index: 3;
+}
+body[data-tema-id="berserker"] .tarjeta:hover::after,
+body[data-tema-id="berserker"] .ac-cont-card:hover::after,
+body[data-tema-id="berserker"] .mod-card:hover::after {
+  opacity: 1;
+}
+
 
 
 /* ── Marca "DEN2" — el logo que Neru lleva en el brazo, versión simple y
