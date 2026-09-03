@@ -1536,7 +1536,7 @@ async function cambiarEpisodioPlayer(url, titulo) {
 
 
 
-async function reproducir(idx, renovar = false, _streamPreload = null) {
+async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenovado = false) {
   const s = _servidores[idx]
   if (!s) { spinnerShow(false); return }
   const miToken = ++_reproducirToken
@@ -1683,6 +1683,18 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
         hls.recoverMediaError()
         return
       }
+      // Se agotaron los reintentos sobre la MISMA url. Con CDNs que firman la
+      // url para un solo uso (visto con Lulu/luluvdo.com -- a veces funciona,
+      // a veces tira 403 en pleno playback) reintentar la url vieja nunca
+      // sirve: hay que reextraer para conseguir una firma nueva. Se hace UNA
+      // sola vez (_yaRenovado) para no quedar en bucle si el server está
+      // realmente caído.
+      if (!_yaRenovado && resultado.referer) {
+        _limpiarWatchdog()
+        hls.destroy(); hls = null
+        reproducir(idx, true, null, true)
+        return
+      }
       _limpiarWatchdog()
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
       _volverASelectorTrasFallo(idx)
@@ -1704,6 +1716,11 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
       // de servidores no cierra".
       if (cancelado()) return
       if (video.currentTime > 2) return
+      if (!_yaRenovado && resultado.referer) {
+        _limpiarWatchdog()
+        reproducir(idx, true, null, true)
+        return
+      }
       _limpiarWatchdog()
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
       _volverASelectorTrasFallo(idx)
