@@ -481,6 +481,14 @@ window._authLogout = async () => { await logout() }
 // resultado pendiente. getRedirectResult() lo recupera en el siguiente load.
 async function _checkRedirectResult() {
   if (!_auth) return
+  // En Electron el login nunca usa signInWithRedirect (ver loginGoogle: ahí se
+  // hace OAuth via IPC nativo + signInWithCredential) -- así que acá no hay
+  // nada que recuperar, y Firebase tira siempre
+  // "auth/operation-not-supported-in-this-environment" porque el protocolo
+  // file:// de Electron no cumple sus requisitos (location.protocol debe ser
+  // http/https/chrome-extension). No rompía nada (se atrapaba y solo se
+  // logueaba como warning) pero ensuciaba la consola en cada arranque.
+  if (window._apiBridge?.isElectron) return
   try {
     const result = await _auth.getRedirectResult()
     if (result && result.user) {
