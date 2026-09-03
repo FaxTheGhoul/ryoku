@@ -1422,31 +1422,50 @@ function startProxyServer() {
       const parsed   = new URL(target)
       const isHttps  = parsed.protocol === 'https:'
       const lib      = isHttps ? https : http
-      const options  = {
-        hostname: parsed.hostname,
-        port:     parsed.port || (isHttps ? 443 : 80),
-        path:     parsed.pathname + parsed.search,
-        method:   'GET',
-        headers: {
-          'User-Agent':      UA,
-          'Referer':         referer,
-          'Origin':          referer ? new URL(referer).origin : '',
-          'Accept':          '*/*',
-          'Accept-Language': 'es-ES,es;q=0.9',
-          'Range':           req.headers['range'] || '',
+
+      // Algunos CDN (p.ej. el que usa Lulu/luluvdo.com -- tnmr.org) devuelven
+      // 403 con solo el Referer/Origin correctos: tambien exigen una cookie
+      // de sesion que la pagina puso al cargar (mismo patron ya conocido con
+      // Doodstream y su cf_clearance). Como generico.js ahora extrae con una
+      // partition persistente fija ('persist:generico_extract_v1', ver
+      // _base.js), esa cookie sigue disponible aca -- se adjunta si existe
+      // alguna para el dominio del target. Si no hay ninguna, no cambia nada.
+      ;(async () => {
+        let cookieHeader = ''
+        try {
+          const { session: elSession } = require('electron')
+          const genSess = elSession.fromPartition('persist:generico_extract_v1')
+          const cookies = await genSess.cookies.get({ url: target })
+          if (cookies.length) cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ')
+        } catch(e) {}
+
+        const options  = {
+          hostname: parsed.hostname,
+          port:     parsed.port || (isHttps ? 443 : 80),
+          path:     parsed.pathname + parsed.search,
+          method:   'GET',
+          headers: {
+            'User-Agent':      UA,
+            'Referer':         referer,
+            'Origin':          referer ? new URL(referer).origin : '',
+            'Accept':          '*/*',
+            'Accept-Language': 'es-ES,es;q=0.9',
+            'Range':           req.headers['range'] || '',
+            ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
+          }
         }
-      }
-      const proxyReq = lib.request(options, (proxyRes) => {
-        clientRes.writeHead(proxyRes.statusCode, {
-          'Content-Type':   proxyRes.headers['content-type']   || 'video/mp4',
-          'Content-Length': proxyRes.headers['content-length'] || '',
-          'Accept-Ranges':  'bytes',
-          'Content-Range':  proxyRes.headers['content-range']  || '',
+        const proxyReq = lib.request(options, (proxyRes) => {
+          clientRes.writeHead(proxyRes.statusCode, {
+            'Content-Type':   proxyRes.headers['content-type']   || 'video/mp4',
+            'Content-Length': proxyRes.headers['content-length'] || '',
+            'Accept-Ranges':  'bytes',
+            'Content-Range':  proxyRes.headers['content-range']  || '',
+          })
+          proxyRes.pipe(clientRes)
         })
-        proxyRes.pipe(clientRes)
-      })
-      proxyReq.on('error', () => { clientRes.writeHead(502); clientRes.end() })
-      proxyReq.end()
+        proxyReq.on('error', () => { clientRes.writeHead(502); clientRes.end() })
+        proxyReq.end()
+      })()
     })
     _proxyServer.listen(0, '127.0.0.1', () => {
       _proxyPort = _proxyServer.address().port

@@ -29,14 +29,17 @@ function crearWin(referer) {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
-      // SIN prefijo 'persist:' a propósito: esta ventana es de un solo uso
-      // (se destruye a los segundos, en extraer()) y no necesita que su cookie
-      // jar sobreviva entre llamadas — con 'persist:' cada llamada escribía una
-      // carpeta de sesión nueva a disco (Partitions/stream_<timestamp>/) que
-      // Electron nunca borra sola, así que en semanas de uso se acumulaban miles
-      // de carpetas vacías. Sin el prefijo, la partition vive solo en memoria y
-      // Electron la libera sola en cuanto se destruye la ventana.
-      partition: `stream_${Date.now()}`,
+      // Partition persistente con nombre FIJO (no un timestamp nuevo por
+      // llamada -- eso es lo que generaba carpetas acumuladas sin límite en
+      // disco, por eso antes se usaba una efímera sin 'persist:'). Con un
+      // solo nombre reusado siempre, las cookies que la página pone al
+      // cargar (p.ej. una cf_clearance de Cloudflare, o cualquier cookie de
+      // sesión que el CDN real después exija para servir el video -- mismo
+      // caso ya conocido en doodstream.js con 'persist:dood_v4') sobreviven
+      // entre llamadas, y el proxy de reproducción (startProxyServer en
+      // main.js) las puede leer de esta misma partition al reenviar el
+      // pedido del video.
+      partition: 'persist:generico_extract_v1',
     }
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
