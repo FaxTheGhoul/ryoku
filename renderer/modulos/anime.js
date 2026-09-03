@@ -1057,7 +1057,7 @@ const _streamCache = {}
 // literalmente "Mxdrop", así que 'mixdrop' solo no lo matcheaba — mismo
 // problema que ya vimos con Filemoon/Byse, el nombre visible no siempre
 // coincide con el nombre "oficial" del proveedor.
-const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','dsvplay','ds2play','streamwish','sw','filemoon','byse','hexload']
+const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','dsvplay','ds2play','streamwish','sw','filemoon','byse','hexload','lulu']
 const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
 
 function _preFetchServidores(lista) {

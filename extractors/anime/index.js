@@ -46,7 +46,8 @@ function detectar(url) {
   if (u.includes('mp4upload'))                               return 'mp4upload'
   if (u.includes('voe') || u.includes('jessicayeah') ||
       u.includes('laymanlousest') || u.includes('housecardsunited') ||
-      u.includes('donaldlineage') || u.includes('pickledandshuffled'))
+      u.includes('donaldlineage') || u.includes('pickledandshuffled') ||
+      u.includes('luludo'))
                                                              return 'voe'
   if (u.includes('dood') || u.includes('ds2play') || u.includes('dsvplay') || u.includes('dsv-play'))
                                                              return 'doodstream'
