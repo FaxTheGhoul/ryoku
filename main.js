@@ -2585,12 +2585,42 @@ ipcMain.on('update-install', () => {
   // dispara el cierre de la ventana y esta lo intercepta con
   // preventDefault(), el instalador NSIS puede encontrar el proceso
   // todavia vivo y mostrar "No se puede cerrar RYOKU". Para actualizar,
-  // saltamos ese flujo: avisamos al renderer (best-effort, sin esperar)
-  // y marcamos _quitting para que la ventana cierre de inmediato.
+  // saltamos ese flujo: avisamos al renderer y marcamos _quitting para
+  // que la ventana cierre de inmediato.
+  //
+  // Ademas — esto era lo que realmente faltaba — hay que asegurarse de
+  // que TODO el proceso de Electron termine de salir antes de que
+  // quitAndInstall() dispare el instalador:
+  //   1) 'window-all-closed' quitaba la app en paralelo con
+  //      quitAndInstall() (carrera conocida de electron-builder, ver
+  //      docs de auto-update: hay que sacar ese listener antes de
+  //      instalar).
+  //   2) Ventanas ocultas de extraccion (biblioteca/busqueda/video, ver
+  //      extractors/anime/_base.js y monoschinos.js) pueden seguir
+  //      vivas en ese momento — si no se cierran, Electron tarda en
+  //      salir y el instalador NSIS encuentra el .exe todavia en
+  //      memoria ("no se puede cerrar RYOKU").
   if (_quitTimer) { clearTimeout(_quitTimer); _quitTimer = null }
+  if (_quitting) return
   _quitting = true
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('save-before-quit')
-  autoUpdater.quitAndInstall()
+
+  let _yaInstalando = false
+  const _finalizarInstalacion = () => {
+    if (_yaInstalando) return
+    _yaInstalando = true
+    app.removeAllListeners('window-all-closed')
+    BrowserWindow.getAllWindows().forEach((w) => {
+      try { if (!w.isDestroyed()) w.destroy() } catch (e) {}
+    })
+    autoUpdater.quitAndInstall()
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    ipcMain.once('save-before-quit-done', _finalizarInstalacion)
+    mainWindow.webContents.send('save-before-quit')
+  }
+  // Fallback si el renderer nunca responde (o no hay mainWindow).
+  setTimeout(_finalizarInstalacion, 1500)
 })
 ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates().catch((e) => { throw e }))
