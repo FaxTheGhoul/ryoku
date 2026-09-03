@@ -231,9 +231,21 @@ function extraer(serverUrl, referer, timeout = 25000, debugTag = null) {
         }
       })
 
-      win.webContents.on('did-fail-load', (_, code, desc, validatedURL) => {
-        dbg('did-fail-load code=', code, 'desc=', desc, 'url=', validatedURL)
+      win.webContents.on('did-fail-load', (_, code, desc, validatedURL, isMainFrame) => {
+        dbg('did-fail-load code=', code, 'desc=', desc, 'url=', validatedURL, 'isMainFrame=', isMainFrame)
         if (code === -3) return // redirect normal
+        // Esto abortaba la extraccion entera ante CUALQUIER carga fallida,
+        // sin distinguir si fallo la pagina principal o un iframe oculto /
+        // recurso roto que la propia pagina dispara (p.ej. el bug de
+        // "https://undefined/<token>" visto en luluvdo.com/dsvplay.com, o
+        // el bloqueo por AD_DOMAINS/hostname invalido de mas arriba, que
+        // tambien cuenta como "fallo" para Chromium). Con paginas que
+        // arrancan varios iframes/requests de este estilo antes de armar el
+        // player real, la extraccion se rendia antes de que la pagina
+        // terminara de cargar y sin darle tiempo a EXTRACT_JS a intentarlo.
+        // isMainFrame viene en false para esos casos -- solo abortar cuando
+        // sí fue la pagina principal la que no cargó.
+        if (isMainFrame === false) return
         if (!done) { done = true; cleanup(); resolve(null) }
       })
 
