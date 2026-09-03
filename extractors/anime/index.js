@@ -11,6 +11,7 @@ const streamtape = require('./streamtape')
 const fembed     = require('./fembed')
 const savefiles  = require('./savefiles')
 const generico    = require('./generico')
+const hexload     = require('./hexload')
 const goodstream  = require('./goodstream')
 const filemoon    = require('./filemoon')
 
@@ -71,8 +72,8 @@ function detectar(url) {
 
 const EXTRACTORES = {
   mp4upload, voe, doodstream, uqload, yourupload,
-  mixdrop, streamtape, fembed, savefiles, generico, goodstream, filemoon,
-  dsvplay: generico, hexload: generico,
+  mixdrop, streamtape, fembed, savefiles, generico, goodstream, filemoon, hexload,
+  dsvplay: generico,
   streamwish: generico, filelions: generico,
   cuevana: cuevanaPlayer,
 }
