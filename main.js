@@ -159,11 +159,20 @@ function guardarJikanCache() { try { const o={}; jikanCache.forEach((v,k)=>{o[k]
 const _buscarAnimeCache  = new Map()
 const _buscarMangaCache  = new Map()
 const _BUSCAR_TTL        = 5 * 60 * 1000  // 5 minutos
+// Cache de biblioteca -- sin esto, cada entrada a Biblioteca (y cada cambio
+// de página/filtro, incluso volver a una página ya vista) repetía toda la
+// extracción desde cero. Para MonosChinos eso significa abrir una
+// BrowserWindow oculta, esperar el bypass de Cloudflare y el render de Vue
+// (varios segundos) -- por eso se sentía tan lento. Con cache, volver a una
+// combinación de filtros/página ya vista es instantáneo dentro del TTL.
+const _bibliotecaCache    = new Map()
+const _BIBLIOTECA_TTL     = 5 * 60 * 1000  // 5 minutos
 // Cleanup periódico para evitar que los mapas crezcan sin límite en sesiones largas
 setInterval(() => {
   const n = Date.now()
   for (const [k,v] of _buscarAnimeCache) if (n - v.ts > _BUSCAR_TTL) _buscarAnimeCache.delete(k)
   for (const [k,v] of _buscarMangaCache) if (n - v.ts > _BUSCAR_TTL) _buscarMangaCache.delete(k)
+  for (const [k,v] of _bibliotecaCache)  if (n - v.ts > _BIBLIOTECA_TTL) _bibliotecaCache.delete(k)
 }, 10 * 60 * 1000)
 
 // Ratings de MAL que indican contenido +18
@@ -643,16 +652,18 @@ ipcMain.handle('buscar', async (_, query, filtros = {}) => {
 })
 
 ipcMain.handle('get-anime-biblioteca', async (_, params = {}) => {
+  const { query = '', categoria = '', genero = '', emision = false, page = 1 } = params
+  const tipo   = categoria || ''
+  const srcId  = _activeAnimeSource?.id || 'latanime'
+  const cacheKey = JSON.stringify({ query, tipo, genero, emision, page, src: srcId })
+  const hit = _bibliotecaCache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < _BIBLIOTECA_TTL) return hit.data
   try {
-    const { query = '', categoria = '', genero = '', emision = false, page = 1 } = params
-    const tipo = categoria || ''
-    const srcId = _activeAnimeSource?.id || 'latanime'
-
-    if (srcId === 'monoschinos') {
-      return await monoschinos.getBiblioteca({ query, genero, tipo, page })
-    }
-    // latanime (default)
-    return await latanime.getBiblioteca({ query, genero, tipo, emision, page })
+    const data = srcId === 'monoschinos'
+      ? await monoschinos.getBiblioteca({ query, genero, tipo, page })
+      : await latanime.getBiblioteca({ query, genero, tipo, emision, page })
+    _bibliotecaCache.set(cacheKey, { data, ts: Date.now() })
+    return data
   } catch(e) {
     console.error('[get-anime-biblioteca]', e.message)
     return { lista: [], hayMas: false, page: 1 }
