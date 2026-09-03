@@ -187,10 +187,23 @@ function _mergeHist(local, cloud) {
 }
 
 function _mergeProg(local, cloud) {
-  // Por link: gana el que tenga mayor currentTime
+  // Por link: gana el que tenga mayor currentTime -- EXCEPTO cuando uno de
+  // los dos lados ya está completado (>=95%). El marcado a mano ("ojito")
+  // guarda un valor sentinel currentTime:1000/duration:1000 para representar
+  // 100% -- ese 1000 es un número bajo comparado con la duración real de
+  // muchos episodios (20-25 min = 1200-1500s), así que antes perdía esta
+  // comparación contra cualquier progreso real de reproducción más largo
+  // guardado en el otro lado (aunque ese otro lado NO estuviera completo),
+  // revirtiendo en silencio un episodio recién marcado como visto a mano en
+  // cuanto se sincronizaba con la nube. Un episodio completado nunca debe
+  // perder el merge contra uno que no lo está, sin importar el currentTime.
   const merged = Object.assign({}, cloud || {})
   for (const [link, lp] of Object.entries(local || {})) {
     const cp = merged[link]
+    const lpDone = (lp?.porcentaje || 0) >= 95
+    const cpDone = (cp?.porcentaje || 0) >= 95
+    if (lpDone && !cpDone) { merged[link] = lp; continue }
+    if (cpDone && !lpDone) { continue }
     if (!cp || (lp?.currentTime || 0) >= (cp?.currentTime || 0)) {
       merged[link] = lp
     }
