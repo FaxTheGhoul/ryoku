@@ -5,6 +5,11 @@ try { ({ BrowserWindow } = require('electron')) } catch(e) {}
 const { UA, AD_DOMAINS } = require('./_base')
 
 async function getStream(serverUrl) {
+  // Referer forzado a latanime.org sin importar de que sitio viniera el
+  // anime (monoschinos, animeflv, etc.) -- se usa el propio dominio del
+  // servidor, mismo patron ya establecido en filemoon.js.
+  let referer = 'https://latanime.org/'
+  try { referer = new URL(serverUrl).origin + '/' } catch(e) {}
   return new Promise((resolve) => {
     let done = false, win = null
     const timer = setTimeout(() => { if (!done) { done=true; cleanup(); resolve(null) } }, 35000)
@@ -147,7 +152,7 @@ async function getStream(serverUrl) {
 
       win.loadURL(serverUrl, {
         userAgent: UA,
-        extraHeaders: 'Referer: https://latanime.org/\nOrigin: https://latanime.org\n'
+        extraHeaders: `Referer: ${referer}\nOrigin: ${new URL(referer).origin}\n`
       })
     } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } }
   })

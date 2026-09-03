@@ -81,7 +81,11 @@ async function getStream(serverUrl) {
       })
 
       win.webContents.on('did-fail-load', (_, code) => { if (code !== -3 && !done) { done=true; cleanup(); resolve(null) } })
-      win.loadURL(serverUrl, { userAgent: UA, extraHeaders: 'Referer: https://latanime.org/\nOrigin: https://latanime.org\n' })
+      // Antes esto pisaba el REFERER de arriba (savefiles.io, ya usado en
+      // crearWin() para el resto de los requests) con un hardcode aparte a
+      // latanime.org -- el primer request (la carga de la pagina) mandaba un
+      // Referer distinto al de todo lo que la pagina pedia despues.
+      win.loadURL(serverUrl, { userAgent: UA, extraHeaders: `Referer: ${REFERER}\nOrigin: ${new URL(REFERER).origin}\n` })
     } catch(e) { if (!done) { done=true; cleanup(); resolve(null) } }
   })
 }
