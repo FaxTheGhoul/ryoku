@@ -396,6 +396,17 @@ async function _getBibliotecaConBrowserWindow(urlBib) {
 }
 
 // ── BIBLIOTECA ────────────────────────────────────────────────────────────────
+// Diagnóstico temporal: loguea qué items de la biblioteca vinieron sin imagen,
+// para identificar si el dato realmente falta en el origen (JSON/HTML de
+// MonosChinos) o si es un problema de nuestro lado (nombre de campo raro,
+// lazy-load no disparado, etc.)
+function _logImgStatus(tag, lista) {
+  try {
+    const sinImg = lista.filter(a => !a.imagen).map(a => a.titulo)
+    console.log(`[MC-BIB] ${tag} total=${lista.length} sinImagen=${sinImg.length}`, sinImg.length ? JSON.stringify(sinImg) : '')
+  } catch(e) {}
+}
+
 async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', page = 1 } = {}) {
   // MonosChinos filtra por query solo en /buscar?q=X, no en /animes?buscar=X
   // Cuando hay query, delegar al buscador que usa el endpoint correcto
@@ -452,14 +463,14 @@ async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', 
           return { titulo, link, imagen: _img(a.imagen || a.image || a.portada || a.cover || '') }
         }).filter(a => a.titulo && a.link)
         console.log('[MC-BIB] E0 lista encontrada, count:', lista.length, 'primero:', lista[0]?.titulo)
-        if (lista.length) return { lista, hayMas: !!(props.links?.next || resp.data?.props?.links?.next) }
+        if (lista.length) { _logImgStatus('E0', lista); return { lista, hayMas: !!(props.links?.next || resp.data?.props?.links?.next) } }
       }
     }
     // SSR HTML con data-page
     if (typeof resp.data === 'string') {
       const r = _parseInertiaPage(resp.data)
       console.log('[MC-BIB] E0 SSR parse result:', r?.length)
-      if (r && r.length) return { lista: r, hayMas: false }
+      if (r && r.length) { _logImgStatus('E0-SSR', r); return { lista: r, hayMas: false } }
     }
     console.log('[MC-BIB] E0 sin resultados utiles')
   } catch(e) { console.log('[MC-BIB] E0 error:', e.message) }
@@ -469,7 +480,7 @@ async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', 
     console.log('[MC-BIB] E1 BrowserWindow...')
     const r = await _getBibliotecaConBrowserWindow(url)
     console.log('[MC-BIB] E1 result:', r?.lista?.length, 'primero:', r?.lista?.[0]?.titulo)
-    if (r && r.lista && r.lista.length) return r
+    if (r && r.lista && r.lista.length) { _logImgStatus('E1', r.lista); return r }
   } catch(e) { console.log('[MC-BIB] E1 error:', e.message) }
 
   // ── E2: axios ───────────────────────────────────────────────────────────────
@@ -496,6 +507,7 @@ async function getBiblioteca({ query = '', genero = '', tipo = '', estado = '', 
   // ("2"+1 = "21"), buscando un link a la página 21 que nunca existe y
   // reportando "no hay más páginas" siempre a partir de ahí.
   const hayMas = !!$(`a[href*="p=${Number(page) + 1}"]`).length
+  _logImgStatus('E2', lista)
   return { lista, hayMas }
 }
 
