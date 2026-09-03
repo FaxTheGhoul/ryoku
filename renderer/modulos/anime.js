@@ -843,6 +843,7 @@ let _animeActual = null
 let _abrirAnimeToken = 0
 
 async function abrirAnime(url, titulo) {
+  ++_epSeleccionToken
   const miToken = ++_abrirAnimeToken
   const activa = document.querySelector('#app-anime .pagina.activa')
   _paginaAnterior = activa ? activa.id.replace('page-','') : 'inicio'
@@ -1050,6 +1051,16 @@ async function cargarFavoritos() {
 // ─── PASO 1: SELECTOR DE SERVIDOR ─────────────────────────────────────────
 let _servidores = [], _tituloActual = '', _urlEpisodioActual = ''
 let _pendingEp = null
+// Token de cancelación para elegirServidor(): sin esto, elegir un servidor
+// lento (p.ej. Hexload) y ABANDONAR esa pantalla antes de que responda --
+// abriendo otro anime, cerrando el selector, o eligiendo otro episodio --
+// no cancelaba nada. Cuando por fin respondía, elegirServidor() igual
+// pisaba _urlEpisodioActual/_tituloActual y abría el player con el
+// episodio VIEJO encima de lo que el usuario esté mirando ahora ("abro un
+// anime con hexload y luego abro otro y se abre el anterior"). Se
+// incrementa cada vez que el usuario claramente pasó a otra cosa (nuevo
+// anime, nuevo selector, selector cerrado, otro servidor elegido).
+let _epSeleccionToken = 0
 
 // Cache de streams pre-fetcheados: { [urlServidor]: Promise<resultado> }
 const _streamCache = {}
@@ -1070,6 +1081,7 @@ function _preFetchServidores(lista) {
 }
 
 async function abrirSelector(url, titulo) {
+  ++_epSeleccionToken
   _tituloActual = titulo
   _urlEpisodioActual = url
   _pendingEp = null  // limpiar cualquier pendiente residual
@@ -1109,6 +1121,7 @@ async function abrirSelector(url, titulo) {
 }
 
 async function pedirServidorEp(url, titulo) {
+  ++_epSeleccionToken
   _pendingEp = { url, titulo }
   const overlay = document.getElementById('overlay-servidor')
   const lista   = document.getElementById('srv-lista')
@@ -1192,6 +1205,7 @@ async function _volverASelectorTrasFallo(idx) {
 }
 
 document.getElementById('srv-cerrar').addEventListener('click', () => {
+  ++_epSeleccionToken
   _pendingEp = null
   // Limpiar cache al cerrar sin elegir servidor
   for (const k in _streamCache) delete _streamCache[k]
@@ -1229,6 +1243,7 @@ function _mostrarErrorPlayer(msg) {
 async function elegirServidor(idx) {
   const s = _servidores[idx]
   if (!s) return
+  const miEpToken = ++_epSeleccionToken
 
   // Marcar botón como "cargando" sin cerrar el overlay aún
   const btn = document.getElementById(`srv-btn-${idx}`)
@@ -1252,6 +1267,11 @@ async function elegirServidor(idx) {
       if (resultado?.url) break
     }
   }
+
+  // El usuario ya se fue a otra cosa (otro anime, otro episodio, cerró el
+  // selector, o eligió otro servidor) mientras se esperaba esta respuesta --
+  // no tocar nada de lo que esté en pantalla ahora.
+  if (miEpToken !== _epSeleccionToken) return
 
   if (!resultado?.url) {
     // Falló — tachado + pill rojo
