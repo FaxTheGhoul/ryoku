@@ -793,6 +793,13 @@ function extraerAnimes($) {
 }
 
 // SERVIDORES
+// Mega no sirve como servidor de streaming (es un link de descarga del
+// archivo completo, no un embed reproducible) -- se saca de la lista antes
+// de devolverla al renderer, sin importar de qué fuente venga.
+function _sinMega(lista) {
+  return (lista || []).filter(s => !(s?.nombre || '').toLowerCase().includes('mega'))
+}
+
 ipcMain.handle('get-servidores', async (_, url) => {
   try {
     if (url?.includes('animeflv.net')) {
@@ -824,10 +831,10 @@ ipcMain.handle('get-servidores', async (_, url) => {
           servidores.push({ nombre: (item.server || item.title || tipo).toLowerCase(), url: serverUrl })
         }
       }
-      return servidores
+      return _sinMega(servidores)
     }
-    if (url?.includes('monoschinos.st')) return await monoschinos.getServidores(url)
-    return await latanime.getServidores(url)
+    if (url?.includes('monoschinos.st')) return _sinMega(await monoschinos.getServidores(url))
+    return _sinMega(await latanime.getServidores(url))
   } catch(e) { return [] }
 })
 
