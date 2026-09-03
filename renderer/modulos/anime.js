@@ -1572,10 +1572,22 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
       const ref = resultado.referer || 'https://doodstream.com/'
       url = await window.api.getProxyUrl(url, ref)
     } catch(e) {}
+  } else if (_sNombre.includes('hexload') && resultado.referer && window.api?.getProxyUrl) {
+    try {
+      url = await window.api.getProxyUrl(url, resultado.referer)
+    } catch(e) {}
   }
 
   const _isMobilePlayer = document.body.classList.contains('mobile-mode')
+  let _watchdogTimer = setTimeout(() => {
+    _watchdogTimer = null
+    if (cancelado()) return
+    if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
+    _volverASelectorTrasFallo(idx)
+  }, 20000)
+  const _limpiarWatchdog = () => { if (_watchdogTimer) { clearTimeout(_watchdogTimer); _watchdogTimer = null } }
   const onListo = async () => {
+    _limpiarWatchdog()
     // Recién acá se confirmó que el video arranca de verdad -- mostrar el
     // player (si todavía no estaba, p.ej. viniendo de elegirServidor) y
     // asegurar que el selector quede cerrado.
@@ -1648,6 +1660,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
         hls.recoverMediaError()
         return
       }
+      _limpiarWatchdog()
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
       _volverASelectorTrasFallo(idx)
     })
@@ -1659,6 +1672,7 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     video.oncanplay = onListo
     video.onerror = () => {
       if (video.currentTime > 2) return
+      _limpiarWatchdog()
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
       _volverASelectorTrasFallo(idx)
     }

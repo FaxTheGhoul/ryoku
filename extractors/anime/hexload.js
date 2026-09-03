@@ -53,7 +53,11 @@ async function getStream(serverUrl) {
 
     const url = data?.result?.url
     if (!url || typeof url !== 'string') return null
-    return { tipo: url.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url }
+    // El link real vive en un subdominio de CDN aparte (no hexload.com) --
+    // varios de estos players exigen que el Referer sea el del propio sitio
+    // del embed o rechazan/cuelgan la descarga en silencio. Se manda igual
+    // que se usa acá arriba para pedir el link, por las dudas.
+    return { tipo: url.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url, referer: origin + '/' }
   } catch (e) {
     return null
   }
