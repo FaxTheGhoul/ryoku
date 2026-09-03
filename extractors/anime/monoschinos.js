@@ -359,6 +359,27 @@ async function _getBibliotecaConBrowserWindow(urlBib) {
           if (done) return
           win.webContents.executeJavaScript(`(function(){
             try {
+              // Elige la mejor url de portada de un <img>. Los cards que todavia
+              // no entraron al viewport en el momento del scrape (2.5s despues
+              // de did-finish-load, sin scroll) tienen el lazy-load de Vue sin
+              // disparar: el atributo "src" real todavia apunta a un placeholder
+              // (gif 1x1 transparente en base64, blank.gif, etc. -- una imagen
+              // que SI carga bien pero no muestra nada, dejando ver el fondo
+              // oscuro de la tarjeta detras -- mientras que "data-src" (o
+              // variantes) ya tiene la url final desde que se pinto el HTML.
+              // Por eso hay que preferir SIEMPRE esos atributos lazy por sobre
+              // "src" en vez de al reves.
+              function pickImg(imgEl) {
+                if (!imgEl) return ''
+                const lazyAttrs = ['data-src','data-lazy-src','data-original','data-echo']
+                for (const attr of lazyAttrs) {
+                  const v = (imgEl.getAttribute(attr) || '').trim()
+                  if (v) return v
+                }
+                const src = imgEl.src || ''
+                if (!src || src.startsWith('data:') || /blank|placeholder|loading|lazy\.(png|gif|svg|jpe?g)/i.test(src)) return ''
+                return src
+              }
               const dp = document.getElementById('app')?.getAttribute('data-page')
               if (dp) {
                 const page = JSON.parse(dp)
@@ -368,7 +389,7 @@ async function _getBibliotecaConBrowserWindow(urlBib) {
                   if (!Array.isArray(val) || !val.length) continue
                   const f = val[0]
                   if (f && typeof f === 'object' && (f.slug||f.titulo||f.title||f.url||f.nombre)) {
-                    return { lista: val.map(a=>({
+                    return { via: 'json', lista: val.map(a=>({
                       titulo:(a.titulo||a.title||a.nombre||a.name||'').trim(),
                       link:a.url||a.link||(a.slug?'https://monoschinos.st/anime/'+a.slug+'-sub-espanol':''),
                       imagen:a.imagen||a.image||a.portada||a.img||''
@@ -378,14 +399,14 @@ async function _getBibliotecaConBrowserWindow(urlBib) {
               }
               const links = Array.from(document.querySelectorAll('a[href*="/anime/"]'))
                 .filter(el=>el.querySelector('img')&&!el.href.includes('/ver/')&&!el.href.endsWith('/anime/'))
-              return { lista: links.map(el=>({
+              return { via: 'dom', lista: links.map(el=>({
                 titulo:(el.querySelector('h3,h2,h4,p,.titulo')?.textContent||el.title||'').trim(),
                 link:el.href,
-                imagen:el.querySelector('img')?.src||el.querySelector('img')?.getAttribute('data-src')||''
+                imagen:pickImg(el.querySelector('img'))
               })).filter(a=>a.titulo&&a.link), hayMas: !!document.querySelector('a[rel=next]') }
             } catch(e) { return null }
           })()`).then(r => {
-            if (r && r.lista && r.lista.length) cleanup(r)
+            if (r && r.lista && r.lista.length) { console.log('[MC-BIB] E1 via:', r.via); cleanup(r) }
           }).catch(() => cleanup(null))
         }, 2500)
       })
