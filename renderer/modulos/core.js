@@ -605,6 +605,7 @@ function aplicarPreset(nombre) {
   else quitarBgImagen()
   _setTemaId(nombre)
   if (nombre === 'miku' && typeof window._mikuTemaChime === 'function') window._mikuTemaChime()
+  if (nombre === 'neru' && typeof window._neruTemaChime === 'function') window._neruTemaChime()
   _mostrarToast(`Tema aplicado: ${p.nombre}`)
 }
 // ── Identidad del tema aplicado (para efectos especiales tipo Miku) ──────

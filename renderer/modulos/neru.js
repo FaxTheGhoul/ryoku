@@ -132,6 +132,35 @@
     } catch (e) {}
   }
 
+  // ── Acorde de entrada -- sonoridad propia al activar el tema desde
+  // Configuración, distinta a la de Miku para que se note la variación al
+  // cambiar de tema: onda triangular (más "electrónica/8-bit", acorde con
+  // la vibra de Neru) y un arpegio DESCENDENTE (Miku usa uno ascendente en
+  // seno puro) -- mismo mecanismo que _mikuChimeEntrada, timbre distinto.
+  function _neruChimeEntrada() {
+    if (window._ryokuMikuSonido === false) return
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)()
+      const t0 = audioCtx.currentTime
+      const notas = [880.00, 698.46, 587.33] // La5, Fa5, Re5 -- descendente
+      notas.forEach((freq, i) => {
+        const t = t0 + i * 0.11
+        const osc = audioCtx.createOscillator()
+        const gain = audioCtx.createGain()
+        osc.type = 'triangle'
+        osc.frequency.setValueAtTime(freq, t)
+        gain.gain.setValueAtTime(0.0001, t)
+        gain.gain.exponentialRampToValueAtTime(0.12, t + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32)
+        osc.connect(gain)
+        gain.connect(audioCtx.destination)
+        osc.start(t)
+        osc.stop(t + 0.34)
+      })
+    } catch (e) {}
+  }
+  window._neruTemaChime = _neruChimeEntrada
+
   // Llamado por core.js (aplicarPreset / initConfig) y sync.js al bajar config
   window._neruTemaAplicado = function (id) {
     if (id === 'neru') iniciar()
