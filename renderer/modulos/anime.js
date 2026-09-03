@@ -1183,7 +1183,7 @@ async function _volverASelectorTrasFallo(idx) {
   spinnerShow(false)
   if (hls) { hls.destroy(); hls = null }
   const video = document.getElementById('player-video')
-  if (video) { video.pause(); video.src = '' }
+  if (video) { video.oncanplay = null; video.onerror = null; video.pause(); video.src = '' }
   document.getElementById('overlay-player').classList.remove('activo')
   if (window._chatUpdateFAB) window._chatUpdateFAB()
   _renderListaServidores()
@@ -1671,6 +1671,15 @@ async function reproducir(idx, renovar = false, _streamPreload = null) {
     video.src = url
     video.oncanplay = onListo
     video.onerror = () => {
+      // cerrarReproductor() hace video.src = '' para liberar el elemento --
+      // eso SIEMPRE dispara "error" (y resetea currentTime a 0 antes de que
+      // se dispare, así que el chequeo de abajo no alcanza a filtrarlo). Sin
+      // este chequeo, cerrar el player después de ver un episodio entero
+      // (con Hexload por ejemplo) se interpretaba como una falla real del
+      // servidor: reabría el selector y lo marcaba tachado, y como el
+      // overlay del player ya se había cerrado, se veía como que "la lista
+      // de servidores no cierra".
+      if (cancelado()) return
       if (video.currentTime > 2) return
       _limpiarWatchdog()
       if (window.api.clearStreamCache) window.api.clearStreamCache(s.url)
@@ -1765,6 +1774,7 @@ async function cerrarReproductor() {
     await window.api.setProgreso(epUrl, ct, dur)  // esperar antes de refrescar
   }
   if (video._progresoInterval) { clearInterval(video._progresoInterval); video._progresoInterval = null }
+  video.oncanplay = null; video.onerror = null
   video.pause(); video.src = ''
   document.getElementById('player-error-msg')?.remove()
   if (hls) { hls.destroy(); hls = null }
