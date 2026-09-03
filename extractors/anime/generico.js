@@ -18,7 +18,11 @@ async function getStream(serverUrl) {
   try { referer = new URL(serverUrl).origin + '/' } catch(e) {}
   const url = await extraer(serverUrl, referer, 25000, 'generico')
   if (!url) return null
-  return { tipo: url.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url }
+  // Devolver el Referer usado -- si el CDN real (a veces en un dominio
+  // totalmente distinto al del embed, como pasa con Lulu/luluvdo.com) lo
+  // exige para servir el video, reproducir() ya sabe usarlo vía el proxy
+  // local (mismo mecanismo que Hexload/Mixdrop/Doodstream).
+  return { tipo: url.toLowerCase().includes('.m3u8') ? 'm3u8' : 'mp4', url, referer }
 }
 
 module.exports = { getStream }
