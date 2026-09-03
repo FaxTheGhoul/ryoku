@@ -106,7 +106,15 @@ function interceptarVideo(win, onUrl) {
     }
     if (esVideo) {
       const fake = ['big-buck','test-video','placeholder','advert']
-      if (!fake.some(f => ul.includes(f))) { onUrl(u); cb({ cancel: false }); return }
+      // Cancelar el request en la ventana oculta de extraccion en vez de
+      // dejarlo pasar: solo hace falta la URL en si, no que la ventana de
+      // verdad descargue el video. Con algunos CDN que firman la URL para
+      // un solo uso (token de un solo uso, visto con Lulu/luluvdo.com --
+      // tnmr.org devolvia 403 aunque el Referer/cookies ya estaban bien),
+      // dejar que ESTE request completara consumia el token, y el pedido
+      // real de reproducir() mas tarde (via el proxy) llegaba tarde y
+      // siempre rebotaba con 403.
+      if (!fake.some(f => ul.includes(f))) { onUrl(u); cb({ cancel: true }); return }
     }
     cb({ cancel: false })
   })
