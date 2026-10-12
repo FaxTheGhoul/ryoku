@@ -19,6 +19,10 @@
 
   function spawnParticula() {
     if (!activo || !contenedor) return
+    // Con el reproductor abierto no se ven y solo gastan GPU/CPU detrás del
+    // video (cada partícula es una animación con brillo). Se retoman solas
+    // al cerrarlo; las que ya estaban terminan su recorrido.
+    if (document.getElementById('overlay-player')?.classList.contains('activo')) return
     const el = document.createElement('span')
     const esBrasa = Math.random() < 0.6
     el.className = esBrasa ? 'berserker-brasa' : 'berserker-ceniza'
@@ -126,30 +130,17 @@
     } catch (e) {}
   }
 
-  // ── Acorde de entrada -- sonoridad propia al activar el tema desde
-  // Configuración: arpegio descendente en menor con onda sawtooth (más
-  // "grave" que el triangle ascendente de Neru o el seno de Miku), para
-  // que se note la diferencia al cambiar de tema. ────────────────────────
+  // ── Sonido de entrada — clip propio al activar el tema desde Configuración
+  // (reemplaza el arpegio sintetizado; respeta el mismo switch de sonido) ──
+  let _berserkerChimeAudio = new Audio('assets/berserker-chime.mp3')
+  _berserkerChimeAudio.preload = 'auto'
+  _berserkerChimeAudio.volume = 0.6
+  try { _berserkerChimeAudio.load() } catch (e) {}
   function _berserkerChimeEntrada() {
     if (window._ryokuMikuSonido === false) return
     try {
-      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)()
-      const t0 = audioCtx.currentTime
-      const notas = [220.00, 185.00, 146.83] // La3, Fa#3, Re3 -- descendente, menor
-      notas.forEach((freq, i) => {
-        const t = t0 + i * 0.13
-        const osc = audioCtx.createOscillator()
-        const gain = audioCtx.createGain()
-        osc.type = 'sawtooth'
-        osc.frequency.setValueAtTime(freq, t)
-        gain.gain.setValueAtTime(0.0001, t)
-        gain.gain.exponentialRampToValueAtTime(0.11, t + 0.02)
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.36)
-        osc.connect(gain)
-        gain.connect(audioCtx.destination)
-        osc.start(t)
-        osc.stop(t + 0.38)
-      })
+      _berserkerChimeAudio.currentTime = 0
+      _berserkerChimeAudio.play().catch(() => {})
     } catch (e) {}
   }
   window._berserkerTemaChime = _berserkerChimeEntrada

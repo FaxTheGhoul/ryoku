@@ -307,12 +307,25 @@ function _renderBody() {
   }
 }
 
+// Escapado para todo lo que viene de OTRO usuario (nombre, email, foto,
+// actividad). Antes iba directo al innerHTML: cualquiera que supiera tu email
+// podía mandarte una solicitud con un "nombre" que fuera código HTML/JS y se
+// ejecutaba en tu app con solo abrir la pestaña de solicitudes.
+function _fe(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+// Ids que van dentro de onclick="...('id')": solo caracteres de id de Firebase.
+function _fid(s) { return String(s == null ? '' : s).replace(/[^A-Za-z0-9_-]/g, '') }
+// Solo imágenes http(s)/data:image, con comillas escapadas.
+function _fimg(s) { s = String(s || '').trim(); return /^(https?:|data:image\/)/i.test(s) ? _fe(s) : '' }
+
 function _rowHTML(f, dimmed) {
   var opStyle = dimmed ? 'style="opacity:0.45"' : ''
   var dot = f.online ? '<span class="fw-online-dot"></span>' : ''
-  var avatar = f.photoURL
-    ? '<img src="' + f.photoURL + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />'
-    : '<span class="fw-av-initials">' + (f.displayName || 'U').slice(0, 2).toUpperCase() + '</span>'
+  var avatar = _fimg(f.photoURL)
+    ? '<img src="' + _fimg(f.photoURL) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />'
+    : '<span class="fw-av-initials">' + _fe((f.displayName || 'U').slice(0, 2).toUpperCase()) + '</span>'
 
   var actLine = ''
   if (f.online && f.activity) {
@@ -328,28 +341,28 @@ function _rowHTML(f, dimmed) {
     else                   actLine = 'Hace ' + Math.floor(d / 86400000) + 'd'
   }
 
-  return '<div class="fw-friend-row" ' + opStyle + ' onclick="window.abrirPerfil(\'' + f.uid + '\',false)" style="cursor:pointer">' +
+  return '<div class="fw-friend-row" ' + opStyle + ' onclick="window.abrirPerfil(\'' + _fid(f.uid) + '\',false)" style="cursor:pointer">' +
     '<div class="fw-avatar-wrap"><div class="fw-avatar">' + avatar + '</div>' + dot + '</div>' +
     '<div class="fw-info">' +
-      '<div class="fw-fname">' + f.displayName + '</div>' +
-      (actLine ? '<div class="fw-factivity">' + actLine + '</div>' : '') +
+      '<div class="fw-fname">' + _fe(f.displayName) + '</div>' +
+      (actLine ? '<div class="fw-factivity">' + _fe(actLine) + '</div>' : '') +
     '</div>' +
   '</div>'
 }
 
 function _requestRowHTML(r) {
-  var avatar = r.photoURL
-    ? '<img src="' + r.photoURL + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />'
-    : '<span class="fw-av-initials">' + (r.displayName || 'U').slice(0, 2).toUpperCase() + '</span>'
+  var avatar = _fimg(r.photoURL)
+    ? '<img src="' + _fimg(r.photoURL) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />'
+    : '<span class="fw-av-initials">' + _fe((r.displayName || 'U').slice(0, 2).toUpperCase()) + '</span>'
   return '<div class="fw-friend-row">' +
     '<div class="fw-avatar">' + avatar + '</div>' +
     '<div class="fw-info">' +
-      '<div class="fw-fname">' + r.displayName + '</div>' +
-      '<div class="fw-factivity">' + r.email + '</div>' +
+      '<div class="fw-fname">' + _fe(r.displayName) + '</div>' +
+      '<div class="fw-factivity">' + _fe(r.email) + '</div>' +
     '</div>' +
     '<div class="fw-req-btns">' +
-      '<button class="fw-btn-accept" onclick="window._friendsAccept(\'' + r.requestId + '\',\'' + r.uid + '\')">Aceptar</button>' +
-      '<button class="fw-btn-reject" onclick="window._friendsReject(\'' + r.requestId + '\')">Ignorar</button>' +
+      '<button class="fw-btn-accept" onclick="window._friendsAccept(\'' + _fid(r.requestId) + '\',\'' + _fid(r.uid) + '\')">Aceptar</button>' +
+      '<button class="fw-btn-reject" onclick="window._friendsReject(\'' + _fid(r.requestId) + '\')">Ignorar</button>' +
     '</div>' +
   '</div>'
 }

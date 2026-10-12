@@ -20,24 +20,37 @@ let _autoSaveTimer = null
 function _getDb()   { return window._ryokuDb }
 function _getUser() { return window._ryokuAuth?.currentUser || null }
 
-// Devuelve el dominio base de la fuente activa (para filtrar favs/hist por fuente)
-const _ANIME_DOMAINS = {
-  latanime:    'latanime.org',
-  animeflv:    'animeflv.net',
-  monoschinos: 'monoschinos.st',
+// ─── Fuentes eliminadas de la app (Monoschinos, NovelCool) ───────────────────
+// Todas las funciones de mezcla de este archivo descartan lo que pertenezca a
+// estas fuentes, venga de este dispositivo o de la nube. Así sus favoritos,
+// historial, progreso, "al día" y datos de manga desaparecen de la nube en el
+// próximo guardado, y no vuelven a bajar a ningún dispositivo.
+const _FUENTES_ELIMINADAS = ['monoschinos', 'novelcool']
+function _esDeFuenteEliminada(v) { return !!v && _FUENTES_ELIMINADAS.some(d => String(v).includes(d)) }
+function _sinFuentesEliminadas(obj) {
+  const o = {}
+  for (const [k, v] of Object.entries(obj || {})) if (!_esDeFuenteEliminada(k)) o[k] = v
+  return o
 }
-async function _srcDomain() {
-  const id = await window.api?.getAnimeSource?.() || 'latanime'
-  return _ANIME_DOMAINS[id] || ''
-}
-function _favMatchesDomain(fav, domain) {
-  if (!domain) return true
-  return (fav.url || '').includes(domain)
-}
-function _histMatchesDomain(h, domain) {
-  if (!domain) return true
-  return (h.link || '').includes(domain)
-}
+// Limpieza local (una vez por arranque): claves de localStorage de NovelCool
+// (manga-favs-novelcool, manga-historial-novelcool, manga-leidos-novelcool...)
+// y entradas de esas fuentes en "al día" y en los tombstones de manga.
+;(function _borrarLocalFuentesEliminadas() {
+  try {
+    const claves = []
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && _esDeFuenteEliminada(k)) claves.push(k) }
+    claves.forEach(k => localStorage.removeItem(k))
+    for (const k of ['ryoku-al-dia-anime', 'ryoku-al-dia-manga']) {
+      const v = JSON.parse(localStorage.getItem(k) || 'null')
+      if (v && typeof v === 'object') localStorage.setItem(k, JSON.stringify(_sinFuentesEliminadas(v)))
+    }
+    const t = JSON.parse(localStorage.getItem('manga-tombstones') || 'null')
+    if (t && typeof t === 'object') {
+      for (const tipo of Object.keys(t)) t[tipo] = _sinFuentesEliminadas(t[tipo])
+      localStorage.setItem('manga-tombstones', JSON.stringify(t))
+    }
+  } catch (e) {}
+})()
 
 async function _getDoc(uid, col) {
   try {
@@ -53,7 +66,7 @@ async function _setDoc(uid, col, data) {
 }
 
 // ─── Manga localStorage — solo claves relevantes (excluir manga-leidos que puede ser enorme) ──
-const _MANGA_KEYS_ALLOWED = ['manga-favs', 'manga-historial', 'manga-progreso']
+const _MANGA_KEYS_ALLOWED = ['manga-favs', 'manga-historial', 'manga-progreso', 'manga-tombstones']
 
 function _getMangaLocalStorage() {
   const result = {}
@@ -78,6 +91,182 @@ function _setMangaLocalStorage(data) {
   }
 }
 
+// ── Merge de manga (arreglo de bug: antes esto se subía/bajaba como un
+// documento único reemplazado por completo -- guardarEnCloud subía SOLO
+// el localStorage de este dispositivo tal cual, pisando en la nube
+// cualquier favorito/historial/progreso de otra fuente o dispositivo que
+// este no tuviera localmente; cargarDesdeCloud hacía lo mismo al revés,
+// pisando el localStorage local con lo que hubiera en la nube. Con dos
+// dispositivos usando fuentes de manga distintas (o con un simple orden
+// de sincronizado desfavorable), esto borraba en silencio favoritos
+///historial/progreso reales. Se mergea key por key igual que ya se hace
+// con favoritos/historial/progreso de anime. ─────────────────────────────
+function _mergeMangaArrayByKey(local, cloud, keyField) {
+  return _unionPorClave(local, cloud, keyField)
+}
+function _mergeMangaProgresoObj(local, cloud) {
+  // Por capLink: gana el que tenga el "ts" (timestamp) más reciente.
+  const merged = Object.assign({}, cloud || {})
+  for (const [link, lp] of Object.entries(local || {})) {
+    const cp = merged[link]
+    if (!cp || (lp?.ts || 0) >= (cp?.ts || 0)) merged[link] = lp
+  }
+  return merged
+}
+// Tope de entradas de progreso de páginas por fuente: crecía sin límite (una
+// por capítulo abierto) y todo va en el doc manga_data, que Firestore corta
+// en 1 MB -- pasado ese tamaño, guardar el manga en la nube fallaría entero.
+// Se conservan las 1000 más recientes; las viejas solo guardaban la página
+// de capítulos de hace mucho (lo "leído" se guarda aparte, en manga-leidos).
+const _MANGA_PROG_MAX = 1000
+function _recortarProgresoManga(obj) {
+  const entradas = Object.entries(obj || {})
+  if (entradas.length <= _MANGA_PROG_MAX) return obj
+  entradas.sort((a, b) => (b[1]?.ts || 0) - (a[1]?.ts || 0))
+  return Object.fromEntries(entradas.slice(0, _MANGA_PROG_MAX))
+}
+function _mergeMangaData(localData, cloudData) {
+  const out = {}
+  const claves = new Set([...Object.keys(localData || {}), ...Object.keys(cloudData || {})])
+  for (const key of claves) {
+    if (key === 'manga-tombstones' || _esDeFuenteEliminada(key)) continue
+    const lv = localData?.[key]
+    const cv = cloudData?.[key]
+    if (key.startsWith('manga-progreso')) out[key] = _recortarProgresoManga(_mergeMangaProgresoObj(lv, cv))
+    // Historial: orden cronológico (más viejo primero, como lo escribe
+    // manga.js con push) y el mismo tope de 60 que usa manga.js. Antes la
+    // unión ponía al final lo que venía solo de la nube aunque fuera más
+    // viejo, y el historial crecía sin tope con cada sync.
+    else if (key.startsWith('manga-historial')) out[key] = _mergeMangaArrayByKey(lv, cv, 'link')
+      .sort((a, b) => (a?.ts || 0) - (b?.ts || 0)).slice(-60)
+    else if (key.startsWith('manga-favs')) out[key] = _mergeMangaArrayByKey(lv, cv, 'url')
+    else out[key] = lv !== undefined ? lv : cv  // clave inesperada -- no se pierde, local gana
+  }
+  // Tombstones (borrados) -- mismo criterio que anime: se unen local + nube,
+  // se descarta el que tenga un ítem re-agregado después (ts más nuevo) y lo
+  // que quede se aplica a todas las fuentes. Sin esto lo borrado en manga
+  // (favoritos, historial) volvía desde la nube en cada sync.
+  const tomb = _mergeTomb(localData?.['manga-tombstones'], cloudData?.['manga-tombstones'])
+  for (const [key, val] of Object.entries(out)) {
+    if (key.startsWith('manga-favs')) _podarTomb(tomb, [val], [], [])
+    else if (key.startsWith('manga-historial')) _podarTomb(tomb, [], [val], [])
+    else if (key.startsWith('manga-progreso')) _podarTomb(tomb, [], [], [val])
+  }
+  for (const key of Object.keys(out)) {
+    if (key.startsWith('manga-favs')) out[key] = (out[key] || []).filter(f => !(f?.url && tomb.favs[f.url]))
+    else if (key.startsWith('manga-historial')) out[key] = (out[key] || []).filter(h => !(h?.link && tomb.hist[h.link]))
+    else if (key.startsWith('manga-progreso')) {
+      const p = { ...(out[key] || {}) }
+      for (const l of Object.keys(tomb.prog)) delete p[l]
+      out[key] = p
+    }
+  }
+  out['manga-tombstones'] = tomb  // siempre: así el store local queda igual al podado
+  return out
+}
+
+// ─── "Al día" (anime/manga vistos automáticamente) — sync ────────────────────
+// Espejo simple de lo que ya hacen anime.js/manga.js en localStorage
+// (ryoku-al-dia-anime / ryoku-al-dia-manga): {url: {titulo,imagen,totalEps|totalCaps,fecha}}.
+// Se sincroniza como cualquier otro dato del usuario para que el perfil de
+// un AMIGO muestre SU propio avance real y no el de quien esté viendo el
+// perfil en ese momento.
+function _getAlDiaLocal(tipo) {
+  try { return JSON.parse(localStorage.getItem('ryoku-al-dia-' + tipo) || '{}') } catch(e) { return {} }
+}
+function _setAlDiaLocal(tipo, datos) {
+  try { localStorage.setItem('ryoku-al-dia-' + tipo, JSON.stringify(datos || {})) } catch(e) {}
+}
+// Por url: gana la entrada con "fecha" más reciente (igual criterio que el
+// resto de merges de este archivo, p.ej. _mergeMangaProgresoObj).
+function _mergeAlDia(local, cloud) {
+  const merged = _sinFuentesEliminadas(cloud)
+  for (const [url, entry] of Object.entries(_sinFuentesEliminadas(local))) {
+    const c = merged[url]
+    if (!c || (entry?.fecha || 0) >= (c?.fecha || 0)) merged[url] = entry
+  }
+  return merged
+}
+
+let _alDiaSyncTimer = null
+// Llamada por anime.js/manga.js cada vez que cambia el estado "al día" local.
+// Debounced: junta varios cambios seguidos (p.ej. maratonear episodios) en
+// una sola escritura a Firestore en vez de una por episodio.
+window._ryokuMarcarSyncPendiente = function () {
+  if (!_getUser() || !_getDb()) return
+  if (_alDiaSyncTimer) clearTimeout(_alDiaSyncTimer)
+  _alDiaSyncTimer = setTimeout(async () => {
+    const user = _getUser()
+    if (!user) return
+    try {
+      const [animeCloudDoc, mangaCloudDoc] = await Promise.all([
+        _getDoc(user.uid, 'anime_al_dia'),
+        _getDoc(user.uid, 'manga_al_dia'),
+      ])
+      const animeMerged = _mergeAlDia(_getAlDiaLocal('anime'), animeCloudDoc?.datos || {})
+      const mangaMerged = _mergeAlDia(_getAlDiaLocal('manga'), mangaCloudDoc?.datos || {})
+      _setAlDiaLocal('anime', animeMerged)
+      _setAlDiaLocal('manga', mangaMerged)
+      await Promise.all([
+        _setDoc(user.uid, 'anime_al_dia', { datos: animeMerged }),
+        _setDoc(user.uid, 'manga_al_dia', { datos: mangaMerged }),
+      ])
+    } catch(e) { console.warn('[sync] error subiendo al-dia', e) }
+  }, 4000)
+}
+
+// ── Capítulos leídos de manga (manga-leidos-*) ───────────────────────────
+// Antes no se sincronizaban (se excluían por tamaño), así que el ojito de
+// "leído" no aparecía en el otro dispositivo. Van en un doc propio
+// (manga_leidos) para no inflar manga_data hacia el límite de 1 MB de
+// Firestore. Valor = cuándo se marcó (los viejos tienen 1); desmarcar deja
+// un tombstone 'leidos' en manga-tombstones (ver _mnMarcarBorrado en manga.js).
+function _getMangaLeidosLocal() {
+  const out = {}
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (!k || !k.startsWith('manga-leidos')) continue
+    try { out[k] = JSON.parse(localStorage.getItem(k) || '{}') } catch (e) {}
+  }
+  return out
+}
+function _setMangaLeidosLocal(data) {
+  for (const [k, v] of Object.entries(data || {})) {
+    if (!k.startsWith('manga-leidos')) continue
+    try { localStorage.setItem(k, JSON.stringify(v || {})) } catch (e) {}
+  }
+}
+// tomb = los tombstones de manga ya mergeados (se modifican en el lugar).
+function _mergeMangaLeidos(local, cloud, tomb) {
+  const t = (tomb && typeof tomb === 'object') ? tomb : {}
+  t.leidos = t.leidos || {}
+  const out = {}
+  const claves = new Set([...Object.keys(local || {}), ...Object.keys(cloud || {})])
+  for (const k of claves) {
+    if (_esDeFuenteEliminada(k)) continue
+    const m = { ...((cloud || {})[k] || {}) }
+    for (const [link, v] of Object.entries((local || {})[k] || {})) {
+      m[link] = Math.max(Number(v) || 0, Number(m[link]) || 0) || 1
+    }
+    out[k] = m
+  }
+  // Un "desmarcado" pierde contra una marca posterior; si no, gana y se aplica.
+  for (const m of Object.values(out)) for (const [link, v] of Object.entries(m)) {
+    if (t.leidos[link] && (Number(v) || 0) > t.leidos[link]) delete t.leidos[link]
+  }
+  for (const m of Object.values(out)) for (const link of Object.keys(t.leidos)) delete m[link]
+  return out
+}
+
+// ── Config: huella de lo último sincronizado ─────────────────────────────
+// La config (tema, acento, etc.) se subía en CADA guardado, incluido el
+// automático -- así un dispositivo pisaba en la nube, minutos después, el
+// tema que acababas de cambiar en el otro. Ahora solo se sube si cambió acá
+// desde la última vez que este dispositivo la sincronizó.
+const _CFG_HUELLA_KEY = 'ryoku-cfg-sync-huella'
+function _leerHuellaCfg() { try { return localStorage.getItem(_CFG_HUELLA_KEY) || '' } catch (e) { return '' } }
+function _guardarHuellaCfg(h) { try { localStorage.setItem(_CFG_HUELLA_KEY, h) } catch (e) {} }
+
 // ─── Subir a Firestore (GUARDAR) ──────────────────────────────────────────────
 async function guardarEnCloud() {
   const user = _getUser()
@@ -91,8 +280,9 @@ async function guardarEnCloud() {
     const _getAllFavs  = window.api?.getAllFavsFlat?.() ?? window.api?.getFavs?.() ?? Promise.resolve([])
     const _getAllHist  = window.api?.getAllHistFlat?.() ?? window.api?.getHistorial?.() ?? Promise.resolve([])
     const _getAllProg  = window.api?.getAllProgFlat?.() ?? window.api?.getTodosProgresos?.() ?? Promise.resolve({})
-    const _getAllTomb  = window.api?.getAllTombstonesFlat?.() ?? Promise.resolve({ favs: {}, hist: {}, prog: {} })
-    const [allLocalFavs, oldFavDoc, allLocalHist, oldHistDoc, allLocalProg, oldProgDoc, localTomb, cloudTombDoc, cfg] = await Promise.all([
+    const _getAllTomb     = window.api?.getAllTombstonesFlat?.() ?? Promise.resolve({ favs: {}, hist: {}, prog: {} })
+    const _getAllCarpetas = window.api?.getAllCarpetasFlat?.() ?? Promise.resolve({})
+    const [allLocalFavs, oldFavDoc, allLocalHist, oldHistDoc, allLocalProg, oldProgDoc, localTomb, cloudTombDoc, oldMangaDoc, localCarpetas, cloudCarpetasDoc, cfg, oldAnimeAlDiaDoc, oldMangaAlDiaDoc] = await Promise.all([
       Promise.resolve(_getAllFavs).catch(() => []),
       _getDoc(user.uid, 'anime_favoritos'),
       Promise.resolve(_getAllHist).catch(() => []),
@@ -101,8 +291,20 @@ async function guardarEnCloud() {
       _getDoc(user.uid, 'anime_progresos'),
       Promise.resolve(_getAllTomb).catch(() => ({ favs: {}, hist: {}, prog: {} })),
       _getDoc(user.uid, 'anime_tombstones'),
+      _getDoc(user.uid, 'manga_data'),
+      Promise.resolve(_getAllCarpetas).catch(() => ({})),
+      _getDoc(user.uid, 'anime_favs_carpetas'),
       window.api?.configGet?.().catch(() => ({})) || Promise.resolve({}),
+      _getDoc(user.uid, 'anime_al_dia'),
+      _getDoc(user.uid, 'manga_al_dia'),
     ])
+    // "Al día" (anime/manga vistos automáticamente) — merge por fecha reciente,
+    // igual criterio que el resto de este archivo, y se escribe de vuelta al
+    // localStorage para que este dispositivo quede al tanto de lo visto en otros.
+    const mergedAnimeAlDia = _mergeAlDia(_getAlDiaLocal('anime'), oldAnimeAlDiaDoc?.datos || {})
+    const mergedMangaAlDia = _mergeAlDia(_getAlDiaLocal('manga'), oldMangaAlDiaDoc?.datos || {})
+    _setAlDiaLocal('anime', mergedAnimeAlDia)
+    _setAlDiaLocal('manga', mergedMangaAlDia)
 
     // Merge: datos locales (todas las fuentes) + datos cloud (para no perder ítems
     // que existen solo en cloud, p.ej. favoritos añadidos desde Android)
@@ -110,20 +312,13 @@ async function guardarEnCloud() {
     const allCloudHist = oldHistDoc?.lista && Array.isArray(oldHistDoc.lista) ? oldHistDoc.lista : []
     const allCloudProg = oldProgDoc?.datos && typeof oldProgDoc.datos === 'object' ? oldProgDoc.datos : {}
     const cloudTomb = cloudTombDoc && typeof cloudTombDoc === 'object' ? cloudTombDoc : { favs: {}, hist: {}, prog: {} }
+    const cloudCarpetas = cloudCarpetasDoc?.datos && typeof cloudCarpetasDoc.datos === 'object' ? cloudCarpetasDoc.datos : {}
+    const mergedCarpetas = _mergeCarpetasObj(localCarpetas, cloudCarpetas)
     // 1er arg = "local" (gana en caso de duplicado), 2do = "cloud"
     const mergedTomb = _mergeTomb(localTomb, cloudTomb)
-    // Un tombstone representa un borrado real. Si el ítem SIGUE existiendo
-    // en los datos locales ahora mismo (p.ej. un episodio que se desmarcó y
-    // se volvió a marcar como visto después), ese tombstone quedó obsoleto.
-    // _mergeTomb es pura unión y nunca "olvida" un tombstone una vez creado
-    // -- sin podar acá, un tombstone viejo de la nube se resubía a Firestore
-    // (y se reaplicaba localmente vía restoreAllTombstones más abajo) en
-    // cada guardado, borrando para siempre un progreso recién marcado por
-    // más veces que se volviera a marcar. Se descarta cualquier tombstone
-    // cuyo ítem exista en los datos locales actuales, antes de aplicar/subir.
-    for (const f of allLocalFavs) { if (f?.url) delete mergedTomb.favs[f.url] }
-    for (const h of allLocalHist) { if (h?.link) delete mergedTomb.hist[h.link] }
-    for (const link of Object.keys(allLocalProg)) delete mergedTomb.prog[link]
+    // Podar tombstones de ítems que se volvieron a agregar después del
+    // borrado (ver _podarTomb), antes de aplicar/subir.
+    _podarTomb(mergedTomb, [allLocalFavs, allCloudFavs], [allLocalHist, allCloudHist], [allLocalProg, allCloudProg])
     let mergedFavs = _mergeFavs(allLocalFavs, allCloudFavs)
     let mergedHist = _mergeHist(allLocalHist, allCloudHist)
     // Antes esto se guardaba directo (allLocalProg) pisando el doc de cloud
@@ -143,19 +338,46 @@ async function guardarEnCloud() {
     const cfgObj = cfg || {}
     for (const k of cfgKeys) { if (cfgObj[k] !== undefined) cfgData[k] = cfgObj[k] }
 
-    // Manga (localStorage — sync, sin await)
-    const manga = _getMangaLocalStorage()
+    // Manga (localStorage) -- mergear con lo que ya haya en la nube ANTES
+    // de subir, en vez de subir el localStorage de este dispositivo tal
+    // cual (eso pisaba, para siempre, cualquier favorito/historial/
+    // progreso de otra fuente u otro dispositivo que este no tuviera).
+    // También se escribe el merge de vuelta al localStorage local, así este
+    // dispositivo queda al día con lo que hubiera solo en la nube sin
+    // esperar al próximo cargarDesdeCloud().
+    const localManga = _getMangaLocalStorage()
+    const cloudManga = oldMangaDoc?.datos && typeof oldMangaDoc.datos === 'object' ? oldMangaDoc.datos : {}
+    const manga = _mergeMangaData(localManga, cloudManga)
+    const oldLeidosDoc = await _getDoc(user.uid, 'manga_leidos')
+    const mangaLeidos = _mergeMangaLeidos(_getMangaLeidosLocal(), oldLeidosDoc?.datos, manga['manga-tombstones'])
+    _setMangaLeidosLocal(mangaLeidos)
+    if (Object.keys(manga).length > 0) _setMangaLocalStorage(manga)
 
     // Fase 2: todas las escrituras en paralelo
     const writes = [
-      _setDoc(user.uid, 'anime_favoritos',  { lista: mergedFavs }),
-      _setDoc(user.uid, 'anime_historial',  { lista: mergedHist }),
-      _setDoc(user.uid, 'anime_progresos',  { datos: mergedProg }),
-      _setDoc(user.uid, 'anime_tombstones', mergedTomb),
+      _setDoc(user.uid, 'anime_favoritos',      { lista: mergedFavs }),
+      _setDoc(user.uid, 'anime_historial',      { lista: mergedHist }),
+      _setDoc(user.uid, 'anime_progresos',      { datos: mergedProg }),
+      _setDoc(user.uid, 'anime_tombstones',     mergedTomb),
+      _setDoc(user.uid, 'anime_favs_carpetas',  { datos: mergedCarpetas }),
+      _setDoc(user.uid, 'anime_al_dia',         { datos: mergedAnimeAlDia }),
+      _setDoc(user.uid, 'manga_al_dia',         { datos: mergedMangaAlDia }),
     ]
     if (Object.keys(manga).length > 0)   writes.push(_setDoc(user.uid, 'manga_data', { datos: manga }))
-    if (Object.keys(cfgData).length > 0) writes.push(_setDoc(user.uid, 'config',     { data: cfgData }))
+    if (Object.keys(mangaLeidos).length > 0) writes.push(_setDoc(user.uid, 'manga_leidos', { datos: mangaLeidos }))
+    // Config: solo si cambió desde la última sync de este dispositivo. Se
+    // mezcla con lo que ya hay en la nube para no borrar claves que solo usa
+    // la otra plataforma (p.ej. PC y Android no guardan exactamente las mismas).
+    const _cfgHuella = JSON.stringify(cfgData)
+    if (Object.keys(cfgData).length > 0 && _cfgHuella !== _leerHuellaCfg()) {
+      writes.push((async () => {
+        const oldCfg = await _getDoc(user.uid, 'config')
+        await _setDoc(user.uid, 'config', { data: { ...(oldCfg?.data || {}), ...cfgData } })
+        _guardarHuellaCfg(_cfgHuella)
+      })())
+    }
     if (window.api?.restoreAllTombstones) writes.push(Promise.resolve(window.api.restoreAllTombstones(mergedTomb)).catch(() => {}))
+    if (window.api?.restoreAllCarpetas)   writes.push(Promise.resolve(window.api.restoreAllCarpetas(mergedCarpetas)).catch(() => {}))
     await Promise.all(writes)
 
     _setStatus('Guardado ✓', 'ok')
@@ -169,21 +391,79 @@ async function guardarEnCloud() {
 
 // ─── Cargar desde Firestore (CARGAR) ─────────────────────────────────────────
 // ─── Helpers de merge ────────────────────────────────────────────────────────
+// Unión por clave: orden local primero, después lo que solo está en cloud.
+// Si el ítem está en los dos lados, se queda la copia local pero con el ts
+// más reciente de los dos (el ts decide contra tombstones, ver _podarTomb).
+function _unionPorClave(local, cloud, campo) {
+  const idx = new Map()
+  const out = []
+  ;(local || []).forEach(it => { const k = it?.[campo]; if (k && !idx.has(k) && !_esDeFuenteEliminada(k)) { idx.set(k, out.length); out.push(it) } })
+  ;(cloud || []).forEach(it => {
+    const k = it?.[campo]
+    if (!k || _esDeFuenteEliminada(k)) return
+    if (!idx.has(k)) { idx.set(k, out.length); out.push(it); return }
+    const i = idx.get(k)
+    if ((it.ts || 0) > (out[i].ts || 0)) out[i] = { ...out[i], ts: it.ts }
+  })
+  return out
+}
+
 function _mergeFavs(local, cloud) {
-  // Unión por url: si está en cualquiera de los dos, se incluye
-  const map = {}
-  // Cloud primero, luego local sobreescribe (local tiene prioridad para orden)
-  ;(cloud || []).forEach(f => { if (f?.url) map[f.url] = f })
-  ;(local || []).forEach(f => { if (f?.url) map[f.url] = f })
-  return Object.values(map)
+  // Unión por url, preservando el ORDEN del array LOCAL (ese orden es el
+  // que el usuario define arrastrando las portadas en "Mis favoritos", y
+  // es la fuente de verdad). Los favoritos que existan solo en cloud (p.ej.
+  // agregados desde otro dispositivo) se agregan al final, en su orden de
+  // cloud.
+  // OJO: antes esto reconstruía el array con Object.values(map) insertando
+  // primero las entradas de cloud y luego las de local -- como JS conserva
+  // el orden de inserción de una clave ya existente al sobreescribirla, el
+  // orden final terminaba siendo siempre el de CLOUD (el más viejo), así
+  // que cualquier reordenamiento manual se perdía en el siguiente sync.
+  return _unionPorClave(local, cloud, 'url')
+}
+
+// Une las carpetas de favoritos de dos dispositivos (arrays de nombres, por
+// fuente). Es una unión simple que preserva el orden local y agrega al
+// final los nombres nuevos que solo existan en cloud. NOTA: el borrado de
+// una carpeta no tiene tombstone propio (a diferencia de favs/hist/prog) --
+// si se borra una carpeta en un dispositivo mientras otro todavía no
+// sincronizó, esta unión puede volver a traerla. Es una limitación menor
+// aceptada: el nombre de la carpeta reaparece pero vacío (ya que los favs
+// que apuntaban a ella se limpian con \`carpeta:''\` al borrarla).
+function _mergeCarpetas(local, cloud) {
+  const vistos = new Set()
+  const out = []
+  ;(local || []).forEach(c => { if (c && !vistos.has(c)) { vistos.add(c); out.push(c) } })
+  ;(cloud || []).forEach(c => { if (c && !vistos.has(c)) { vistos.add(c); out.push(c) } })
+  return out
+}
+
+function _mergeCarpetasObj(localObj, cloudObj) {
+  const out = {}
+  const fuentes = new Set([...Object.keys(localObj || {}), ...Object.keys(cloudObj || {})])
+  for (const s of fuentes) if (!_esDeFuenteEliminada(s)) out[s] = _mergeCarpetas(localObj?.[s], cloudObj?.[s])
+  return out
 }
 
 function _mergeHist(local, cloud) {
-  // Unión por link, más recientes primero (local tiene prioridad)
-  const map = {}
-  ;(cloud || []).forEach(h => { if (h?.link) map[h.link] = h })
-  ;(local || []).forEach(h => { if (h?.link) map[h.link] = h })
-  return Object.values(map).slice(0, 500)
+  // Unión por link. Antes esto armaba un objeto con cloud primero y local
+  // pisando encima -- el MISMO bug de orden ya documentado y arreglado en
+  // _mergeFavs más abajo (ver ese comentario): como JS conserva la posición
+  // de inserción de una clave ya existente aunque se le reasigne el valor,
+  // el array resultante de Object.values(map) quedaba siempre en el orden
+  // de CLOUD (el más viejo), no en el orden real de "visto más reciente" --
+  // así que "Continuar viendo" podía mostrarse desordenado después de cada
+  // sync. Se arma igual que _mergeFavs: local primero (su orden es la
+  // fuente de verdad, más reciente primero -- ver cargarContinuarViendo en
+  // anime.js, que depende del ORDEN del array), cloud al final solo para
+  // los links que no existan local.
+  // Más reciente primero según ts (cuándo se vio). Antes lo que venía solo
+  // de la nube quedaba al final aunque fuera lo último que viste en el otro
+  // dispositivo. Entradas viejas sin ts van al final en su orden actual
+  // (sort estable), así que el orden de siempre se conserva para ellas.
+  return _unionPorClave(local, cloud, 'link')
+    .sort((a, b) => (b?.ts || 0) - (a?.ts || 0))
+    .slice(0, 500)
 }
 
 function _mergeProg(local, cloud) {
@@ -197,16 +477,17 @@ function _mergeProg(local, cloud) {
   // revirtiendo en silencio un episodio recién marcado como visto a mano en
   // cuanto se sincronizaba con la nube. Un episodio completado nunca debe
   // perder el merge contra uno que no lo está, sin importar el currentTime.
-  const merged = Object.assign({}, cloud || {})
-  for (const [link, lp] of Object.entries(local || {})) {
+  const merged = _sinFuentesEliminadas(cloud)
+  for (const [link, lp] of Object.entries(_sinFuentesEliminadas(local))) {
     const cp = merged[link]
     const lpDone = (lp?.porcentaje || 0) >= 95
     const cpDone = (cp?.porcentaje || 0) >= 95
-    if (lpDone && !cpDone) { merged[link] = lp; continue }
-    if (cpDone && !lpDone) { continue }
-    if (!cp || (lp?.currentTime || 0) >= (cp?.currentTime || 0)) {
-      merged[link] = lp
-    }
+    const tsMax = Math.max(lp?.ts || 0, cp?.ts || 0)
+    let elegido = cp
+    if (lpDone && !cpDone) elegido = lp
+    else if (cpDone && !lpDone) elegido = cp
+    else if (!cp || (lp?.currentTime || 0) >= (cp?.currentTime || 0)) elegido = lp
+    merged[link] = tsMax ? { ...elegido, ts: tsMax } : elegido
   }
   return merged
 }
@@ -216,13 +497,40 @@ function _mergeProg(local, cloud) {
 // dispositivos distintos en momentos distintos).
 function _mergeTomb(a, b) {
   const out = { favs: {}, hist: {}, prog: {} }
-  for (const tipo of ['favs', 'hist', 'prog']) {
-    Object.assign(out[tipo], (a && a[tipo]) || {})
-    for (const [key, ts] of Object.entries((b && b[tipo]) || {})) {
+  // Además de favs/hist/prog acepta cualquier otro tipo que venga (p.ej.
+  // 'leidos' en los tombstones de manga) en vez de descartarlo.
+  const tipos = new Set(['favs', 'hist', 'prog', ...Object.keys(a || {}), ...Object.keys(b || {})])
+  for (const tipo of tipos) {
+    if (!out[tipo]) out[tipo] = {}
+    Object.assign(out[tipo], _sinFuentesEliminadas((a && a[tipo]) || {}))
+    for (const [key, ts] of Object.entries(_sinFuentesEliminadas((b && b[tipo]) || {}))) {
       if (!out[tipo][key] || ts > out[tipo][key]) out[tipo][key] = ts
     }
   }
   return out
+}
+
+// Descarta un tombstone SOLO si el ítem se volvió a agregar DESPUÉS del
+// borrado (ítem con ts más nuevo que el tombstone), mirando tanto los datos
+// locales como los de la nube. Antes se descartaba cualquier tombstone cuyo
+// ítem existiera localmente -- pero eso no distingue "lo volví a agregar"
+// de "este dispositivo todavía no se enteró del borrado": si borrabas un
+// favorito en el celular, la PC (que todavía lo tenía) descartaba el
+// tombstone y lo volvía a subir, y así en loop entre dispositivos. Ítems
+// viejos sin ts cuentan como más viejos que cualquier borrado.
+function _podarTomb(tomb, listasFavs, listasHist, objsProg) {
+  for (const lista of listasFavs || []) for (const f of lista || []) {
+    const t = f?.url && tomb.favs[f.url]
+    if (t && (f.ts || 0) > t) delete tomb.favs[f.url]
+  }
+  for (const lista of listasHist || []) for (const h of lista || []) {
+    const t = h?.link && tomb.hist[h.link]
+    if (t && (h.ts || 0) > t) delete tomb.hist[h.link]
+  }
+  for (const obj of objsProg || []) for (const [link, p] of Object.entries(obj || {})) {
+    const t = tomb.prog[link]
+    if (t && (p?.ts || 0) > t) delete tomb.prog[link]
+  }
 }
 
 // Filtra favs/hist/prog ya mergeados descartando cualquier ítem cuya clave
@@ -247,7 +555,15 @@ async function cargarDesdeCloud() {
   try {
     // ── Tombstones: mergear ANTES que favs/hist/prog para poder filtrar
     // ítems ya borrados en otro dispositivo antes de restaurarlos acá ─────
-    const tombDoc   = await _getDoc(user.uid, 'anime_tombstones')
+    const [tombDoc, favDoc, histDoc, progDoc] = await Promise.all([
+      _getDoc(user.uid, 'anime_tombstones'),
+      _getDoc(user.uid, 'anime_favoritos'),
+      _getDoc(user.uid, 'anime_historial'),
+      _getDoc(user.uid, 'anime_progresos'),
+    ])
+    const allCloudFavs = favDoc?.lista && Array.isArray(favDoc.lista) ? favDoc.lista : []
+    const allCloudHist = histDoc?.lista && Array.isArray(histDoc.lista) ? histDoc.lista : []
+    const allCloudProg = progDoc?.datos && typeof progDoc.datos === 'object' ? progDoc.datos : {}
     const localTomb = await (window.api?.getAllTombstonesFlat?.()) || { favs: {}, hist: {}, prog: {} }
     const cloudTomb = tombDoc && typeof tombDoc === 'object' ? tombDoc : { favs: {}, hist: {}, prog: {} }
     const mergedTomb = _mergeTomb(localTomb, cloudTomb)
@@ -258,9 +574,7 @@ async function cargarDesdeCloud() {
     const allLocalFavs = await (window.api?.getAllFavsFlat?.() ?? window.api?.getFavs?.()) || []
     const allLocalHist = await (window.api?.getAllHistFlat?.() ?? window.api?.getHistorial?.()) || []
     const allLocalProg = await (window.api?.getAllProgFlat?.() ?? window.api?.getTodosProgresos?.()) || {}
-    for (const f of allLocalFavs) { if (f?.url) delete mergedTomb.favs[f.url] }
-    for (const h of allLocalHist) { if (h?.link) delete mergedTomb.hist[h.link] }
-    for (const link of Object.keys(allLocalProg)) delete mergedTomb.prog[link]
+    _podarTomb(mergedTomb, [allLocalFavs, allCloudFavs], [allLocalHist, allCloudHist], [allLocalProg, allCloudProg])
     // Adoptar el merge (ya podado) en el store local — esto también purga de
     // favs/hist/prog local cualquier ítem que sí siga borrado en otro lado.
     if (window.api?.restoreAllTombstones) await window.api.restoreAllTombstones(mergedTomb).catch(() => {})
@@ -268,8 +582,6 @@ async function cargarDesdeCloud() {
     // ── Favs: merge cloud + local de TODAS las fuentes → restaurar todo ───
     // getAllFavsFlat devuelve favs de todas las fuentes; si no está disponible,
     // getFavs devuelve solo la fuente activa (fallback). Ya leídos arriba.
-    const favDoc       = await _getDoc(user.uid, 'anime_favoritos')
-    const allCloudFavs = favDoc?.lista && Array.isArray(favDoc.lista) ? favDoc.lista : []
     let allMergedFavs = _mergeFavs(allLocalFavs, allCloudFavs)  // local gana duplicados
     allMergedFavs = allMergedFavs.filter(f => !(f?.url && mergedTomb.favs[f.url]))
     _d('[sync] favs local=' + allLocalFavs.length + ' cloud=' + allCloudFavs.length + ' merged=' + allMergedFavs.length)
@@ -281,8 +593,6 @@ async function cargarDesdeCloud() {
     }
 
     // ── Historial: idem — todas las fuentes ───────────────────────────────
-    const histDoc      = await _getDoc(user.uid, 'anime_historial')
-    const allCloudHist = histDoc?.lista && Array.isArray(histDoc.lista) ? histDoc.lista : []
     let allMergedHist = _mergeHist(allLocalHist, allCloudHist)
     allMergedHist = allMergedHist.filter(h => !(h?.link && mergedTomb.hist[h.link]))
     _d('[sync] hist local=' + allLocalHist.length + ' cloud=' + allCloudHist.length + ' merged=' + allMergedHist.length)
@@ -293,8 +603,6 @@ async function cargarDesdeCloud() {
     }
 
     // ── Progreso: merge cloud + local, todas las fuentes ──────────────────
-    const progDoc      = await _getDoc(user.uid, 'anime_progresos')
-    const allCloudProg = progDoc?.datos && typeof progDoc.datos === 'object' ? progDoc.datos : {}
     let allMergedProg = _mergeProg(allLocalProg, allCloudProg)
     for (const link of Object.keys(mergedTomb.prog)) delete allMergedProg[link]
     if (Object.keys(allMergedProg).length > 0) {
@@ -303,9 +611,36 @@ async function cargarDesdeCloud() {
       _d('[sync] prog merged=' + Object.keys(allMergedProg).length)
     }
 
-    // ── Manga → localStorage ───────────────────────────────────────────────
-    const mangaDoc = await _getDoc(user.uid, 'manga_data')
-    if (mangaDoc?.datos) _setMangaLocalStorage(mangaDoc.datos)
+    // ── Carpetas de favoritos: merge cloud + local, todas las fuentes ─────
+    const localCarpetas     = await (window.api?.getAllCarpetasFlat?.()) || {}
+    const carpetasDoc       = await _getDoc(user.uid, 'anime_favs_carpetas')
+    const cloudCarpetas     = carpetasDoc?.datos && typeof carpetasDoc.datos === 'object' ? carpetasDoc.datos : {}
+    const mergedCarpetas    = _mergeCarpetasObj(localCarpetas, cloudCarpetas)
+    if (window.api?.restoreAllCarpetas) await window.api.restoreAllCarpetas(mergedCarpetas).catch(() => {})
+
+    // ── Manga → localStorage (merge, no pisar) ────────────────────────────
+    // Antes esto escribía mangaDoc.datos directo encima del localStorage --
+    // si la nube tenía menos/otras fuentes que este dispositivo (p.ej. cloud
+    // desactualizada, o el último guardado fue de otro dispositivo con solo
+    // una fuente de manga), se perdían favoritos/historial/progreso locales
+    // que la nube no tenía. Se mergea igual que en guardarEnCloud().
+    const mangaDoc    = await _getDoc(user.uid, 'manga_data')
+    const localManga  = _getMangaLocalStorage()
+    const cloudManga  = mangaDoc?.datos && typeof mangaDoc.datos === 'object' ? mangaDoc.datos : {}
+    const mergedManga = _mergeMangaData(localManga, cloudManga)
+    const leidosDoc   = await _getDoc(user.uid, 'manga_leidos')
+    _setMangaLeidosLocal(_mergeMangaLeidos(_getMangaLeidosLocal(), leidosDoc?.datos, mergedManga['manga-tombstones']))
+    if (Object.keys(mergedManga).length > 0) _setMangaLocalStorage(mergedManga)
+
+    // ── "Al día" (anime/manga vistos automáticamente) — merge por fecha ───
+    const [animeAlDiaDoc, mangaAlDiaDoc] = await Promise.all([
+      _getDoc(user.uid, 'anime_al_dia'),
+      _getDoc(user.uid, 'manga_al_dia'),
+    ])
+    const mergedAnimeAlDia = _mergeAlDia(_getAlDiaLocal('anime'), animeAlDiaDoc?.datos || {})
+    const mergedMangaAlDia = _mergeAlDia(_getAlDiaLocal('manga'), mangaAlDiaDoc?.datos || {})
+    _setAlDiaLocal('anime', mergedAnimeAlDia)
+    _setAlDiaLocal('manga', mergedMangaAlDia)
 
     // ── Configuración ──────────────────────────────────────────────────────
     const cfgDoc = await _getDoc(user.uid, 'config')
@@ -314,6 +649,14 @@ async function cargarDesdeCloud() {
       for (const k of claves) {
         if (cfgDoc.data[k] !== undefined) await window.api?.configSet?.(k, cfgDoc.data[k])
       }
+      // La config local ahora coincide con la nube: guardar la huella (mismo
+      // formato que en guardarEnCloud) para no volver a subirla sin cambios.
+      try {
+        const cfgLocal = (await window.api?.configGet?.()) || {}
+        const h = {}
+        for (const k of claves) { if (cfgLocal[k] !== undefined) h[k] = cfgLocal[k] }
+        _guardarHuellaCfg(JSON.stringify(h))
+      } catch (e) {}
       // Aplicar visualmente sin re-subir a Firestore
       const d = cfgDoc.data
       if (d['app-modo'] !== undefined && typeof setAppModo === 'function') {
@@ -363,6 +706,8 @@ async function cargarDesdeCloud() {
         if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(d['app-tema-id'])
         if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(d['app-tema-id'])
         if (typeof window._berserkerTemaAplicado === 'function') window._berserkerTemaAplicado(d['app-tema-id'])
+        if (typeof window._metaphorTemaAplicado === 'function') window._metaphorTemaAplicado(d['app-tema-id'])
+        if (typeof window._kanekiTemaAplicado === 'function') window._kanekiTemaAplicado(d['app-tema-id'])
       }
       if (d['app-miku-sonido'] !== undefined && typeof setMikuSonido === 'function') {
         const _orig = window._syncGuardar; window._syncGuardar = null
@@ -396,7 +741,11 @@ async function cargarDesdeCloud() {
     }
 
     // ── Subir el merge a Firestore (ya contiene TODAS las fuentes) ─────────
-    await _subirMerge(user, allMergedFavs, allMergedHist, allMergedProg, mergedTomb)
+    await _subirMerge(user, allMergedFavs, allMergedHist, allMergedProg, mergedTomb, mergedCarpetas)
+    await Promise.all([
+      _setDoc(user.uid, 'anime_al_dia', { datos: mergedAnimeAlDia }),
+      _setDoc(user.uid, 'manga_al_dia', { datos: mergedMangaAlDia }),
+    ]).catch(() => {})
 
     _setStatus('Sincronizado ✓', 'ok')
     console.log('[sync] datos cargados desde cloud')
@@ -409,12 +758,13 @@ async function cargarDesdeCloud() {
 }
 
 // Sube el resultado del merge a Firestore (solo si hay algo que subir)
-async function _subirMerge(user, favs, hist, prog, tomb) {
+async function _subirMerge(user, favs, hist, prog, tomb, carpetas) {
   try {
     if (favs.length > 0)               await _setDoc(user.uid, 'anime_favoritos', { lista: favs })
     if (hist.length > 0)               await _setDoc(user.uid, 'anime_historial',  { lista: hist })
     if (Object.keys(prog).length > 0)  await _setDoc(user.uid, 'anime_progresos',  { datos: prog })
     if (tomb) await _setDoc(user.uid, 'anime_tombstones', tomb)
+    if (carpetas && Object.keys(carpetas).length > 0) await _setDoc(user.uid, 'anime_favs_carpetas', { datos: carpetas })
   } catch(e) { console.warn('[sync] error subiendo merge', e) }
 }
 

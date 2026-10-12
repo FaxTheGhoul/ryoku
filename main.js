@@ -1,15 +1,43 @@
-const { app, BrowserWindow, ipcMain, session, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog, shell, nativeImage } = require('electron')
 const path = require('path')
 const axios = require('axios')
 const cheerio = require('cheerio')
 const fs = require('fs')
 const os = require('os')
+const { spawn } = require('child_process')
+// ── LOG TEMPORAL DE DIAGNOSTICO -- flujo de cierre para actualizar ─────────
+// Se escribe directo en la carpeta del proyecto (no en os.tmpdir(), que en
+// el .exe empaquetado cae en el temp de Windows y no es visible desde aca)
+// para poder leerlo despues del build. Sacar una vez resuelto el bug del
+// instalador NSIS "no se puede cerrar RYOKU".
+function _logQuit(msg) {
+  try { fs.appendFileSync('D:\\Programas\\anime-app\\ryoku-quit-debug.log', `[${new Date().toISOString()}] ${msg}\n`) } catch (e) {}
+}
 const http  = require('http')
 const https = require('https')
 const extractors  = require('./extractors/anime')
 const latanime     = require('./extractors/anime/latanime')
-const monoschinos  = require('./extractors/anime/monoschinos')
+const animeav1     = require('./extractors/anime/animeav1')
 const { MIXDROP_LEGIT } = require('./extractors/anime/_base')
+// MangaOni no necesita BrowserWindow/caches inyectados (a diferencia de
+// NovelCool) -- es un módulo plano de axios+cheerio, se puede requerir directo.
+const mangaOni = require('./extractors/manga/manga-oni')
+
+// ── Desactivar crashpad_handler.exe ────────────────────────────────────────
+// Electron levanta por defecto un proceso aparte (crashpad_handler.exe, con
+// nombre DISTINTO a RYOKU.exe) para reportar crashes -- no lo usamos (no hay
+// servidor de crash reports configurado) y aca no aporta nada, pero es un
+// gotcha conocido de Electron: ese proceso puede quedar vivo unos instantes
+// despues de que RYOKU.exe ya cerro, reteniendo un handle sobre algun archivo
+// de la carpeta de instalacion. El propio instalador NSIS de electron-builder
+// SI revisa que "RYOKU.exe" ya no este corriendo antes de actualizar -- pero
+// no tiene forma de saber de crashpad_handler.exe, y cuando el desinstalador
+// de la version vieja intenta renombrar los archivos para limpiarlos
+// (un.atomicRMDir, ver uninstaller.nsh) se encuentra el archivo "ocupado" y
+// aborta con "Fallo al desinstalar archivos antiguos... : 2". Desactivando
+// el crash reporter, ese proceso nunca se crea y el archivo nunca queda
+// bloqueado.
+app.commandLine.appendSwitch('disable-crash-reporter')
 
 // ─── Instancia única ───────────────────────────────────────────────────────
 // Sin esto, abrir la app dos veces (doble clic al acceso directo mientras ya
@@ -21,12 +49,15 @@ const { MIXDROP_LEGIT } = require('./extractors/anime/_base')
 // existente al frente.
 const _gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!_gotSingleInstanceLock) {
+  _logQuit('no se obtuvo el lock de instancia unica al arrancar (pid=' + process.pid + '), cerrando esta copia')
   app.quit()
   process.exit(0)
 }
 app.on('second-instance', () => {
-  if (mainWindow) {
+  _logQuit('second-instance recibido, mainWindow existe=' + !!mainWindow + ' destruida=' + (mainWindow ? mainWindow.isDestroyed() : 'n/a'))
+  if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
     mainWindow.focus()
   }
 })
@@ -74,7 +105,7 @@ const _localServer = http.createServer(async (req, res) => {
     const src = u.searchParams.get('source') || 'latanime'
     try {
       let raw
-      if (src === 'monoschinos') raw = await monoschinos.buscar(q)
+      if (src === 'animeav1') raw = await animeav1.buscar(q)
       else raw = await latanime.getBiblioteca({ query: q })
       const data = Array.isArray(raw) ? raw : (raw?.lista || [])
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -91,7 +122,7 @@ const _localServer = http.createServer(async (req, res) => {
     const page   = parseInt(u.searchParams.get('page') || '1', 10)
     try {
       let result
-      if (src === 'monoschinos') result = await monoschinos.getBiblioteca({ query, genero, tipo, page })
+      if (src === 'animeav1') result = await animeav1.getBiblioteca({ query, genero, categoria: tipo, page })
       else result = await latanime.getBiblioteca({ query, genero, tipo, page })
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(result))
@@ -152,8 +183,258 @@ function guardarCache() { try { const o={}; coverCache.forEach((v,k)=>{o[k]=v});
 // CACHE JIKAN (MAL) en disco
 const JIKAN_CACHE_FILE = path.join(os.tmpdir(), 'ryoku-jikan.json')
 const jikanCache = new Map()
-try { const j = JSON.parse(fs.readFileSync(JIKAN_CACHE_FILE,'utf8')); Object.entries(j).forEach(([k,v])=>jikanCache.set(k,v)) } catch(e){}
+try {
+  const j = JSON.parse(fs.readFileSync(JIKAN_CACHE_FILE,'utf8'))
+  // Migración: entradas cacheadas antes de agregar members/popularity/favorites
+  // se descartan para que se vuelvan a pedir con los datos completos.
+  Object.entries(j).forEach(([k,v]) => { if (!v || v.members !== undefined) jikanCache.set(k,v) })
+} catch(e){}
 function guardarJikanCache() { try { const o={}; jikanCache.forEach((v,k)=>{o[k]=v}); fs.writeFileSync(JIKAN_CACHE_FILE,JSON.stringify(o)) } catch(e){} }
+
+// ── TOP ANIME REAL (mismos datos que myanimelist.net/topanime.php, vía Jikan) ──
+let _jikanTopCache = { data: null, ts: 0 }
+const _JIKAN_TOP_TTL = 6 * 60 * 60 * 1000 // 6h — el ranking global no cambia seguido
+
+// Cola global para las peticiones axios a Jikan que sigue usando jikanBuscar
+// (enriquecimiento de tarjetas, sinopsis de respaldo, etc.) — evita que varias
+// llamadas concurrentes superen el límite de 3 req/s de la API pública.
+//
+// Tiene DOS niveles de prioridad porque no todas las llamadas son iguales:
+// el enriquecimiento en segundo plano de la grilla de inicio (20+ tarjetas)
+// puede encolar muchísimas peticiones de una vez, y antes una cola simple
+// (una sola cadena de .then) hacía que abrir la ficha de un anime -- donde
+// el usuario SÍ está esperando en pantalla -- se pusiera detrás de todo ese
+// trabajo de fondo, sumando hasta 15-20s de espera solo en cola. Con
+// prioridad 'alta' (usada al abrir una ficha), esa llamada se procesa antes
+// que cualquier tarea normal pendiente, sin romper el límite de 3 req/s
+// (se sigue respetando el mismo hueco de 500ms entre cada petición, sea cual
+// sea su prioridad).
+let _jikanColaAlta = []
+let _jikanColaNormal = []
+let _jikanProcesando = false
+function _jikanEncolar(fn, opts) {
+  return new Promise((resolve, reject) => {
+    const tarea = { fn, resolve, reject }
+    if (opts && opts.prioridad === 'alta') _jikanColaAlta.push(tarea)
+    else _jikanColaNormal.push(tarea)
+    _jikanProcesarCola()
+  })
+}
+async function _jikanProcesarCola() {
+  if (_jikanProcesando) return
+  _jikanProcesando = true
+  while (_jikanColaAlta.length || _jikanColaNormal.length) {
+    const tarea = _jikanColaAlta.length ? _jikanColaAlta.shift() : _jikanColaNormal.shift()
+    try { tarea.resolve(await tarea.fn()) } catch (e) { tarea.reject(e) }
+    if (_jikanColaAlta.length || _jikanColaNormal.length) await new Promise(r => setTimeout(r, 500))
+  }
+  _jikanProcesando = false
+}
+
+// Confirmado con el usuario: api.jikan.moe y graphql.anilist.co responden
+// perfecto desde un navegador normal, pero axios/Node recibe 504/403 en las
+// mismas peticiones — bloqueo por fingerprint (anti-bot), no caída real del
+// servicio ni de la red del usuario. Mismo problema que ya resolvimos para
+// AnimeFLV (Cloudflare): usar un BrowserWindow oculto real en vez de axios.
+
+// GET: navegar directo a la URL (igual que la prueba manual del usuario, que
+// sí funcionó) y leer el texto plano de la respuesta JSON — sin fetch(), sin
+// CORS de por medio.
+async function _fetchGetComoNavegador(url) {
+  return await new Promise((resolve, reject) => {
+    let win = null
+    const timer = setTimeout(() => { if (win && !win.isDestroyed()) win.destroy(); reject(new Error('timeout esperando la ventana oculta')) }, 15000)
+    win = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } })
+    win.webContents.on('did-finish-load', async () => {
+      try {
+        const texto = await win.webContents.executeJavaScript('document.body.innerText')
+        clearTimeout(timer); win.destroy(); resolve(texto)
+      } catch(e) { clearTimeout(timer); if (!win.isDestroyed()) win.destroy(); reject(e) }
+    })
+    win.webContents.on('did-fail-load', (_, code, desc) => { if (code === -3) return; clearTimeout(timer); win.destroy(); reject(new Error(`did-fail-load ${code} ${desc}`)) })
+    win.loadURL(url)
+  })
+}
+
+// POST: cargar primero un origen real (anilist.co) — un fetch cruzado desde
+// about:blank (origen "null") daba "Failed to fetch" por CORS; desde el sitio
+// real de AniList el propio frontend hace exactamente este mismo fetch.
+async function _fetchPostComoNavegador(paginaOrigen, url, body) {
+  return await new Promise((resolve, reject) => {
+    let win = null
+    const timer = setTimeout(() => { if (win && !win.isDestroyed()) win.destroy(); reject(new Error('timeout esperando la ventana oculta')) }, 15000)
+    win = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } })
+    win.webContents.on('did-finish-load', async () => {
+      try {
+        const bodyLiteral = JSON.stringify(JSON.stringify(body))
+        const script = `
+          fetch(${JSON.stringify(url)}, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: ${bodyLiteral}
+          }).then(r => r.text())
+        `
+        const texto = await win.webContents.executeJavaScript(script)
+        clearTimeout(timer); win.destroy(); resolve(texto)
+      } catch(e) { clearTimeout(timer); if (!win.isDestroyed()) win.destroy(); reject(e) }
+    })
+    win.webContents.on('did-fail-load', (_, code, desc) => { if (code === -3) return; clearTimeout(timer); win.destroy(); reject(new Error(`did-fail-load ${code} ${desc}`)) })
+    win.loadURL(paginaOrigen)
+  })
+}
+
+// AniList (GraphQL) como fuente alternativa/primaria — servicio independiente
+// de Jikan (si uno está caído, el otro suele estar bien), sin autenticación,
+// y su orden "TRENDING" refleja actividad reciente real de la comunidad —
+// encaja mejor con "esta semana" que el conteo estático de miembros de MAL.
+let _anilistTopCache = { data: null, ts: 0 }
+async function anilistTopAnime() {
+  if (_anilistTopCache.data && Date.now() - _anilistTopCache.ts < _JIKAN_TOP_TTL) return _anilistTopCache.data
+  const query = `query ($perPage: Int) {
+    Page(page: 1, perPage: $perPage) {
+      media(sort: TRENDING_DESC, type: ANIME, isAdult: false) {
+        title { romaji english }
+        coverImage { large }
+        averageScore
+        popularity
+        favourites
+      }
+    }
+  }`
+  try {
+    const texto = await _fetchPostComoNavegador('https://anilist.co', 'https://graphql.anilist.co', { query, variables: { perPage: 25 } })
+    const json = JSON.parse(texto)
+    const lista = json?.data?.Page?.media || []
+    const data = lista.map(a => ({
+      titulo:       a.title?.romaji || a.title?.english || '',
+      tituloIngles: a.title?.english || '',
+      score:        a.averageScore ? a.averageScore / 10 : null, // AniList usa 0-100, MAL usa 0-10
+      members:      a.popularity,
+      rank:         null,
+      imagen:       a.coverImage?.large || '',
+    })).filter(a => a.titulo)
+    if (!data.length) throw new Error('respuesta vacía: ' + texto.slice(0, 200))
+    _anilistTopCache = { data, ts: Date.now() }
+    console.log('[anilistTopAnime] OK, primeros títulos:', data.slice(0,5).map(a=>a.titulo).join(', '))
+    return data
+  } catch(e) {
+    console.error('[anilistTopAnime] fallo:', e.message)
+    return _anilistTopCache.data || []
+  }
+}
+
+// Intenta AniList primero (independiente de Jikan) y si falla del todo cae a Jikan.
+async function topAnimeReal() {
+  // AniList primero: su orden TRENDING refleja lo que está sonando AHORA
+  // (pedido explícito del usuario), no popularidad histórica acumulada como
+  // el ranking de MAL — Jikan queda de respaldo si AniList falla.
+  const anilist = await anilistTopAnime()
+  if (anilist.length) return anilist
+  console.log('[topAnimeReal] AniList sin datos, probando Jikan como respaldo...')
+  return await jikanTopAnime()
+}
+
+async function jikanTopAnime() {
+  if (_jikanTopCache.data && Date.now() - _jikanTopCache.ts < _JIKAN_TOP_TTL) return _jikanTopCache.data
+  // bypopularity = ranking real por cantidad de miembros de MAL (equivalente a
+  // "más populares"), NO por score — el ranking por score (topanime.php por
+  // defecto) está lleno de películas/OVAs y clásicos de nicho que casi nunca
+  // están en un sitio de streaming Latino enfocado en estrenos recientes.
+  const intentos = 2
+  for (let i = 1; i <= intentos; i++) {
+    try {
+      const texto = await _fetchGetComoNavegador('https://api.jikan.moe/v4/top/anime?filter=bypopularity&limit=25')
+      const json = JSON.parse(texto)
+      const data = (json?.data || []).map(a => ({
+        malId:        a.mal_id,
+        titulo:       a.title,
+        tituloIngles: a.title_english || '',
+        score:        a.score,
+        members:      a.members,
+        rank:         a.rank,
+        imagen:       a.images?.jpg?.large_image_url || a.images?.jpg?.image_url || '',
+      }))
+      if (!data.length) throw new Error('respuesta vacía: ' + texto.slice(0, 200))
+      _jikanTopCache = { data, ts: Date.now() }
+      console.log('[jikanTopAnime] OK, primeros títulos:', data.slice(0,5).map(a=>a.titulo).join(', '))
+      return data
+    } catch(e) {
+      console.error(`[jikanTopAnime] fallo (intento ${i}/${intentos}):`, e.message)
+      if (i < intentos) await new Promise(r => setTimeout(r, 1500))
+    }
+  }
+  return _jikanTopCache.data || []
+}
+
+// Cruza el Top Anime real de MAL con el catálogo del sitio activo, para que
+// el panel "Top de la semana" muestre ranking/score/members reales pero
+// enlazando a contenido que sí existe (y se puede reproducir) en el sitio.
+//
+// Antes era UNA sola caché (no por fuente): alternar entre latanime y
+// monoschinos invalidaba la del otro cada vez, así que volver a una fuente
+// pagaba el costo completo de nuevo aunque se hubiera consultado hace poco
+// — esto se notaba más en MonosChinos porque sus búsquedas son mucho más
+// lentas (pasan por una ventana oculta para el bypass de Cloudflare, no un
+// simple pedido HTTP como latanime). Ahora hay una entrada por fuente, y
+// además se persiste en disco para que un reinicio de la app no la pierda.
+const TOP_SEMANA_CACHE_FILE = path.join(os.tmpdir(), 'ryoku-top-semana.json')
+let _topSemanaRealCache = {} // { [srcId]: { data, ts } }
+try { _topSemanaRealCache = JSON.parse(fs.readFileSync(TOP_SEMANA_CACHE_FILE, 'utf8')) || {} } catch(e) {}
+function _guardarTopSemanaCache() { try { fs.writeFileSync(TOP_SEMANA_CACHE_FILE, JSON.stringify(_topSemanaRealCache)) } catch(e) {} }
+const _TOP_SEMANA_TTL = 30 * 60 * 1000 // 30 min
+
+async function topSemanaReal(limite = 5) {
+  const srcId = _activeAnimeSource?.id || 'latanime'
+  const cacheEntry = _topSemanaRealCache[srcId]
+  if (cacheEntry?.data && Date.now() - cacheEntry.ts < _TOP_SEMANA_TTL) {
+    return cacheEntry.data
+  }
+  const top = await topAnimeReal()
+  if (!top.length) { console.error('[topSemanaReal] sin datos de AniList ni Jikan, abortando'); return _topSemanaRealCache[srcId]?.data || [] }
+  const buscarEnSitio = q => srcId === 'animeav1' ? animeav1.buscar(q) : latanime.buscar(q)
+  const candidatos = top.slice(0, 25)
+
+  // Se busca en bloques de a CONCURRENCIA candidatos (paralelo dentro de cada
+  // bloque, para acelerar en fuentes que sí soportan pedidos concurrentes)
+  // pero SE DETIENE apenas hay "limite" coincidencias — igual que la versión
+  // secuencial original. Sin este corte, en MonosChinos (cuyas búsquedas pasan
+  // todas por una sola ventana compartida en cola, por el bypass de
+  // Cloudflare) encolar los 25 candidatos sin parar podía tardar varios
+  // minutos y el panel se quedaba "cargando" sin dar nunca resultado.
+  const CONCURRENCIA = 6
+  const resultados = []
+  for (let start = 0; start < candidatos.length && resultados.length < limite; start += CONCURRENCIA) {
+    const bloque = candidatos.slice(start, start + CONCURRENCIA)
+    const encontradosBloque = await Promise.all(bloque.map(async (a) => {
+      // Varias variantes de título: los sitios Latinos a veces guardan el nombre
+      // en inglés, a veces el romaji de MAL, y a veces solo la parte antes de ":"
+      const variantes = [a.tituloIngles, a.titulo]
+        .filter(Boolean)
+        .flatMap(t => [t, t.split(':')[0].trim()])
+        .filter((t, idx, arr) => t && arr.indexOf(t) === idx)
+      let encontrados = []
+      for (const v of variantes) {
+        try { encontrados = await buscarEnSitio(v) } catch(e) {}
+        if (encontrados.length) break
+      }
+      if (!encontrados.length) { console.log('[topSemanaReal] sin match local para:', a.titulo); return null }
+      return { a, local: encontrados[0] }
+    }))
+    for (const m of encontradosBloque) {
+      if (!m) continue
+      if (resultados.length >= limite) break
+      console.log('[topSemanaReal] match:', m.a.titulo, '→', m.local.titulo)
+      resultados.push({
+        titulo: m.local.titulo, link: m.local.link, imagen: m.a.imagen || m.local.imagen || '', idioma: m.local.idioma || '',
+        malScore: m.a.score, malMembers: m.a.members, malRank: m.a.rank
+      })
+    }
+  }
+  console.log(`[topSemanaReal] ${resultados.length}/${limite} encontrados`)
+  _topSemanaRealCache[srcId] = { data: resultados, ts: Date.now() }
+  _guardarTopSemanaCache()
+  return resultados
+}
 
 // CACHE DE BÚSQUEDAS EN MEMORIA (evita repetir peticiones de red)
 const _buscarAnimeCache  = new Map()
@@ -175,11 +456,156 @@ setInterval(() => {
   for (const [k,v] of _bibliotecaCache)  if (n - v.ts > _BIBLIOTECA_TTL) _bibliotecaCache.delete(k)
 }, 10 * 60 * 1000)
 
+// ─── BÚSQUEDA CON TOLERANCIA A ERRORES ORTOGRÁFICOS ────────────────────────
+// Los sitios fuente (latanime, monoschinos, zonatmo, novelcool) hacen su
+// propio matching por substring -- si el usuario escribe "atac on titan" o
+// "one peice", el sitio no devuelve nada porque el substring no coincide
+// literal. Estrategia: 1) probar la búsqueda tal cual la escribió el usuario
+// (así se preserva el orden/relevancia que ya da el sitio cuando SÍ hay un
+// buen match); 2) si nada de lo que volvió se parece de verdad al query, es
+// probable que haya un typo -- reintentar con solo la palabra más larga/única
+// del query (para que el sitio, que sí hace substring, traiga candidatos más
+// amplios) y combinar con lo que ya había; 3) reordenar todo por similitud
+// difusa (tolera letras cambiadas/faltantes, tildes, orden de palabras) al
+// texto original, para que lo más parecido a lo que el usuario quiso escribir
+// quede primero.
+
+function _normalizarBusqueda(s) {
+  return (s || '').toString().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar tildes
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function _distanciaLevenshtein(a, b) {
+  const m = a.length, n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  let prev = new Array(n + 1), curr = new Array(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    for (let j = 1; j <= n; j++) {
+      const costo = a[i - 1] === b[j - 1] ? 0 : 1
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + costo)
+    }
+    const tmp = prev; prev = curr; curr = tmp
+  }
+  return prev[n]
+}
+
+function _similitudIgualLargo(a, b) {
+  if (!a.length && !b.length) return 1
+  return 1 - _distanciaLevenshtein(a, b) / Math.max(a.length, b.length)
+}
+
+// Similitud 0..1 entre lo que escribió el usuario y el título de un resultado.
+function _similitudTitulo(query, titulo) {
+  const q = _normalizarBusqueda(query)
+  const t = _normalizarBusqueda(titulo)
+  if (!q || !t) return 0
+  if (t.includes(q)) return 1
+  if (q.includes(t)) return 0.95
+
+  let mejor = _similitudIgualLargo(q, t)
+
+  // Ventana deslizante del largo del query sobre el título -- para títulos
+  // largos con subtítulo/temporada donde el query es solo una parte.
+  if (t.length > q.length) {
+    for (let i = 0; i <= t.length - q.length; i++) {
+      const s = _similitudIgualLargo(q, t.slice(i, i + q.length))
+      if (s > mejor) mejor = s
+    }
+  }
+
+  // Comparación palabra por palabra -- tolera orden distinto y typos aislados
+  const qPalabras = q.split(' ').filter(Boolean)
+  const tPalabras = t.split(' ').filter(Boolean)
+  if (qPalabras.length && tPalabras.length) {
+    const proms = qPalabras.map(qw => Math.max(...tPalabras.map(tw => _similitudIgualLargo(qw, tw))))
+    const prom = proms.reduce((a, b) => a + b, 0) / proms.length
+    if (prom > mejor) mejor = prom
+  }
+  return mejor
+}
+
+// Umbral desde el cual consideramos que un resultado SÍ es lo que el usuario
+// buscaba (tolera 1-2 letras cambiadas/faltantes en una palabra típica).
+const _SIMILITUD_OK = 0.72
+
+// lista: resultados ya obtenidos con el query tal cual. buscarAmplio(clave):
+// re-ejecuta la búsqueda del sitio activo con una palabra clave más simple.
+// opts.maxIntentos: máximo de llamadas extra de red a buscarAmplio (por
+// defecto 3). Pasar 0 desactiva los reintentos de red por completo -- útil
+// para fuentes con pipelines caros/lentos (p.ej. monoschinos) -- pero el
+// reordenamiento por similitud de lo que YA se obtuvo sigue aplicando gratis.
+// opts.timeoutMs: tiempo máximo por intento de red antes de darlo por
+// perdido (por defecto 8000ms), para que una fuente lenta no cuelgue toda
+// la búsqueda -- si se agota, ese intento simplemente no aporta resultados.
+async function _buscarConTolerancia(textoOriginal, lista, buscarAmplio, getTitulo = m => m.titulo, opts = {}) {
+  const { maxIntentos = 3, timeoutMs = 8000 } = opts
+  const texto = (textoOriginal || '').trim()
+  if (!texto || !Array.isArray(lista)) return lista
+  const sim = (m) => _similitudTitulo(texto, getTitulo(m) || '')
+  let combinada = lista
+  const vistos = new Set(combinada.map(m => m.link || m.url).filter(Boolean))
+  const yaBuenMatch = () => combinada.some(m => sim(m) >= _SIMILITUD_OK)
+  if (combinada.length && yaBuenMatch()) return combinada
+
+  let intentos = 0
+  const agregar = async (clave) => {
+    if (!clave || intentos >= maxIntentos) return
+    intentos++
+    try {
+      const tarea = Promise.resolve(buscarAmplio(clave))
+      const extra = (timeoutMs > 0
+        ? await Promise.race([
+            tarea,
+            new Promise(resolve => setTimeout(() => resolve([]), timeoutMs))
+          ])
+        : await tarea) || []
+      extra.forEach(m => {
+        const k = m.link || m.url
+        if (k && !vistos.has(k)) { vistos.add(k); combinada = combinada.concat([m]) }
+      })
+    } catch (e) { console.error('[busqueda-tolerante]', e.message) }
+  }
+
+  if (maxIntentos > 0) {
+    // Probable typo: reintentar con cada palabra del query (la más larga
+    // primero -- suele ser la más discriminativa) hasta encontrar un buen
+    // match. Probamos todas por si el typo cae justo en la más larga.
+    const palabras = [...new Set(texto.split(/\s+/).filter(w => w.length >= 3))]
+      .sort((a, b) => b.length - a.length)
+    for (const palabra of palabras) {
+      if (yaBuenMatch() || intentos >= maxIntentos) break
+      if (palabra.toLowerCase() !== texto.toLowerCase()) await agregar(palabra)
+    }
+
+    // Si nada dio un buen match (el typo cae en la única palabra del query, o
+    // al principio de todas), probar con un prefijo más corto -- los errores
+    // suelen estar más adentro de la palabra que al principio, así que un
+    // prefijo tiene más chance de seguir siendo substring del título real.
+    if (!yaBuenMatch() && intentos < maxIntentos) {
+      const base = palabras[0] || texto
+      const prefijo = base.slice(0, Math.max(3, base.length - 2))
+      if (prefijo && prefijo.length < base.length) await agregar(prefijo)
+    }
+  }
+
+  if (!combinada.length) return combinada
+  return combinada.map(m => ({ m, s: sim(m) })).sort((a, b) => b.s - a.s).map(x => x.m)
+}
+
 // Ratings de MAL que indican contenido +18
 const MAL_ADULTO_RATINGS = ['Rx', 'R+'] // Rx=hentai, R+=mild nudity
 
-// Buscar anime en Jikan (MAL) y devolver géneros, score, rating, imagen
-async function jikanBuscar(titulo) {
+// Buscar anime en Jikan (MAL) y devolver géneros, score, rating, imagen.
+// prioridad: 'alta' para llamadas donde el usuario está esperando en pantalla
+// (p.ej. abrir la ficha de un anime) -- se procesan antes que el
+// enriquecimiento de fondo pendiente en la cola. Ver _jikanEncolar arriba.
+async function jikanBuscar(titulo, { prioridad } = {}) {
   // Limpiar título para búsqueda: quitar "Latino/Castellano/S1/S2/Temporada N"
   const query = titulo
     .replace(/\s+(latino|castellano|sub|dub|doblado|redoblaje|audio latino|audio castellano)/gi, '')
@@ -190,19 +616,23 @@ async function jikanBuscar(titulo) {
   if (jikanCache.has(query)) return jikanCache.get(query)
 
   try {
-    await new Promise(r => setTimeout(r, 350)) // respetar rate limit de Jikan (3 req/s)
-    const res = await axios.get('https://api.jikan.moe/v4/anime', {
+    const res = await _jikanEncolar(() => axios.get('https://api.jikan.moe/v4/anime', {
       params: { q: query, limit: 1, sfw: false },
       headers: { 'Accept': 'application/json' },
       timeout: 5000
-    })
+    }), { prioridad })
     const anime = res.data?.data?.[0]
     if (!anime) { jikanCache.set(query, null); return null }
 
     const result = {
-      malId:    anime.mal_id,
-      score:    anime.score,
-      rating:   anime.rating,   // 'Rx', 'R+', 'R', 'PG-13', 'PG', 'G'
+      malId:      anime.mal_id,
+      score:      anime.score,
+      scoredBy:   anime.scored_by,   // cantidad real de usuarios que puntuaron (MAL)
+      members:    anime.members,     // cantidad real de usuarios que siguen el anime (MAL) — popularidad real
+      favorites:  anime.favorites,   // cantidad real de favoritos (MAL)
+      popularity: anime.popularity,  // ranking real de popularidad de MAL (menor = más popular)
+      rank:       anime.rank,        // ranking real por score de MAL
+      rating:     anime.rating,   // 'Rx', 'R+', 'R', 'PG-13', 'PG', 'G'
       imagen:   anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || null,
       sinopsis: anime.synopsis || '',
       generos:  [
@@ -277,6 +707,18 @@ const APP_CONFIG_FILE = path.join(app.getPath('userData'), 'anistream-appconfig.
 let appConfig = _loadJSONSeguro(APP_CONFIG_FILE, {})
 function guardarConfig() { _guardarJSONSeguro(APP_CONFIG_FILE, appConfig) }
 
+// ── Aviso de "recién actualizado" ───────────────────────────────────────────
+// Guardamos la última versión con la que arrancó RYOKU. Si en este arranque
+// la versión actual es distinta de la guardada (y sí había una guardada, o
+// sea que no es la primera vez que se abre la app), significa que se acaba
+// de aplicar una actualización -- se lo avisamos al renderer una sola vez
+// para que muestre un toast de confirmación.
+const _RYOKU_PREV_VERSION = appConfig.lastVersion || null
+const _RYOKU_CURR_VERSION = app.getVersion()
+let _RYOKU_JUST_UPDATED = !!(_RYOKU_PREV_VERSION && _RYOKU_PREV_VERSION !== _RYOKU_CURR_VERSION)
+appConfig.lastVersion = _RYOKU_CURR_VERSION
+guardarConfig()
+
 // ─── MULTI-SOURCE ANIME ───────────────────────────────────────────────────────
 // AnimeFLV se sacó de acá — el sitio dejó de tener catálogo (todos los animes
 // aparecían caídos), así que ya no es una fuente seleccionable. El resto del
@@ -286,7 +728,7 @@ function guardarConfig() { _guardarJSONSeguro(APP_CONFIG_FILE, appConfig) }
 // posibilidad de elegirlo como fuente activa para navegar.
 const ANIME_SOURCES = {
   latanime:    { id: 'latanime',    nombre: 'Latanime',     BASE: 'https://latanime.org' },
-  monoschinos: { id: 'monoschinos', nombre: 'MonosChinos',  BASE: 'https://monoschinos.st' }
+  animeav1:    { id: 'animeav1',    nombre: 'AnimeAV1',     BASE: 'https://animeav1.com' }
 }
 const _savedAnimeSource  = appConfig?.['anime-source']
 let   _activeAnimeSource = ANIME_SOURCES[_savedAnimeSource] || ANIME_SOURCES['latanime']
@@ -331,15 +773,12 @@ function createWindow() {
       } else if (url.includes('zonatmo.org') || url.includes('storage2.zonatmo') || url.includes('storage.zonatmo')) {
         details.requestHeaders['Referer'] = 'https://zonatmo.org/'
         details.requestHeaders['Origin']  = 'https://zonatmo.org'
-      } else if (url.includes('novelcool.com') || url.includes('img.novelcool') || url.includes('img2.novelcool') || url.includes('img3.novelcool')) {
-        details.requestHeaders['Referer'] = 'https://es.novelcool.com/'
-        details.requestHeaders['Origin']  = 'https://es.novelcool.com'
       } else if (url.includes('mxcontent.net') || url.includes('mxcdn.net') || url.includes('mixdrop')) {
         details.requestHeaders['Referer'] = 'https://mixdrop.ag/'
         details.requestHeaders['Origin']  = 'https://mixdrop.ag'
-      } else if (url.includes('monoschinos.st') || url.includes('monoschinos2.com')) {
-        details.requestHeaders['Referer'] = 'https://monoschinos.st/'
-        details.requestHeaders['Origin']  = 'https://monoschinos.st'
+      } else if (url.includes('animeav1.com') || url.includes('cdn.animeav1.com')) {
+        details.requestHeaders['Referer'] = 'https://animeav1.com/'
+        details.requestHeaders['Origin']  = 'https://animeav1.com'
       } else if (url.includes('goodstream') || url.includes('gscdn.cam')) {
         details.requestHeaders['Referer'] = 'https://gscdn.cam/'
         details.requestHeaders['Origin']  = 'https://gscdn.cam'
@@ -373,9 +812,30 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.executeJavaScript("window._RYOKU_SERVER = 'http://localhost:3001'").catch(() => {})
-    // Fallback: mostrar si app-ready nunca llega (error de red, etc.)
+    if (_RYOKU_JUST_UPDATED) {
+      _RYOKU_JUST_UPDATED = false // avisar una sola vez por sesión, aunque el renderer recargue
+      mainWindow.webContents.send('app-updated', { from: _RYOKU_PREV_VERSION, to: _RYOKU_CURR_VERSION })
+    }
+    // OPTIMIZACIÓN: antes la ventana quedaba INVISIBLE hasta que 'app-ready'
+    // llegaba desde el renderer (que a su vez espera a que termine de
+    // cargar el catálogo de inicio -- con caché fría, o con MonosChinos
+    // como fuente activa -- eso puede tardar varios segundos, hasta el
+    // punto de sentirse como que la app no abrió) o hasta el fallback de
+    // 6s. Pero el propio renderer (ver renderer/modulos/ui.js) ya pinta
+    // "Cargando..." apenas arranca, ANTES de pedir el catálogo, y la
+    // animación de entrada (puertas abriéndose) corre desde que carga la
+    // página, independiente de los datos -- está pensada para estar ya en
+    // marcha cuando la ventana se muestra. Mostrar bien pronto (los datos
+    // se rellenan solos cuando lleguen) hace que abrir RYOKU se sienta
+    // instantáneo en vez de una espera muda sin ningún indicio de que la
+    // app sí está abriendo.
+    setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show() }, 500)
+    // Red de seguridad por si ese primer show fallara silenciosamente.
     setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show() }, 6000)
   })
+  // Avisa al splash de actualización (si hay uno esperando) que la app ya se
+  // ve, para que se cierre justo ahora y no a un tiempo fijo.
+  mainWindow.once('show', () => { try { fs.writeFileSync(_MARCA_APP_ABIERTA, '1') } catch (e) {} })
   mainWindow.on('maximize',   () => mainWindow.webContents.send('window-maximize-change', true))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-maximize-change', false))
 
@@ -386,16 +846,34 @@ function createWindow() {
   // que antes podía disparar mainWindow.close() dos veces en la misma
   // pasada (riesgo de "Object has been destroyed").
   mainWindow.on('close', (e) => {
+    _logQuit('mainWindow close (nativo), _quitting=' + _quitting)
     if (_quitting) return
     e.preventDefault()
     _requestQuit()
   })
+  mainWindow.on('closed', () => { _logQuit('mainWindow closed') })
 }
 
 app.whenReady().then(() => {
   createWindow(); initDiscord(); initUpdater(mainWindow)
 })
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('window-all-closed', () => {
+  _logQuit('window-all-closed, plataforma=' + process.platform)
+  if (process.platform !== 'darwin') {
+    app.quit()
+    // Red de seguridad: si por lo que sea el proceso no termina de cerrarse
+    // solo (algún handle abierto -- servidor local, RPC de Discord, una
+    // descarga/stream en curso, etc.), forzamos la salida a los 5s para que
+    // nunca quede un proceso zombie ocupando el single-instance lock y
+    // bloqueando que la app se vuelva a abrir.
+    setTimeout(() => {
+      _logQuit('app.quit() no cerro el proceso en 5s, forzando app.exit(0)')
+      app.exit(0)
+    }, 5000)
+  }
+})
+app.on('will-quit', () => _logQuit('will-quit (cierre normal)'))
+app.on('quit', () => _logQuit('quit (cierre normal)'))
 ipcMain.on('minimize-window', () => mainWindow.minimize())
 ipcMain.on('win-drag', (_, x, y) => { if(mainWindow) mainWindow.setPosition(Math.round(x), Math.round(y)) })
 ipcMain.on('maximize-window', () => { if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize() })
@@ -407,18 +885,34 @@ let _quitTimer = null
 // el cierre nativo de la ventana (mainWindow.on('close', ...)) — un único
 // timer/guard evita que ambos caminos disparen el cierre por duplicado.
 function _requestQuit() {
+  _logQuit('_requestQuit, _quitting=' + _quitting + ' _quitTimer=' + !!_quitTimer)
   if (_quitting || _quitTimer) return
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('save-before-quit')
-  _quitTimer = setTimeout(_doQuit, 4000)
+  _quitTimer = setTimeout(() => { _logQuit('fallback de 4s disparado (renderer no respondio a tiempo)'); _doQuit() }, 4000)
 }
 function _doQuit() {
+  _logQuit('_doQuit, _quitting=' + _quitting)
   if (_quitting) return
   _quitting = true
   if (_quitTimer) { clearTimeout(_quitTimer); _quitTimer = null }
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+  // No alcanza con cerrar solo mainWindow y esperar a que 'window-all-closed'
+  // dispare solo: los extractores de anime/manga abren BrowserWindow ocultas
+  // (bypass Cloudflare/bot-detection, extraccion de paginas de manga en
+  // background -- la de NovelCool se deja viva a proposito hasta 2 minutos
+  // para precargar paginas siguientes) y si el usuario cierra RYOKU mientras
+  // alguna sigue viva, 'window-all-closed' nunca llega a disparar: el proceso
+  // queda zombie en segundo plano (visible en el Administrador de Tareas) y
+  // bloquea que la app se vuelva a abrir (mantiene el single-instance lock).
+  // Igual que en el flujo de actualizacion (mas arriba), destruimos TODAS las
+  // ventanas de forma explicita antes de salir.
+  BrowserWindow.getAllWindows().forEach((w) => {
+    try { if (!w.isDestroyed()) w.destroy() } catch (e) {}
+  })
+  _logQuit('_doQuit: ventanas destruidas, quedan=' + BrowserWindow.getAllWindows().length)
+  app.quit()
 }
-ipcMain.on('close-window', () => { _requestQuit() })
-ipcMain.on('save-before-quit-done', () => { _doQuit() })
+ipcMain.on('close-window', () => { _logQuit('IPC close-window recibido'); _requestQuit() })
+ipcMain.on('save-before-quit-done', () => { _logQuit('IPC save-before-quit-done recibido'); _doQuit() })
 
 // ANILIST - portada
 async function getInfoAnilist(titulo) {
@@ -487,8 +981,8 @@ const _RECIENTES_TTL  = 5 * 60 * 1000
 async function _fetchRecientes(srcId) {
   try {
     let result
-    if (srcId === 'monoschinos') {
-      result = await monoschinos.getRecientes()
+    if (srcId === 'animeav1') {
+      result = await animeav1.getRecientes()
     } else {
       result = await latanime.getRecientes()
     }
@@ -497,10 +991,12 @@ async function _fetchRecientes(srcId) {
   } catch(e) { console.error('[AO] _fetchRecientes error:', e.message); return { slider:[], lista:[], series:[] } }
 }
 
-// Prefetch de la fuente no activa en background
+// Prefetch de la fuente no activa en background — con 3 fuentes, se calienta
+// la siguiente en orden fijo (round-robin simple) en vez de un toggle binario.
+const _ORDEN_FUENTES = ['latanime', 'animeav1']
 function _prefetchOtraFuente(activeSrcId) {
-  // Solo quedan latanime y monoschinos como fuentes activas — prefetch de la otra.
-  const otra = activeSrcId === 'latanime' ? 'monoschinos' : 'latanime'
+  const idx = _ORDEN_FUENTES.indexOf(activeSrcId)
+  const otra = _ORDEN_FUENTES[(idx + 1) % _ORDEN_FUENTES.length] || 'latanime'
   const cached = _recientesCache[otra]
   if (!cached || Date.now() - cached.ts > _RECIENTES_TTL) {
     setTimeout(() => _fetchRecientes(otra), 500)
@@ -643,9 +1139,14 @@ ipcMain.handle('buscar', async (_, query, filtros = {}) => {
   if (hit && Date.now() - hit.ts < _BUSCAR_TTL) return hit.data
   try {
     const srcId = _activeAnimeSource?.id || 'latanime'
-    const data = srcId === 'monoschinos'
-        ? await monoschinos.buscar(query, filtros)
-        : await latanime.buscar(query, filtros)
+    const ejecutar = (q) => srcId === 'animeav1'
+        ? animeav1.buscar(q, filtros)
+        : latanime.buscar(q, filtros)
+    let data = await ejecutar(query)
+    if (query && query.trim()) {
+      const toleranciaOpts = {}
+      data = await _buscarConTolerancia(query, data, (clave) => ejecutar(clave), undefined, toleranciaOpts)
+    }
     _buscarAnimeCache.set(cacheKey, { data, ts: Date.now() })
     return data
   } catch(e) { console.error('[buscar]', e.message); return [] }
@@ -659,9 +1160,20 @@ ipcMain.handle('get-anime-biblioteca', async (_, params = {}) => {
   const hit = _bibliotecaCache.get(cacheKey)
   if (hit && Date.now() - hit.ts < _BIBLIOTECA_TTL) return hit.data
   try {
-    const data = srcId === 'monoschinos'
-      ? await monoschinos.getBiblioteca({ query, genero, tipo, page })
-      : await latanime.getBiblioteca({ query, genero, tipo, emision, page })
+    const ejecutar = (q) => srcId === 'animeav1'
+      ? animeav1.getBiblioteca({ query: q, genero, categoria: tipo, emision, page })
+      : latanime.getBiblioteca({ query: q, genero, tipo, emision, page })
+    const data = await ejecutar(query)
+    // Tolerancia a typos solo tiene sentido en la primera página de una
+    // búsqueda de texto -- en páginas siguientes ya se confirmó que el query
+    // trajo resultados buenos.
+    if (query && query.trim() && page <= 1 && data?.lista) {
+      const toleranciaOpts = {}
+      data.lista = await _buscarConTolerancia(query, data.lista, async (clave) => {
+        const r = await ejecutar(clave)
+        return r?.lista || []
+      }, undefined, toleranciaOpts)
+    }
     _bibliotecaCache.set(cacheKey, { data, ts: Date.now() })
     return data
   } catch(e) {
@@ -675,6 +1187,11 @@ ipcMain.handle('enriquecer-anime', async (_, titulo) => {
   return await jikanBuscar(titulo)
 })
 
+// Top de la semana con datos reales (ranking global de MAL cruzado con el catálogo local)
+ipcMain.handle('top-semana-real', async () => {
+  try { return await topSemanaReal(5) } catch(e) { console.error('[top-semana-real]', e.message); return [] }
+})
+
 // Abrir diálogo para seleccionar imagen de fondo
 ipcMain.handle('open-bg-image', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -684,10 +1201,31 @@ ipcMain.handle('open-bg-image', async () => {
   })
   if (canceled || !filePaths.length) return null
   try {
-    const data = fs.readFileSync(filePaths[0])
-    const ext  = path.extname(filePaths[0]).slice(1).replace('jpg','jpeg')
-    return `data:image/${ext};base64,${data.toString('base64')}`
-  } catch(e) { return null }
+    const ext = path.extname(filePaths[0]).slice(1).toLowerCase().replace('jpg','jpeg')
+    // GIF se deja tal cual (redimensionar/recodificar con nativeImage pierde
+    // la animación, solo conserva el primer frame) -- para el resto (jpg/png/
+    // webp), la imagen de fondo elegida por el usuario se guardaba SIN NINGÚN
+    // límite de tamaño ni compresión: una foto de cámara o wallpaper 4K podía
+    // terminar pesando varios MB, y como el dataURL completo se relee del
+    // disco y se manda entero por IPC CADA VEZ que arranca la app (bg-get en
+    // initConfig), eso sumaba un costo real y repetido de arranque -- más
+    // notorio en máquinas con CPU/disco más lentos. Bajarla a un tamaño
+    // razonable para un fondo (que además normalmente se ve borroneado/detrás
+    // de paneles) recorta ese peso a una fracción sin notarse visualmente.
+    if (ext === 'gif') {
+      const data = fs.readFileSync(filePaths[0])
+      return `data:image/gif;base64,${data.toString('base64')}`
+    }
+    const img = nativeImage.createFromPath(filePaths[0])
+    if (img.isEmpty()) return null
+    const { width, height } = img.getSize()
+    const MAX_LADO = 2560
+    const resized = (width > MAX_LADO || height > MAX_LADO)
+      ? img.resize(width >= height ? { width: MAX_LADO } : { height: MAX_LADO })
+      : img
+    const jpeg = resized.toJPEG(82)
+    return `data:image/jpeg;base64,${jpeg.toString('base64')}`
+  } catch(e) { console.error('[open-bg-image]', e.message); return null }
 })
 
 // Limpiar todos los cachés en disco, memoria y sesión de Electron
@@ -700,6 +1238,7 @@ ipcMain.handle('clear-cache', async () => {
     coverCache.clear()
     jikanCache.clear()
     lcCoverCache.clear()
+    _animeFichaCache.clear()  // fichas de anime en memoria (ver get-anime)
 
     // 2. Archivos en disco
     const files = [CACHE_FILE, JIKAN_CACHE_FILE, LC_CACHE_FILE]
@@ -715,94 +1254,6 @@ ipcMain.handle('clear-cache', async () => {
     return { ok: true, borrados: total }
   } catch(e) { return { ok: false, error: e.message } }
 })
-// Slugs y patrones de URL que latanime usa para contenido +18
-const ADULTO_SLUGS = [
-  // Patrones directos en URL de latanime para hentai explícito
-  'sin-censura', 'uncensored', 'hentai',
-  // Títulos hentai conocidos en latanime (sexual explícito, no ecchi)
-  'overflow-', 'desbordandose',
-  'venida-de-altura', 'gran-jefe-latino', 'grande-jefe-latino',
-  'souryo-to-majiwaru', 'ane-naru-mono',
-  'tropical-kiss', 'secret-journey',
-  'aki-sora', 'oni-chichi',
-  'nuki-doki',
-  'yariman', 'erotica', 'eroge',
-  'namaiki', 'gakuen-de-jikan', 'ane-to-boin',
-  'oppai-no-ouja', 'majuu-jouka',
-  'kanojo-ga-mimai-ni-konai', 'jk-to-orc',
-  'elf-no-oshiego', 'brandish',
-  'imaizumin-chi', 'okusama-wa-moto-yariman',
-  'resort-boin', 'discipline',
-  'Bible-Black', 'lingeries-office',
-  'mankitsu-happening', 'buta-hime',
-  'kuro-gal-ni-natta', 'shinyuu-to-shitemita',
-  'classmate-no-moto-idol', 'shikijou-kyoudan',
-  'omiai-aite-wa-oshiego', 'katainaka-ni-totsui-de',
-  'nee-summer', 'koiito-kinenbi', 'maid-san-to-boin'
-]
-
-function esContenidoAdulto(titulo, link) {
-  const t = (titulo || '').toLowerCase()
-  const l = (link   || '').toLowerCase()
-  // Hentai explícito en título/URL
-  if (t.includes('hentai') || l.includes('hentai')) return true
-  if (l.includes('sin-censura') || t.includes('sin censura')) return true
-  // Slugs conocidos +18
-  return ADULTO_SLUGS.some(s => l.includes(s))
-}
-
-// Categorías que latanime muestra junto al título en el directorio/listas
-const CATS_LATANIME = [
-  'Latino Sin Censura','Castellano Sin Censura',
-  'Sin Censura','Pelicula Latino','Pelicula Castellano',
-  'Ova Latino','Ova Castellano','Live Action',
-  'Donghua','Cartoon','Aenime',
-  'Latino','Castellano','Anime','Ova','Película','Especial'
-]
-
-function extraerAnimes($) {
-  const lista = []
-  const vistos = new Set()
-  $('a[href*="/anime/"]').each((i, el) => {
-    if (lista.length >= 96) return false
-    const link = $(el).attr('href')
-    if (!link || vistos.has(link)) return
-    vistos.add(link)
-
-    // Título desde h3/h2/alt de img — latanime lo repite en el texto del anchor
-    const img    = $(el).find('img').first()
-    const imagen = img.attr('data-src') || img.attr('src') || ''
-    let titulo   = $(el).find('h3,h2,.title').first().text().trim()
-                || img.attr('alt')?.trim() || ''
-
-    // Texto completo del anchor para extraer categoría y año
-    const txt = $(el).text()
-
-    // Detectar categoría real de latanime buscando los strings exactos
-    let categoria = ''
-    for (const cat of CATS_LATANIME) {
-      if (txt.includes(cat)) { categoria = cat; break }
-    }
-    // Fallback: detectar por URL
-    if (!categoria) {
-      const slug = link.toLowerCase()
-      if (slug.includes('-castellano')) categoria = 'Castellano'
-      else if (slug.includes('-latino'))    categoria = 'Latino'
-    }
-
-    // Detectar año (4 dígitos entre 1980-2030)
-    const anioMatch = txt.match(/\b(19[89]\d|20[0-3]\d)\b/)
-    const anio = anioMatch ? anioMatch[1] : ''
-
-    // +18: Sin Censura explícito O slugs hentai conocidos
-    const adulto = categoria.includes('Sin Censura')
-                || esContenidoAdulto(titulo, link)
-
-    if (titulo && link) lista.push({ titulo, imagen, link, categoria, anio, adulto })
-  })
-  return lista
-}
-
 // SERVIDORES
 // Mega no sirve como servidor de streaming (es un link de descarga del
 // archivo completo, no un embed reproducible) -- se saca de la lista antes
@@ -844,20 +1295,45 @@ ipcMain.handle('get-servidores', async (_, url) => {
       }
       return _sinMega(servidores)
     }
-    if (url?.includes('monoschinos.st')) return _sinMega(await monoschinos.getServidores(url))
+    if (url?.includes('animeav1.com')) return _sinMega(await animeav1.getServidores(url))
     return _sinMega(await latanime.getServidores(url))
   } catch(e) { return [] }
 })
 
 // get-anime — delega por fuente activa
-ipcMain.handle('get-anime', async (_, url) => {
-  try {
+// Cache corto de fichas de anime. "Continuar viendo" pide la ficha de cada
+// anime de su lista (hasta 12 para mejorar miniaturas + 3 para buscar
+// episodios nuevos) y eso se repetía en cada carga del inicio y cada vez que
+// se cerraba el reproductor -- 11 a 15 páginas scrapeadas cada vez (en
+// Monoschinos, a través de una ventana oculta) para obtener lo mismo de hace
+// un minuto. Dentro de 10 minutos, la misma ficha sale de memoria.
+const _animeFichaCache = new Map()
+const _ANIME_FICHA_TTL = 10 * 60 * 1000
+async function _getAnimeSinCache(url) {
     // AnimeFLV ya no es una fuente activa (sitio caído) — si queda algún
     // favorito/historial viejo con link a animeflv.net, no hay de dónde traer
     // sus datos actualizados.
     if (url?.includes('animeflv.net/anime/'))  return null
-    if (url?.includes('monoschinos.st/anime/')) return await monoschinos.getAnime(url)
-    return await latanime.getAnime(url, { coverCache, jikanBuscar })
+    if (url?.includes('monoschinos'))           return null  // fuente eliminada
+    if (url?.includes('animeav1.com/media/'))  return await animeav1.getAnime(url)
+    // Prioridad 'alta': el usuario está esperando esta ficha en pantalla, así
+    // que si hay enriquecimiento de fondo (grilla de inicio) encolado, esta
+    // llamada a Jikan se procesa primero -- ver _jikanEncolar.
+    return await latanime.getAnime(url, { coverCache, jikanBuscar: (t) => jikanBuscar(t, { prioridad: 'alta' }) })
+}
+ipcMain.handle('get-anime', async (_, url) => {
+  try {
+    const ahora = Date.now()
+    const c = _animeFichaCache.get(url)
+    if (c && ahora - c.ts < _ANIME_FICHA_TTL) return c.data
+    const data = await _getAnimeSinCache(url)
+    if (data) {
+      _animeFichaCache.set(url, { data, ts: ahora })
+      if (_animeFichaCache.size > 300) {
+        for (const [k, v] of _animeFichaCache) if (ahora - v.ts >= _ANIME_FICHA_TTL) _animeFichaCache.delete(k)
+      }
+    }
+    return data
   } catch(e) { return null }
 })
 
@@ -1023,7 +1499,7 @@ ipcMain.handle('get-stream', async (_, serverUrl) => {
 
 
 // CALENDARIO
-ipcMain.handle('get-calendario', async () => {
+async function _getCalendarioLatanime() {
   try {
     // LatAnime bloquea axios — usar BrowserWindow
     const html = await new Promise((resolve) => {
@@ -1109,13 +1585,21 @@ ipcMain.handle('get-calendario', async () => {
 
     return dias
   } catch(e) { return {} }
+}
+
+ipcMain.handle('get-calendario', async () => {
+  const srcId = _activeAnimeSource?.id || 'latanime'
+  if (srcId === 'animeav1') {
+    try { return await animeav1.getCalendario() } catch(e) { return {} }
+  }
+  return await _getCalendarioLatanime()
 })
 // ─── DATOS POR FUENTE: favs, historial, progreso ─────────────────────────────
 function _srcFile(prefix, srcId) { return require('path').join(app.getPath('userData'), `anistream-${prefix}-${srcId}.json`) }
 function _loadJ(f, fb) { return _loadJSONSeguro(f, fb) }
 function _saveJ(f, d)  { _guardarJSONSeguro(f, d) }
 
-const _SRCS = ['latanime', 'animeflv', 'monoschinos']
+const _SRCS = ['latanime', 'animeflv', 'animeav1']
 const _favsD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('favs',      s), [])]))
 const _histD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('historial', s), [])]))
 const _progD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('progreso',  s), {})]))
@@ -1133,6 +1617,10 @@ const _progD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('progreso',
 // cuya clave tenga un tombstone. Volver a agregar el mismo ítem limpia su
 // tombstone (ver toggle-fav más abajo).
 const _tombD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('tombstones', s), { favs: {}, hist: {}, prog: {} })]))
+// ── Carpetas de favoritos (organización manual, por fuente) ──────────────────
+const _carpetasD = Object.fromEntries(_SRCS.map(s => [s, _loadJ(_srcFile('favs-carpetas', s), [])]))
+function _carpetas(s) { s = s || _src(); if (!_carpetasD[s]) _carpetasD[s] = []; return _carpetasD[s] }
+function _setC(v, s)  { s = s || _src(); _carpetasD[s] = v; _saveJ(_srcFile('favs-carpetas', s), v) }
 function _tomb(s) { s = s || _src(); if (!_tombD[s]) _tombD[s] = { favs: {}, hist: {}, prog: {} }; return _tombD[s] }
 function _saveTomb(s) { s = s || _src(); _saveJ(_srcFile('tombstones', s), _tomb(s)) }
 function _markTomb(tipo, key, s) {
@@ -1154,7 +1642,7 @@ function _clearTomb(tipo, key, s) {
     if (!url) return null
     if (url.includes('latanime.org'))  return 'latanime'
     if (url.includes('animeflv.net'))  return 'animeflv'
-    if (url.includes('monoschinos'))   return 'monoschinos'
+    if (url.includes('animeav1.com'))  return 'animeav1'
     return null
   }
   let changed = false
@@ -1215,14 +1703,43 @@ function _srcFromUrl(url) {
   if (!url) return null
   if (url.includes('latanime.org'))  return 'latanime'
   if (url.includes('animeflv.net'))  return 'animeflv'
-  if (url.includes('monoschinos'))   return 'monoschinos'
+  if (url.includes('animeav1.com'))  return 'animeav1'
   return null
 }
+// Fuentes eliminadas de la app. Sus ítems se descartan al restaurar desde la
+// nube (ver _repartirPorFuente / restore-all-*), y sus archivos locales y la
+// caché de navegador que usaba NovelCool se borran al arrancar.
+const _FUENTES_ELIMINADAS = ['monoschinos', 'novelcool']
+function _esDeFuenteEliminada(url) { return !!url && _FUENTES_ELIMINADAS.some(d => String(url).includes(d)) }
+;(function _borrarDatosFuentesEliminadas() {
+  const _rm = ruta => { try { if (fs.existsSync(ruta)) fs.rmSync(ruta, { recursive: true, force: true }) } catch (e) {} }
+  for (const prefix of ['favs', 'historial', 'progreso', 'tombstones', 'favs-carpetas']) {
+    const f = _srcFile(prefix, 'monoschinos')
+    _rm(f); _rm(f + '.bak'); _rm(f + '.tmp')
+  }
+  _rm(require('path').join(app.getPath('userData'), 'Partitions', 'novelcool-cap'))
+})()
 // Defensivo: si en el futuro se agrega otra fuente, init al vuelo
 function _favs(s) { s=s||_src(); if(!_favsD[s]) _favsD[s]=[]; return _favsD[s] }
 function _hist(s) { s=s||_src(); if(!_histD[s]) _histD[s]=[]; return _histD[s] }
 function _prog(s) { s=s||_src(); if(!_progD[s]) _progD[s]={}; return _progD[s] }
-function _setF(v,s) { s=s||_src(); _favsD[s] = v; _saveJ(_srcFile('favs',      s), v) }
+// Deduplica favoritos por url (se queda con la primera aparición) -- protección
+// defensiva: nunca deberían existir dos entradas con la misma url, pero un
+// merge de sync mal formado o una restauración vieja podría haber dejado
+// alguna duplicada. Se aplica en el único punto de escritura (_setF) para
+// que CUALQUIER operación (toggle, restore, reordenar, mover de carpeta)
+// limpie duplicados existentes en el camino, sin tener que tocar cada caller.
+function _dedupeFavsByUrl(arr) {
+  const vistos = new Set()
+  const out = []
+  for (const f of (arr || [])) {
+    if (!f || !f.url || vistos.has(f.url)) continue
+    vistos.add(f.url)
+    out.push(f)
+  }
+  return out
+}
+function _setF(v,s) { s=s||_src(); v = _dedupeFavsByUrl(v); _favsD[s] = v; _saveJ(_srcFile('favs',      s), v) }
 function _setH(v,s) { s=s||_src(); _histD[s] = v; _saveJ(_srcFile('historial', s), v) }
 function _setP(k,v,s){ s=s||_src(); _prog(s)[k] = v; _saveJ(_srcFile('progreso',s), _prog(s)) }
 function _delP(k,s)  { s=s||_src(); delete _prog(s)[k]; _saveJ(_srcFile('progreso',s), _prog(s)) }
@@ -1248,25 +1765,35 @@ ipcMain.handle('get-all-tombstones-flat', () => {
 // un dispositivo que nunca vio el borrado también lo aplica localmente).
 ipcMain.handle('restore-all-tombstones', (_, tombs) => {
   if (!tombs || typeof tombs !== 'object') return
-  for (const s of _SRCS) {
-    const t = _tomb(s)
-    let changed = false
-    for (const tipo of ['favs', 'hist', 'prog']) {
-      for (const [key, ts] of Object.entries(tombs[tipo] || {})) {
-        if (!t[tipo][key] || ts > t[tipo][key]) { t[tipo][key] = ts; changed = true }
-      }
+  // El set entrante es el merge completo (local + nube) ya podado por sync.js
+  // (_podarTomb). Se ADOPTA tal cual en vez de unirlo con el local: antes era
+  // una unión que nunca olvidaba nada, así que si sync.js descartaba un
+  // tombstone porque el ítem se había vuelto a agregar después (en este u
+  // otro dispositivo), la copia local lo mantenía y volvía a borrar el ítem
+  // en el siguiente purge. Cada clave va a la fuente de su URL.
+  const nuevos = Object.fromEntries(_SRCS.map(src => [src, { favs: {}, hist: {}, prog: {} }]))
+  for (const tipo of ['favs', 'hist', 'prog']) {
+    for (const [key, ts] of Object.entries(tombs[tipo] || {})) {
+      if (_esDeFuenteEliminada(key)) continue
+      const src = _srcFromUrl(key) || _src()
+      if (!nuevos[src]) nuevos[src] = { favs: {}, hist: {}, prog: {} }
+      nuevos[src][tipo][key] = ts
     }
-    if (changed) _saveTomb(s)
-    // Purgar ítems locales que ya tienen tombstone
-    const favsAntes = _favsD[s].length
-    _favsD[s] = _favsD[s].filter(f => !(f.url in t.favs))
+  }
+  for (const s of Object.keys(nuevos)) {
+    _tombD[s] = nuevos[s]
+    _saveTomb(s)
+    const t = _tombD[s]
+    // Purgar ítems locales que tienen tombstone (borrados en otro lado)
+    const favsAntes = _favs(s).length
+    _favsD[s] = _favs(s).filter(f => !(f.url in t.favs))
     if (_favsD[s].length !== favsAntes) _saveJ(_srcFile('favs', s), _favsD[s])
-    const histAntes = _histD[s].length
-    _histD[s] = _histD[s].filter(h => !(h.link in t.hist))
+    const histAntes = _hist(s).length
+    _histD[s] = _hist(s).filter(h => !(h.link in t.hist))
     if (_histD[s].length !== histAntes) _saveJ(_srcFile('historial', s), _histD[s])
     let progChanged = false
     for (const key of Object.keys(t.prog)) {
-      if (key in _progD[s]) { delete _progD[s][key]; progChanged = true }
+      if (key in _prog(s)) { delete _progD[s][key]; progChanged = true }
     }
     if (progChanged) _saveJ(_srcFile('progreso', s), _progD[s])
   }
@@ -1276,17 +1803,90 @@ ipcMain.handle('toggle-fav', (_, anime) => {
   let list = [..._favs(s)]
   const idx = list.findIndex(f => f.url === anime.url)
   if (idx >= 0) { list.splice(idx, 1); _markTomb('favs', anime.url, s) }
-  else { list.unshift(anime); _clearTomb('favs', anime.url, s) }
+  // ts = cuándo se agregó: sync.js lo compara contra el tombstone para
+  // saber si el ítem se volvió a agregar DESPUÉS de un borrado.
+  else { list.unshift({ ...anime, ts: Date.now() }); _clearTomb('favs', anime.url, s) }
   _setF(list, s); return list
 })
 ipcMain.handle('is-fav', (_, url) => _favs(_srcFromUrl(url) || _src()).some(f => f.url === url))
+
+// ── Carpetas de favoritos: crear/renombrar/borrar, mover un favorito, y
+// reordenar (drag & drop) — todo por fuente, igual que el resto de favs. ─────
+ipcMain.handle('get-carpetas-favs', () => _carpetas())
+ipcMain.handle('crear-carpeta-fav', (_, nombre) => {
+  nombre = (nombre || '').trim()
+  const s = _src()
+  if (nombre) {
+    const list = _carpetas(s)
+    if (!list.some(c => c.toLowerCase() === nombre.toLowerCase())) {
+      _setC([...list, nombre], s)
+    }
+  }
+  return _carpetas(s)
+})
+ipcMain.handle('renombrar-carpeta-fav', (_, { viejo, nuevo } = {}) => {
+  nuevo = (nuevo || '').trim()
+  const s = _src()
+  if (viejo && nuevo) {
+    const list = _carpetas(s)
+    // Si ya existe una carpeta con ese nombre (sin distinguir mayúsculas,
+    // igual que crear-carpeta-fav) no se crea un duplicado -- se fusiona:
+    // los favs de "viejo" pasan a la carpeta existente y "viejo" se quita
+    // de la lista, igual que un borrado normal de carpeta.
+    const existente = list.find(c => c !== viejo && c.toLowerCase() === nuevo.toLowerCase())
+    if (existente) {
+      _setC(list.filter(c => c !== viejo), s)
+      _setF(_favs(s).map(f => f.carpeta === viejo ? { ...f, carpeta: existente } : f), s)
+    } else {
+      _setC(list.map(c => c === viejo ? nuevo : c), s)
+      _setF(_favs(s).map(f => f.carpeta === viejo ? { ...f, carpeta: nuevo } : f), s)
+    }
+  }
+  return { carpetas: _carpetas(s), favs: _favs(s) }
+})
+ipcMain.handle('borrar-carpeta-fav', (_, nombre) => {
+  const s = _src()
+  _setC(_carpetas(s).filter(c => c !== nombre), s)
+  _setF(_favs(s).map(f => f.carpeta === nombre ? { ...f, carpeta: '' } : f), s)
+  return { carpetas: _carpetas(s), favs: _favs(s) }
+})
+ipcMain.handle('mover-fav-carpeta', (_, { url, carpeta } = {}) => {
+  const s = _srcFromUrl(url) || _src()
+  _setF(_favs(s).map(f => f.url === url ? { ...f, carpeta: carpeta || '' } : f), s)
+  return _favs(s)
+})
+ipcMain.handle('reordenar-favs', (_, urls) => {
+  const s = _src()
+  if (!Array.isArray(urls)) return _favs(s)
+  const byUrl = new Map(_favs(s).map(f => [f.url, f]))
+  const nuevo = []
+  for (const u of urls) { const f = byUrl.get(u); if (f) { nuevo.push(f); byUrl.delete(u) } }
+  for (const f of byUrl.values()) nuevo.push(f) // defensivo: algo se quedó afuera de `urls`
+  _setF(nuevo, s)
+  return nuevo
+})
+ipcMain.handle('get-all-carpetas-flat', () => Object.fromEntries(_SRCS.map(s => [s, _carpetasD[s] || []])))
+ipcMain.handle('restore-all-carpetas', (_, obj) => {
+  if (!obj || typeof obj !== 'object') return
+  for (const s of _SRCS) {
+    const incoming = Array.isArray(obj[s]) ? obj[s] : []
+    if (!incoming.length) continue
+    const cur = _carpetas(s)
+    const curLower = new Set(cur.map(c => c.toLowerCase()))
+    const merged = [...cur]
+    for (const nombre of incoming) {
+      if (nombre && !curLower.has(nombre.toLowerCase())) { merged.push(nombre); curLower.add(nombre.toLowerCase()) }
+    }
+    if (merged.length !== cur.length) _setC(merged, s)
+  }
+})
 
 // HISTORIAL
 ipcMain.handle('get-historial',    ()        => _hist())
 ipcMain.handle('add-historial',    (_, ep)   => {
   const s = _srcFromUrl(ep.link) || _src()
   let list = _hist(s).filter(h => h.link !== ep.link)
-  list.unshift(ep)
+  list.unshift({ ...ep, ts: Date.now() })
   if (list.length > 500) list = list.slice(0, 500)
   _clearTomb('hist', ep.link, s)
   _setH(list, s); return list
@@ -1295,6 +1895,41 @@ ipcMain.handle('remove-historial', (_, link) => {
   const s = _srcFromUrl(link) || _src()
   _markTomb('hist', link, s)
   _setH(_hist(s).filter(h => h.link !== link), s)
+})
+// Quita varios links del historial de una vez: marca tombstone para cada uno
+// y hace UNA sola escritura por fuente. Reemplaza el viejo patrón del
+// renderer "clearHistorial() + addHistorial() por cada entrada que queda",
+// que invertía el orden del historial (cada add hace unshift), escribía a
+// disco una vez por entrada y, si mientras tanto se agregaba un episodio
+// nuevo, lo borraba y le dejaba un tombstone que la sync propagaba.
+ipcMain.handle('remove-historial-batch', (_, links) => {
+  if (!Array.isArray(links) || !links.length) return
+  const porFuente = {}
+  for (const link of links) {
+    if (!link) continue
+    const s = _srcFromUrl(link) || _src()
+    ;(porFuente[s] = porFuente[s] || new Set()).add(link)
+  }
+  const ahora = Date.now()
+  for (const [s, set] of Object.entries(porFuente)) {
+    const t = _tomb(s)
+    for (const l of set) t.hist[l] = ahora
+    _saveTomb(s)
+    _setH(_hist(s).filter(h => !set.has(h.link)), s)
+  }
+})
+// Actualiza la imagen de entradas existentes del historial EN SU LUGAR (sin
+// moverlas ni recrearlas). cambios: [{ link, imagen }]
+ipcMain.handle('set-imagenes-historial', (_, cambios) => {
+  if (!Array.isArray(cambios) || !cambios.length) return
+  const tocadas = new Set()
+  for (const c of cambios) {
+    if (!c?.link || !c?.imagen) continue
+    const s = _srcFromUrl(c.link) || _src()
+    const e = _hist(s).find(h => h.link === c.link)
+    if (e && e.imagen !== c.imagen) { e.imagen = c.imagen; tocadas.add(s) }
+  }
+  for (const s of tocadas) _setH(_hist(s), s)
 })
 ipcMain.handle('remove-progreso',  (_, link) => {
   const s = _srcFromUrl(link) || _src()
@@ -1315,29 +1950,39 @@ ipcMain.handle('restore-progresos',(_, datos) => {
   _saveJ(_srcFile('progreso', s), _prog(s))
 })
 // ── Restore multi-fuente: distribuye los ítems a la fuente correcta por URL ───
-const _DOMAIN_MAP = { latanime: 'latanime.org', animeflv: 'animeflv.net', monoschinos: 'monoschinos.st' }
+const _DOMAIN_MAP = { latanime: 'latanime.org', animeflv: 'animeflv.net', animeav1: 'animeav1.com' }
+// Reparten por fuente con _srcFromUrl -- el MISMO criterio que usa toda la
+// app al guardar (toggle-fav, add-historial, set-progreso). Antes usaban
+// _DOMAIN_MAP (p.ej. 'monoschinos.st' exacto), así que un ítem guardado con
+// otro dominio de la misma fuente, o sin fuente reconocible, no caía en
+// ninguna y desaparecía del disco local en cada carga desde la nube.
+function _repartirPorFuente(items, campoUrl) {
+  const porFuente = Object.fromEntries(_SRCS.map(s => [s, []]))
+  for (const it of items) {
+    if (_esDeFuenteEliminada(it?.[campoUrl])) continue
+    const s = _srcFromUrl(it?.[campoUrl]) || _src()
+    ;(porFuente[s] = porFuente[s] || []).push(it)
+  }
+  return porFuente
+}
 ipcMain.handle('restore-all-favs', (_, lista) => {
   if (!Array.isArray(lista)) return
-  for (const src of _SRCS) {
-    const dom = _DOMAIN_MAP[src] || src
-    _setF(lista.filter(f => (f.url||'').includes(dom)), src)
-  }
+  for (const [src, items] of Object.entries(_repartirPorFuente(lista, 'url'))) _setF(items, src)
 })
 ipcMain.handle('restore-all-hist', (_, lista) => {
   if (!Array.isArray(lista)) return
-  for (const src of _SRCS) {
-    const dom = _DOMAIN_MAP[src] || src
-    _setH(lista.filter(h => (h.link||'').includes(dom)), src)
-  }
+  for (const [src, items] of Object.entries(_repartirPorFuente(lista, 'link'))) _setH(items, src)
 })
 ipcMain.handle('restore-all-prog', (_, datos) => {
   if (!datos || typeof datos !== 'object') return
-  for (const src of _SRCS) {
-    const dom = _DOMAIN_MAP[src] || src
-    const srcProg = Object.fromEntries(Object.entries(datos).filter(([link]) => link.includes(dom)))
-    Object.assign(_progD[src], srcProg)
-    _saveJ(_srcFile('progreso', src), _progD[src])
+  const tocadas = new Set()
+  for (const [link, p] of Object.entries(datos)) {
+    if (_esDeFuenteEliminada(link)) continue
+    const src = _srcFromUrl(link) || _src()
+    _prog(src)[link] = p
+    tocadas.add(src)
   }
+  for (const src of tocadas) _saveJ(_srcFile('progreso', src), _prog(src))
 })
 
 // PROGRESO DE EPISODIOS
@@ -1359,7 +2004,7 @@ ipcMain.handle('set-progreso',        (_, link, currentTime, duration) => {
   // anterior (desmarcar visto) -- si no, el próximo sync con la nube lo
   // vuelve a encontrar tombstoned y lo borra de nuevo (ver sync.js).
   _clearTomb('prog', link, s)
-  _setP(link, { currentTime, duration, porcentaje: nuevoPct }, s)
+  _setP(link, { currentTime, duration, porcentaje: nuevoPct, ts: Date.now() }, s)
 })
 ipcMain.handle('get-progreso',        (_, link) => (_prog(_srcFromUrl(link) || _src()))[link] || null)
 ipcMain.handle('get-todos-progresos', ()        => _prog())
@@ -1571,346 +2216,6 @@ function tmoCapBrowser(url, waitMs = 4000) {
   })
 }
 
-// ─── NC CAP BROWSER — capítulos NovelCool ────────────────────────────────────
-// Abre el capítulo en BrowserWindow, detecta el source picker de techsmartideas.com,
-// hace click en la fuente indicada y extrae TODAS las imágenes del lector resultante.
-
-// JS que se ejecuta en el lector para extraer el array completo de imágenes
-const _extractImgsJS = `(function(){
-  var BAD=/logo|icon|avatar|header|banner|sprite|favicon|transparent|default_pic/i;
-
-  // Convierte un elemento a URL (acepta string O objeto {u,url,src,image,img})
-  function toUrl(v){
-    if(typeof v==='string') return v;
-    if(v&&typeof v==='object') return v.u||v.url||v.src||v.image||v.img||v.path||'';
-    return '';
-  }
-  function isGoodUrl(s){
-    return typeof s==='string'&&s.indexOf('http')===0&&!BAD.test(s);
-  }
-  function extractArr(arr){
-    if(!Array.isArray(arr)||arr.length<2) return null;
-    var urls=arr.map(toUrl).filter(isGoodUrl);
-    return urls.length>=2?urls:null;
-  }
-
-  // Método 1: variables globales conocidas (strings O objetos)
-  var known=['im_p','images','chapterImages','chapter_images','pageImages','pages','imgs',
-             'manga_pages','chp_images','arr_images','imageList','imgList','picList','chapterData'];
-  for(var i=0;i<known.length;i++){
-    var v=window[known[i]];
-    var r=extractArr(v);
-    if(r&&r.length>1) return r;
-    // También buscar sub-propiedad
-    if(v&&typeof v==='object'&&!Array.isArray(v)){
-      var subs=['images','imgs','pages','list','data','chapter','pics'];
-      for(var s=0;s<subs.length;s++){
-        var r2=extractArr(v[subs[s]]);
-        if(r2&&r2.length>1) return r2;
-      }
-    }
-  }
-
-  // Método 2: escanear TODAS las propiedades de window
-  try{
-    var keys=Object.keys(window);
-    for(var k=0;k<keys.length;k++){
-      try{
-        var val=window[keys[k]];
-        var res=extractArr(val);
-        if(res&&res.length>5) return res;
-        if(val&&typeof val==='object'&&!Array.isArray(val)){
-          var ks=Object.keys(val).slice(0,30);
-          for(var ki=0;ki<ks.length;ki++){
-            var res2=extractArr(val[ks[ki]]);
-            if(res2&&res2.length>5) return res2;
-          }
-        }
-      }catch(e){}
-    }
-  }catch(e){}
-
-  // Método 3: parsear <script> inline buscando arrays JSON con URLs
-  var scripts=document.querySelectorAll('script:not([src])');
-  for(var si=0;si<scripts.length;si++){
-    var txt=scripts[si].textContent||'';
-    // Buscar arrays de strings con http
-    var rx=/\\[["'][^"']*https?:[^\\]]{10,}["'][^\\]]*\\]/g;
-    var m;
-    while((m=rx.exec(txt))!==null){
-      try{
-        var arr=JSON.parse(m[0]);
-        var res3=extractArr(arr);
-        if(res3&&res3.length>1) return res3;
-      }catch(e){}
-    }
-  }
-
-  // Método 4: DOM — imágenes visibles con atributos data-*
-  var found=[];
-  Array.from(document.images).forEach(function(el){
-    var s=el.getAttribute('data-original')||el.getAttribute('data-src')||
-          el.getAttribute('data-lazy')||el.getAttribute('data-url')||el.src||'';
-    if(isGoodUrl(s)&&found.indexOf(s)<0) found.push(s);
-  });
-  if(found.length>0) return found;
-
-  // Método 5: imágenes grandes visibles
-  return Array.from(document.images)
-    .filter(function(i){return i.naturalWidth>200&&i.naturalHeight>200;})
-    .map(function(i){return i.src;})
-    .filter(isGoodUrl);
-})()`
-
-function _ncCapBrowser(chapterUrl, base, sourceIdx, maxWait, onChunk) {
-  sourceIdx = sourceIdx || 1
-  maxWait   = maxWait   || 30000
-  return new Promise((resolve) => {
-    let win = null, resolved = false, sourceClicked = false
-
-    // Cierra ventana — no resuelve la promesa
-    const cleanup = () => {
-      try { if (win && !win.isDestroyed()) win.destroy() } catch(e) {}
-      win = null
-    }
-
-    // Para errores/timeout (antes de resolución temprana)
-    const finish = (imgs) => {
-      clearTimeout(timer)
-      if (!resolved) {
-        resolved = true
-        resolve(Array.isArray(imgs) ? imgs.filter(Boolean) : [])
-      }
-      cleanup()
-    }
-
-    // Resolución temprana con primera tanda — ventana queda abierta para carga en background
-    const resolveEarly = (firstPages, total) => {
-      if (resolved) return
-      resolved = true
-      clearTimeout(timer)
-      resolve({ pages: firstPages, total })
-      // Timer de seguridad para asegurar que la ventana se cierre eventualmente
-      setTimeout(cleanup, 120000)
-    }
-
-    const timer = setTimeout(() => finish([]), maxWait)
-
-    // Sesión en memoria (NO persist:) — evita contaminación entre llamadas
-    const _partition = 'nc-' + Date.now() + '-' + Math.floor(Math.random() * 99999)
-    win = new BrowserWindow({ show: false, width: 1280, height: 900,
-      webPreferences: { nodeIntegration: false, contextIsolation: true, partition: _partition }
-    })
-
-    win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (d, cb) => {
-      d.requestHeaders['Referer']    = base + '/'
-      d.requestHeaders['Origin']     = base
-      d.requestHeaders['User-Agent'] = UA
-      cb({ requestHeaders: d.requestHeaders })
-    })
-
-    win.webContents.on('did-finish-load', async () => {
-      if (resolved) return
-      try {
-        const curUrl = win.webContents.getURL()
-        console.log('[_ncCapBrowser] did-finish-load →', curUrl.substring(0, 120))
-
-        if (curUrl.includes('techsmartideas.com')) {
-          // Source picker detectado — hacer click en la fuente indicada
-          if (sourceClicked) return  // ya hicimos click, esperando navegación
-          sourceClicked = true
-          await new Promise(r => setTimeout(r, 1200))
-          await win.webContents.executeJavaScript(`
-            (function() {
-              var idx = ${sourceIdx};
-              var links = Array.from(document.querySelectorAll('a[href],button'));
-              var matches = links.filter(function(el) {
-                var t = (el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                return t === 'source ' + idx || t === 'source' + idx;
-              });
-              if (matches.length) { matches[0].click(); return; }
-              var all = links.filter(function(el) {
-                return /source/i.test(el.textContent || '');
-              });
-              if (all[idx - 1]) { all[idx - 1].click(); return; }
-              if (all[0]) all[0].click();
-            })()
-          `).catch(() => {})
-          // La navegación disparará otro did-finish-load
-
-        } else {
-          // En el lector del capítulo (financemasterpro.com)
-          // Reader tiene: select "Cargar imágenes:10" y select "Page:N"
-          // Estrategia:
-          //  1. Leer páginas ANTES de tocar nada
-          //  2. Para cada página: navegar, scroll para lazy-load, recolectar imágenes
-          const extractAll = async () => {
-            if (resolved) return
-            await new Promise(r => setTimeout(r, 900))
-            if (resolved) return
-
-            // JS auxiliar: extrae imágenes manga del DOM (sin logos, iconos, etc.)
-            const domExtractJS = `(function(){
-              var BAD=/logo|icon|avatar|header|banner|sprite|favicon|transparent|default_pic|menusub|menu-|iconfont/i;
-              var found=[];
-              Array.from(document.images).forEach(function(el){
-                var s=el.getAttribute('data-original')||el.getAttribute('data-src')||
-                      el.getAttribute('data-lazy')||el.src||'';
-                if(s&&s.indexOf('http')===0&&!BAD.test(s)&&found.indexOf(s)<0)found.push(s);
-              });
-              return found;
-            })()`
-
-            // ── Paso 1: leer todos los grupos "Page" ANTES de cambiar imgCount ──
-            let pageVals = []
-            try {
-              pageVals = await win.webContents.executeJavaScript(`
-                (function(){
-                  var best=null, bestLen=0;
-                  Array.from(document.querySelectorAll('select')).forEach(function(s){
-                    var opts=Array.from(s.options);
-                    // El select "Page" tiene opciones con texto "Page" o numérico puro
-                    var isPage=opts.some(function(o){return /page/i.test(o.textContent);});
-                    if(isPage && opts.length > bestLen){ best=s; bestLen=opts.length; }
-                  });
-                  if(!best) return [];
-                  return Array.from(best.options).map(function(o){return o.value;});
-                })()
-              `)
-              console.log('[_ncCapBrowser] pageVals (raw):', pageVals)
-            } catch(e) {}
-
-            // ── Paso 2: poner imgCount al max para cada página ────────────────────
-            const setMaxImgs = async () => {
-              try {
-                await win.webContents.executeJavaScript(`
-                  (function(){
-                    var sel=Array.from(document.querySelectorAll('select')).find(function(s){
-                      return Array.from(s.options).some(function(o){
-                        return /^\\d+$/.test((o.value||'').trim())&&parseInt(o.value)>=10;
-                      });
-                    });
-                    if(!sel)return;
-                    var opt=document.createElement('option');
-                    opt.value='999';opt.textContent='999';
-                    sel.appendChild(opt);
-                    sel.value='999';
-                    sel.dispatchEvent(new Event('change',{bubbles:true}));
-                  })()
-                `)
-              } catch(e) {}
-            }
-
-            await setMaxImgs()
-            await new Promise(r => setTimeout(r, 700))
-            if (resolved) return
-
-            // Si no detectamos páginas, tratar como página única
-            if (pageVals.length === 0) pageVals = ['']
-
-            // Helper: scroll + espera hasta que el conteo de imgs nuevas se estabilice
-            const scrollLoad = async (knownImgs) => {
-              let lastNew = 0, stable = 0
-              for (let sc = 0; sc < 10 && !win?.isDestroyed(); sc++) {
-                await win.webContents.executeJavaScript(
-                  `window.scrollTo(0,document.body.scrollHeight);` +
-                  `window.dispatchEvent(new Event('scroll',{bubbles:true}));`
-                ).catch(() => {})
-                await new Promise(r => setTimeout(r, 450))
-                if (win?.isDestroyed()) break
-                try {
-                  const imgs = await win.webContents.executeJavaScript(domExtractJS)
-                  const newOnes = (imgs||[]).filter(Boolean).filter(u => !knownImgs.has(u))
-                  if (newOnes.length > lastNew) { lastNew = newOnes.length; stable = 0 }
-                  else if (++stable >= 2) break
-                } catch(e) {}
-              }
-            }
-
-            // Helper: navegar al grupo "Page" indicado
-            const navToPage = async (pv) => {
-              try {
-                await win.webContents.executeJavaScript(`
-                  (function(){
-                    var sel=Array.from(document.querySelectorAll('select')).find(function(s){
-                      return Array.from(s.options).some(function(o){return /page/i.test(o.textContent);});
-                    });
-                    if(sel){ sel.value=${JSON.stringify(pv)}; sel.dispatchEvent(new Event('change',{bubbles:true})); }
-                  })()
-                `)
-                await new Promise(r => setTimeout(r, 900))
-              } catch(e) {}
-            }
-
-            // ── Grupo 1: cargar y resolver de inmediato ───────────────────────────
-            const allImgs = new Set()
-            await scrollLoad(allImgs)
-            try {
-              const imgs = await win.webContents.executeJavaScript(domExtractJS)
-              ;(imgs||[]).filter(Boolean).forEach(u => allImgs.add(u))
-            } catch(e) {}
-
-            const firstBatch = [...allImgs]
-
-            // ── Total exacto: leer "1 of N" del DOM (disponible en el lector) ────
-            let totalExact = 0
-            try {
-              totalExact = await win.webContents.executeJavaScript(`
-                (function(){
-                  var all = Array.from(document.querySelectorAll('*'));
-                  for (var i = 0; i < all.length; i++) {
-                    var t = (all[i].childNodes[0]||{}).nodeValue || '';
-                    var m = t.match(/\b(\d+)\s+of\s+(\d+)/i);
-                    if (m) return parseInt(m[2]);
-                  }
-                  // fallback: buscar en todo el textContent del body
-                  var bm = document.body.innerText.match(/\b\d+\s+of\s+(\d+)/i);
-                  return bm ? parseInt(bm[1]) : 0;
-                })()
-              `)
-            } catch(e) {}
-            const totalEst = (totalExact > 0) ? totalExact : pageVals.length * Math.max(firstBatch.length, 10)
-            console.log('[_ncCapBrowser] grupo 1/', pageVals.length, '— imgs:', firstBatch.length, 'totalExact:', totalExact, 'totalEst:', totalEst)
-
-            if (pageVals.length <= 1) {
-              // Un solo grupo — resolver con todo
-              finish(firstBatch)
-              return
-            }
-
-            // Resolver de inmediato con primera tanda + estimado de total
-            resolveEarly(firstBatch, totalEst)
-
-            // ── Grupos 2-N: carga en background ──────────────────────────────────
-            for (let pi = 1; pi < pageVals.length; pi++) {
-              if (win?.isDestroyed()) break
-              await navToPage(pageVals[pi])
-              if (win?.isDestroyed()) break
-              await scrollLoad(allImgs)
-              if (win?.isDestroyed()) break
-              try {
-                const imgs = await win.webContents.executeJavaScript(domExtractJS)
-                const batch = (imgs||[]).filter(Boolean).filter(u => !allImgs.has(u))
-                batch.forEach(u => allImgs.add(u))
-                console.log('[_ncCapBrowser] grupo', pi+1, '/', pageVals.length, '— nuevas:', batch.length, 'acum:', allImgs.size)
-                if (batch.length > 0 && onChunk) onChunk(batch)
-              } catch(e) {}
-            }
-
-            console.log('[_ncCapBrowser] background completo — total real:', allImgs.size)
-            if (onChunk) onChunk({ done: true, total: allImgs.size })
-            cleanup()
-          }
-          extractAll()
-        }
-      } catch(e) { finish([]) }
-    })
-
-    win.webContents.on('did-fail-load', (_, code) => { if (code === -3) return; finish([]) })
-    win.loadURL(chapterUrl, { userAgent: UA })
-  })
-}
-
 // Helper: extraer mangas de HTML de zonatmo
 // El link de texto tiene formato: "Título MANGA|MANHWA|MANHUA 9.30 Demografía"
 
@@ -1952,12 +2257,10 @@ function extraerMangasZona($, limite = 60) {
 // HOME — devuelve { pop:{general,seinen,josei}, trend:{general,seinen,josei}, nuevos }
 // Coincide con los 3 tabs de Populares y 3 tabs de Trending de zonatmo
 ipcMain.handle('get-manga-tendencias', async () => {
-  // Delegar a NovelCool si es la fuente activa
-  if (_activeMangaSource?.id === 'novelcool') {
-    const nc = _getNovelcoolSrc()
+  // Delegar a MangaOni si es la fuente activa
+  if (_activeMangaSource?.id === 'manga-oni') {
     const empty = { pop:{general:[],seinen:[],josei:[]}, trend:{general:[],seinen:[],josei:[]}, nuevos:[] }
-    if (nc?.fetchTendencias) return (await nc.fetchTendencias()) || empty
-    return empty
+    return (await mangaOni.fetchTendencias()) || empty
   }
 
   const empty = { pop:{general:[],seinen:[],josei:[]}, trend:{general:[],seinen:[],josei:[]}, nuevos:[] }
@@ -2078,11 +2381,26 @@ ipcMain.handle('buscar-manga', async (_, query) => {
   if (_hit && Date.now() - _hit.ts < _BUSCAR_TTL) return _hit.data
   const _saveMangaCache = (data) => { _buscarMangaCache.set(_cacheKey, { data, ts: Date.now() }); return data }
 
-  // Delegar a NovelCool si es la fuente activa
-  if (_activeMangaSource?.id === 'novelcool') {
-    const nc = _getNovelcoolSrc()
-    if (nc?.buscarManga) return _saveMangaCache(await nc.buscarManga(query))
-    return []
+  // Texto libre contra el que aplicar tolerancia a typos, y si esto es
+  // página 1 (reintentar/reordenar solo tiene sentido ahí — ver comentario
+  // en _buscarConTolerancia). __seccion__ es navegación pura, sin texto.
+  let _textoLibre = '', _pagina1 = true
+  if (query && query.startsWith('{')) {
+    try { const p = JSON.parse(query); _textoLibre = (p.title || '').trim(); _pagina1 = (parseInt(p.pg) || 1) <= 1 } catch(e) {}
+  } else if (query && !query.startsWith('__seccion__')) {
+    _textoLibre = query.trim()
+  }
+
+  // Delegar a MangaOni si es la fuente activa
+  if (_activeMangaSource?.id === 'manga-oni') {
+    let lista = await mangaOni.buscarManga(query)
+    if (_textoLibre && _pagina1) {
+      lista = await _buscarConTolerancia(_textoLibre, lista, async (clave) => {
+        const qAmplio = query.startsWith('{') ? JSON.stringify({ ...JSON.parse(query), title: clave }) : clave
+        return mangaOni.buscarManga(qAmplio)
+      })
+    }
+    return _saveMangaCache(lista)
   }
 
   try {
@@ -2128,23 +2446,21 @@ ipcMain.handle('buscar-manga', async (_, query) => {
     const html = await tmoBrowser(url, 3000)
     if (!html) return []
     const $ = cheerio.load(html)
-    const lista = extraerMangasZona($, 48)
+    let lista = extraerMangasZona($, 48)
     lista.forEach(m => { if (!m.imagen) m.imagen = lcCoverCache.get(m.link) || '' })
+    if (_textoLibre && _pagina1) {
+      lista = await _buscarConTolerancia(_textoLibre, lista, async (clave) => {
+        const urlAmplia = url.replace(/title=[^&]*/, 'title=' + encodeURIComponent(clave))
+        const htmlAmplio = await tmoBrowser(urlAmplia, 3000)
+        if (!htmlAmplio) return []
+        const $$ = cheerio.load(htmlAmplio)
+        const listaAmplia = extraerMangasZona($$, 48)
+        listaAmplia.forEach(m => { if (!m.imagen) m.imagen = lcCoverCache.get(m.link) || '' })
+        return listaAmplia
+      })
+    }
     return _saveMangaCache(lista)
   } catch(e) { console.error('[buscar-manga]', e.message); return [] }
-})
-
-// SUGERENCIAS — autocomplete ligero (solo NovelCool, solo SSR, límite 8)
-ipcMain.handle('sugerir-manga', async (_, query) => {
-  if (!query || query.length < 2) return []
-  if (_activeMangaSource?.id === 'novelcool') {
-    const nc = _getNovelcoolSrc()
-    if (nc?.sugerencias) {
-      try { return await nc.sugerencias(query) } catch(e) { return [] }
-    }
-  }
-  // Fuentes sin sugerencias: devuelve vacío (no lanzar búsqueda completa)
-  return []
 })
 
 // PORTADA LAZY — el renderer llama esto individualmente por tarjeta sin portada
@@ -2158,10 +2474,7 @@ async function _portadaWorker() {
   _portadaSlots++
   const { url, resolve } = _portadaQueue.shift()
   const fetchPortada = async (timeout) => {
-    const isNC = url.includes('novelcool.com')
-    const headers = isNC
-      ? (_getNovelcoolSrc()?.HEADERS || MANGA_HEADERS)
-      : MANGA_HEADERS
+    const headers = MANGA_HEADERS
     const { data } = await axios.get(url, { headers, timeout })
     // Si el sitio retorna Cloudflare challenge, no parsear
     if (data && (data.includes('Just a moment') || data.includes('cf-browser-verification'))) return ''
@@ -2200,10 +2513,9 @@ ipcMain.handle('get-manga-portada', (_, url) => {
 // DETALLE — página del manga con axios (HTML estático)
 ipcMain.handle('get-manga-detalle', async (_, url, tituloFallback) => {
   try {
-    // Delegar a NovelCool solo si la URL pertenece a ese dominio
-    if (url && url.includes('novelcool')) {
-      const nc = _getNovelcoolSrc()
-      if (nc?.getDetalle) return await nc.getDetalle(url, tituloFallback)
+    // Delegar a MangaOni solo si la URL pertenece a ese dominio
+    if (url && url.includes('manga-oni.com')) {
+      return await mangaOni.getDetalle(url, tituloFallback)
     }
     const { data } = await axios.get(url, { headers: MANGA_HEADERS, timeout: 10000 })
     const $ = cheerio.load(data)
@@ -2306,147 +2618,9 @@ ipcMain.handle('get-manga-detalle', async (_, url, tituloFallback) => {
 // ─── MANGA SOURCES ────────────────────────────────────────────────────────────
 const MANGA_SOURCES = {
   zonatmo:   { id: 'zonatmo',   nombre: 'ZonaTMO',  BASE: 'https://zonatmo.com' },
-  novelcool: { id: 'novelcool', nombre: 'NovelCool', BASE: 'https://es.novelcool.com' }
+  'manga-oni': { id: 'manga-oni', nombre: 'MangaOni', BASE: 'https://manga-oni.com' }
 }
 let _activeMangaSource = MANGA_SOURCES[appConfig?.['manga-source']] || MANGA_SOURCES['zonatmo']
-
-let _novelcoolSrc = null
-function _getNovelcoolSrc() {
-  if (_novelcoolSrc) return _novelcoolSrc
-  try {
-    const createNC = require('./extractors/manga/novelcool')
-    _novelcoolSrc = createNC({
-      tmoBrowser, tmoCapBrowser,
-      tmoCapBrowserFast: (url) => tmoCapBrowser(url, 2000),
-      _browserRunJS: (url, base, js, waitMs) => new Promise((resolve) => {
-        const w = new BrowserWindow({
-          show: false, width: 1280, height: 900,
-          webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:novelcool-cap' }
-        })
-        const cleanup = () => { try { if (!w.isDestroyed()) w.destroy() } catch(e){} }
-        const timer = setTimeout(() => { cleanup(); resolve([]) }, (waitMs || 4000) + 8000)
-        w.webContents.on('did-finish-load', async () => {
-          try {
-            await new Promise(r => setTimeout(r, waitMs || 4000))
-            if (w.isDestroyed()) { clearTimeout(timer); resolve([]); return }
-            const result = await w.webContents.executeJavaScript(js)
-            clearTimeout(timer); cleanup(); resolve(result || [])
-          } catch(e) { clearTimeout(timer); cleanup(); resolve([]) }
-        })
-        w.webContents.on('did-fail-load', (_, code) => {
-          if (code === -3) return
-          clearTimeout(timer); cleanup(); resolve([])
-        })
-        w.loadURL(url, { userAgent: UA })
-      }),
-      // Dos fases: carga + relleno del formulario, luego navegación/AJAX + extracción
-      _browserRunJS2Step: (url, fillJs, extractJs, fillWaitMs, extractWaitMs) => new Promise((resolve) => {
-        const w = new BrowserWindow({
-          show: false, width: 1280, height: 900,
-          webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:novelcool-cap' }
-        })
-        const cleanup = () => { try { if (!w.isDestroyed()) w.destroy() } catch(e){} }
-        const timer = setTimeout(() => { cleanup(); resolve([]) }, (fillWaitMs || 2500) + (extractWaitMs || 5000) + 12000)
-        let loads = 0, done = false
-        const tryDone = (v) => { if (!done) { done = true; clearTimeout(timer); cleanup(); resolve(v) } }
-        w.webContents.on('did-finish-load', async () => {
-          loads++
-          if (loads === 1) {
-            // Página cargada: esperar render del formulario, rellenar, hacer submit
-            await new Promise(r => setTimeout(r, fillWaitMs || 2500))
-            if (done || w.isDestroyed()) { tryDone([]); return }
-            try { await w.webContents.executeJavaScript(fillJs) } catch(e) {}
-            // Para AJAX (sin navegación): extraer del mismo DOM después de extractWaitMs
-            // Si hay navegación, did-finish-load dispara de nuevo (loads===2) y extrae allí primero
-            await new Promise(r => setTimeout(r, extractWaitMs || 5000))
-            if (done || w.isDestroyed()) { tryDone([]); return }
-            try { tryDone(await w.webContents.executeJavaScript(extractJs) || []) } catch(e) { tryDone([]) }
-          } else {
-            // El formulario redirigió a una nueva página: extraer aquí (gana a loads===1)
-            await new Promise(r => setTimeout(r, extractWaitMs || 5000))
-            if (done || w.isDestroyed()) { tryDone([]); return }
-            try { tryDone(await w.webContents.executeJavaScript(extractJs) || []) } catch(e) { tryDone([]) }
-          }
-        })
-        w.webContents.on('did-fail-load', (_, code) => {
-          if (code === -3) return
-          tryDone([])
-        })
-        w.loadURL(url, { userAgent: UA })
-      }),
-      _ncCapBrowser: _ncCapBrowser,
-      lcCoverCache, saveLCCache,
-      lcDetailCache: new Map(), saveLCDetailCache: () => {},
-      LC_DETAIL_TTL: 10 * 60 * 1000,
-      UA
-    })
-  } catch(e) { console.error('[novelcool] init error', e.message) }
-  if (_novelcoolSrc) return _novelcoolSrc
-  try {
-    const createNC = require('./extractors/manga/novelcool')
-    _novelcoolSrc = createNC({
-      tmoBrowser, tmoCapBrowser,
-      tmoCapBrowserFast: (url) => tmoCapBrowser(url, 2000),
-      _browserRunJS: (url, base, js, waitMs) => new Promise((resolve) => {
-        const w = new BrowserWindow({
-          show: false, width: 1280, height: 900,
-          webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:novelcool-cap' }
-        })
-        const cleanup = () => { try { if (!w.isDestroyed()) w.destroy() } catch(e){} }
-        const timer = setTimeout(() => { cleanup(); resolve([]) }, (waitMs || 4000) + 8000)
-        w.webContents.on('did-finish-load', async () => {
-          try {
-            await new Promise(r => setTimeout(r, waitMs || 4000))
-            if (w.isDestroyed()) { clearTimeout(timer); resolve([]); return }
-            const result = await w.webContents.executeJavaScript(js)
-            clearTimeout(timer); cleanup(); resolve(result || [])
-          } catch(e) { clearTimeout(timer); cleanup(); resolve([]) }
-        })
-        w.webContents.on('did-fail-load', (_, code) => {
-          if (code === -3) return
-          clearTimeout(timer); cleanup(); resolve([])
-        })
-        w.loadURL(url, { userAgent: UA })
-      }),
-      _browserRunJS2Step: (url, fillJs, extractJs, fillWaitMs, extractWaitMs) => new Promise((resolve) => {
-        const w = new BrowserWindow({
-          show: false, width: 1280, height: 900,
-          webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:novelcool-cap' }
-        })
-        const cleanup = () => { try { if (!w.isDestroyed()) w.destroy() } catch(e){} }
-        const timer = setTimeout(() => { cleanup(); resolve([]) }, (fillWaitMs || 2500) + (extractWaitMs || 5000) + 12000)
-        let loads = 0, done = false
-        const tryDone = (v) => { if (!done) { done = true; clearTimeout(timer); cleanup(); resolve(v) } }
-        w.webContents.on('did-finish-load', async () => {
-          loads++
-          if (loads === 1) {
-            await new Promise(r => setTimeout(r, fillWaitMs || 2500))
-            if (done || w.isDestroyed()) { tryDone([]); return }
-            try { await w.webContents.executeJavaScript(fillJs) } catch(e) {}
-            await new Promise(r => setTimeout(r, extractWaitMs || 5000))
-            if (done || w.isDestroyed()) { tryDone([]); return }
-            try { tryDone(await w.webContents.executeJavaScript(extractJs) || []) } catch(e) { tryDone([]) }
-          } else {
-            await new Promise(r => setTimeout(r, extractWaitMs || 5000))
-            if (done || w.isDestroyed()) { tryDone([]); return }
-            try { tryDone(await w.webContents.executeJavaScript(extractJs) || []) } catch(e) { tryDone([]) }
-          }
-        })
-        w.webContents.on('did-fail-load', (_, code) => {
-          if (code === -3) return
-          tryDone([])
-        })
-        w.loadURL(url, { userAgent: UA })
-      }),
-      _ncCapBrowser: _ncCapBrowser,
-      lcCoverCache, saveLCCache,
-      lcDetailCache: new Map(), saveLCDetailCache: () => {},
-      LC_DETAIL_TTL: 10 * 60 * 1000,
-      UA
-    })
-  } catch(e) { console.error('[novelcool] init error', e.message) }
-  return _novelcoolSrc
-}
 
 ipcMain.handle('get-manga-sources', () =>
   Object.values(MANGA_SOURCES).map(s => ({ id: s.id, nombre: s.nombre }))
@@ -2460,22 +2634,8 @@ ipcMain.handle('set-manga-source', (_, id) => {
 })
 
 ipcMain.handle('get-manga-paginas', async (event, url, sourceIdx) => {
-  if (url && url.includes('novelcool')) {
-    const nc = _getNovelcoolSrc()
-    if (nc?.getPaginas) {
-      const onChunk = (pages) => {
-        try {
-          if (!event.sender.isDestroyed()) {
-            if (pages && pages.done) {
-              event.sender.send('nc-pages-done', pages.total)
-            } else {
-              event.sender.send('nc-pages-more', pages)
-            }
-          }
-        } catch(e) {}
-      }
-      return await nc.getPaginas(url, sourceIdx, onChunk)
-    }
+  if (url && url.includes('manga-oni.com')) {
+    return await mangaOni.getPaginas(url)
   }
   return tmoCapBrowser(url, 4500)
 })
@@ -2529,7 +2689,8 @@ ipcMain.handle('check-nuevos-eps', async (_, items) => {
       // AnimeFLV ya no es una fuente activa — sin módulo para chequear episodios
       // nuevos de favoritos viejos con link a animeflv.net, se saltean.
       if (item.url?.includes('animeflv.net')) continue
-      const src = item.url?.includes('monoschinos') ? monoschinos : latanime
+      if (item.url?.includes('monoschinos')) continue  // fuente eliminada
+      const src = item.url?.includes('animeav1.com') ? animeav1 : latanime
       const info = await src.getAnime(item.url)
       const lastEp = info?.episodios?.length ? info.episodios[info.episodios.length - 1].num : 0
       if (lastEp > (item.lastEp || 0)) nuevos.push({ ...item, newEp: lastEp })
@@ -2557,12 +2718,14 @@ function initUpdater(win) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   }
   autoUpdater.on('update-available', (info) => {
+    _versionDescargada = info?.version || null
     _send('update-available', info.version)
   })
   autoUpdater.on('download-progress', (p) => {
     _send('update-progress', Math.round(p.percent))
   })
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('update-downloaded', (info) => {
+    _versionDescargada = info?.version || _versionDescargada
     _send('update-downloaded')
   })
   autoUpdater.on('error', (e) => {
@@ -2579,48 +2742,308 @@ function initUpdater(win) {
 }
 
 ipcMain.on('update-download', () => autoUpdater.downloadUpdate())
+// ── Pantalla de "Actualizando..." durante la instalación silenciosa ────────
+// Deja varios segundos sin NINGUNA ventana en pantalla mientras el instalador
+// corre invisible, y el usuario no tiene forma de saber que la app sigue viva
+// haciendo algo. Esta pantalla chiquita, sin bordes, siempre-encima, se
+// muestra con un mini script de PowerShell + WinForms (viene incluido en
+// Windows, no depende de que Electron siga vivo) justo antes de cerrar
+// RYOKU, con una barra de progreso "marquee" (nativa de Windows, animada
+// sola, no hay que programarle la animación a mano) y se autocierra pasados
+// unos segundos -- para entonces la nueva ventana de RYOKU ya deberia estar
+// al frente tapandola.
+//
+// Primer intento: una mini-pagina HTML mostrada con mshta.exe. Se descartó
+// -- mshta usa el motor viejo de Internet Explorer, que sin forzar modo
+// "Edge" renderiza en modo compatibilidad: ni el flexbox centraba nada, ni
+// el @keyframes de la animación corría, ni el acento (color de acento en
+// utf-8) se leía bien (bug de encoding, la tilde salía como "â€¦"). Un
+// WinForms nativo evita todo eso de raíz.
+// ── Lanzar un proceso TOTALMENTE independiente de Electron ─────────────────
+// Confirmado con pruebas manuales: el mismo comando corrido a mano en una
+// consola funciona perfecto e instantaneo -- el problema es especifico de
+// lanzarlo desde dentro de RYOKU. La causa: Chromium/Electron mete todos sus
+// procesos (y los que ellos mismos generan) en un "job object" de Windows
+// configurado para matar a TODA la rama de un tiron apenas el proceso
+// principal termina (limpieza de huerfanos). "detached: true" en Node NO
+// saca al proceso de ese job en Windows -- solo evita que reciba senales
+// como Ctrl+C. O sea que nuestro cmd.exe se lanzaba bien (`spawn` devolvia
+// un pid valido) pero moria en silencio en el mismo instante en que
+// Electron terminaba de cerrarse, antes de llegar a hacer nada util.
+//
+// La forma confiable de escapar de ese job object es no crear el proceso
+// nosotros mismos: se lo pedimos a WMI (Invoke-CimMethod / Win32_Process.
+// Create), que lo crea como hijo del servicio de WMI (WmiPrvSE.exe) --
+// completamente afuera de nuestra rama de procesos, así que sobrevive sin
+// problema a que RYOKU cierre.
+// Devuelve una Promise que resuelve cuando el lanzador WMI YA TERMINO (o sea,
+// cuando el proceso independiente que le pedimos a WMI ya quedo creado, o al
+// menos el intento ya se resolvio). Antes esto era "fire and forget": se
+// spawneaba el lanzador y el codigo seguia de largo sin esperar nada, dejando
+// que app.quit() se llamara en paralelo. La mayoria de las veces ese lanzador
+// (un powershell -Command de una sola linea) termina en pocos ms, pero
+// intermitentemente -- carga del sistema, antivirus escaneando el proceso,
+// lo que sea -- tarda un poco mas, y si Electron ya termino de cerrarse (el
+// job object mata la rama completa) antes de que el lanzador alcance a
+// pedirle a WMI que cree el proceso real, ni el splash ni el waiter llegan a
+// existir: la actualizacion instala en silencio pero sin animacion ni
+// reapertura automatica. Esperar aca a que el lanzador confirme (evento
+// 'exit') antes de dejar que el caller llame a app.quit() cierra esa carrera.
+function _lanzarProcesoIndependiente(commandLine, etiqueta) {
+  return new Promise((resolve) => {
+    try {
+      const cmdLineEscapado = commandLine.replace(/"/g, '""')
+      const psCreate = `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="${cmdLineEscapado}"} | Out-Null`
+      const launcher = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psCreate],
+        { stdio: 'ignore', windowsHide: true }
+      )
+      launcher.on('error', (e) => {
+        _logQuit(`error lanzando ${etiqueta} via WMI: ` + e.message)
+        resolve(false)
+      })
+      launcher.on('exit', (code) => {
+        _logQuit(`${etiqueta}: lanzador WMI termino, code=${code}`)
+        resolve(code === 0)
+      })
+      _logQuit(`${etiqueta}: lanzador WMI arrancado, pid=` + launcher.pid)
+    } catch (e) {
+      _logQuit(`excepcion lanzando ${etiqueta} via WMI: ` + e.message)
+      resolve(false)
+    }
+  })
+}
+
+// Espera una promesa hasta `ms` -- si tarda mas, sigue de largo igual (mejor
+// arriesgarse a la carrera vieja en ese caso raro que colgar la actualizacion
+// para siempre si por lo que sea el lanzador nunca dispara 'exit').
+function _conTimeout(promesa, ms, etiqueta) {
+  return Promise.race([
+    promesa,
+    new Promise((resolve) => setTimeout(() => {
+      _logQuit(`${etiqueta}: timeout de ${ms}ms esperando confirmacion, sigo de largo igual`)
+      resolve(false)
+    }, ms))
+  ])
+}
+
+// ── Marcas de coordinación de la actualización ──────────────────────────────
+// Archivos vacíos en %TEMP% para encadenar las piezas sin tiempos fijos:
+//  - el splash nativo crea _MARCA_SPLASH_VISIBLE apenas está en pantalla, y
+//    recién ahí se cierra la ventana de RYOKU. Antes se cerraba primero y el
+//    splash aparecía ~5 s después (lanzarlo vía WMI tarda eso): pantalla vacía.
+//  - la app NUEVA crea _MARCA_APP_ABIERTA al mostrar su ventana (ver
+//    createWindow), y recién ahí se cierra el splash. Antes se cerraba a los
+//    12 s fijos y la app reabría a los ~30 s: otro hueco sin nada en pantalla.
+const _MARCA_SPLASH_VISIBLE = path.join(os.tmpdir(), 'ryoku-update-splash-visible.flag')
+const _MARCA_APP_ABIERTA    = path.join(os.tmpdir(), 'ryoku-update-app-abierta.flag')
+let _versionDescargada = null
+
+function _esperarArchivo(ruta, maxMs) {
+  return new Promise((resolve) => {
+    const t0 = Date.now()
+    const tick = () => {
+      if (fs.existsSync(ruta)) return resolve(true)
+      if (Date.now() - t0 >= maxMs) return resolve(false)
+      setTimeout(tick, 100)
+    }
+    tick()
+  })
+}
+
+function _lanzarSplashActualizando() {
+  try {
+    const ps1Path = path.join(os.tmpdir(), 'ryoku-actualizando.ps1')
+    const ps1 = `$marcaVisible = '${_MARCA_SPLASH_VISIBLE}'
+$marcaAbierta = '${_MARCA_APP_ABIERTA}'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "RYOKU"
+$form.ClientSize = New-Object System.Drawing.Size(300, 130)
+$form.StartPosition = "CenterScreen"
+$form.FormBorderStyle = "None"
+$form.TopMost = $true
+$form.ShowInTaskbar = $false
+$form.BackColor = [System.Drawing.Color]::FromArgb(13, 21, 37)
+
+$border = New-Object System.Windows.Forms.Panel
+$border.Dock = "Fill"
+$border.Padding = New-Object System.Windows.Forms.Padding(1)
+$border.BackColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
+$form.Controls.Add($border)
+
+$inner = New-Object System.Windows.Forms.Panel
+$inner.Dock = "Fill"
+$inner.BackColor = [System.Drawing.Color]::FromArgb(13, 21, 37)
+$border.Controls.Add($inner)
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = "Actualizando RYOKU..."
+$label.ForeColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
+$label.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+$label.TextAlign = "MiddleCenter"
+$label.Dock = "Top"
+$label.Height = 70
+$inner.Controls.Add($label)
+
+$progress = New-Object System.Windows.Forms.ProgressBar
+$progress.Style = "Marquee"
+$progress.MarqueeAnimationSpeed = 25
+$progress.Size = New-Object System.Drawing.Size(240, 10)
+$progress.Location = New-Object System.Drawing.Point(28, 78)
+$inner.Controls.Add($progress)
+
+# Avisar a RYOKU que el splash ya se ve (recien ahi cierra su ventana)
+$form.Add_Shown({ try { Set-Content -Path $marcaVisible -Value '1' } catch {} })
+
+# Cerrar cuando la app nueva ya muestra su ventana (tope de seguridad: 3 min)
+$inicio = Get-Date
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 250
+$timer.Add_Tick({
+  if ((Test-Path $marcaAbierta) -or (((Get-Date) - $inicio).TotalSeconds -gt 180)) { $timer.Stop(); $form.Close() }
+})
+$timer.Start()
+
+[void]$form.ShowDialog()
+`
+    fs.writeFileSync(ps1Path, ps1, 'utf-8')
+    const comando = `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${ps1Path}"`
+    return _lanzarProcesoIndependiente(comando, 'splash de actualizacion')
+  } catch (e) {
+    _logQuit('excepcion creando/lanzando splash de actualizacion: ' + e.message)
+    return Promise.resolve(false)
+  }
+}
+
+// Proceso independiente (sobrevive al cierre de RYOKU) que espera a que RYOKU
+// cierre del todo, corre el instalador silencioso, confirma que el .exe ya es
+// la versión nueva y abre la app. Historia de por qué es así (job object de
+// Windows, "timeout" sin consola, NSIS que devuelve el control antes de
+// terminar de copiar): ver _lanzarProcesoIndependiente y el log de quit.
+function _lanzarWaiterActualizacion(installerPath) {
+  // /S (silencioso) + --force-run: lo que pide el NSIS de electron-builder
+  // para el instalador "assisted" (oneClick:false) en modo actualización.
+  const args = ['--updated', '/S']
+  if (autoUpdater.autoRunAppAfterInstall) args.push('--force-run')
+  const exePath = process.execPath   // mismo directorio tras actualizar
+  const logPath = 'D:\\Programas\\anime-app\\ryoku-quit-debug.log'
+  const argsPs = args.map((a) => `'${a}'`).join(',')
+  const ps1WaiterPath = path.join(os.tmpdir(), 'ryoku-updater-waiter.ps1')
+  const ps1Waiter = `$exePath = '${exePath}'
+$installerPath = '${installerPath}'
+$logPath = '${logPath}'
+$versionNueva = '${_versionDescargada || ''}'
+
+function Log($msg) {
+  $linea = '[' + (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') + '] ' + $msg
+  Add-Content -Path $logPath -Value $linea -Encoding utf8
+}
+
+# 1) Esperar a que no quede NINGUN proceso RYOKU (principal + GPU/utility).
+#    RYOKU sigue abierto hasta que el splash se ve, por eso el tope es amplio.
+$intentos = 0
+while ((Get-Process -Name 'RYOKU' -ErrorAction SilentlyContinue) -and ($intentos -lt 240)) {
+  Start-Sleep -Milliseconds 250
+  $intentos++
+}
+Start-Sleep -Milliseconds 800   # margen para que Windows libere los archivos
+Log 'relanzador: RYOKU cerrado, corriendo instalador'
+
+# 2) Instalar y esperar a que el proceso del instalador termine.
+Start-Process -FilePath $installerPath -ArgumentList @(${argsPs}) -Wait
+
+# 3) Confirmar que el .exe ya es la version nueva -- por VERSION del archivo.
+#    Antes se miraba la fecha de modificacion, pero el instalador conserva la
+#    fecha original del build: esa espera nunca se cumplia y sumaba 14 s
+#    fijos a cada actualizacion. Solo hace falta si NSIS devolvio el control
+#    antes de terminar de copiar (pasa a veces, por eso se reintenta).
+if ($versionNueva) {
+  $v = 0
+  $pv = ''
+  while ($v -lt 40) {
+    try { $pv = (Get-Item $exePath).VersionInfo.ProductVersion } catch { $pv = '' }
+    if ($pv -eq $versionNueva -or $pv -eq ($versionNueva + '.0')) { break }
+    Start-Sleep -Milliseconds 250
+    $v++
+  }
+  Log ('relanzador: version del exe = ' + $pv + ' (esperada ' + $versionNueva + ', reintentos ' + $v + ')')
+}
+
+# 4) Abrir la app actualizada.
+Start-Process -FilePath $exePath
+Log 'relanzador: app abierta'
+`
+  try {
+    fs.writeFileSync(ps1WaiterPath, ps1Waiter, 'utf-8')
+  } catch (e) {
+    _logQuit('excepcion escribiendo waiter: ' + e.message)
+    return Promise.resolve(false)
+  }
+  _logQuit('waiter ps1 escrito en ' + ps1WaiterPath + ' (version nueva=' + (_versionDescargada || '?') + ')')
+  const comandoWaiter = `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${ps1WaiterPath}"`
+  return _lanzarProcesoIndependiente(comandoWaiter, 'waiter de actualizacion')
+}
+
 ipcMain.on('update-install', () => {
-  // El cierre normal de la ventana es async (espera al renderer con un
-  // timer de hasta 4s, ver _requestQuit/_doQuit) — si quitAndInstall()
-  // dispara el cierre de la ventana y esta lo intercepta con
-  // preventDefault(), el instalador NSIS puede encontrar el proceso
-  // todavia vivo y mostrar "No se puede cerrar RYOKU". Para actualizar,
-  // saltamos ese flujo: avisamos al renderer y marcamos _quitting para
-  // que la ventana cierre de inmediato.
-  //
-  // Ademas — esto era lo que realmente faltaba — hay que asegurarse de
-  // que TODO el proceso de Electron termine de salir antes de que
-  // quitAndInstall() dispare el instalador:
-  //   1) 'window-all-closed' quitaba la app en paralelo con
-  //      quitAndInstall() (carrera conocida de electron-builder, ver
-  //      docs de auto-update: hay que sacar ese listener antes de
-  //      instalar).
-  //   2) Ventanas ocultas de extraccion (biblioteca/busqueda/video, ver
-  //      extractors/anime/_base.js y monoschinos.js) pueden seguir
-  //      vivas en ese momento — si no se cierran, Electron tarda en
-  //      salir y el instalador NSIS encuentra el .exe todavia en
-  //      memoria ("no se puede cerrar RYOKU").
+  _logQuit('update-install recibido, ventanas abiertas: ' + BrowserWindow.getAllWindows().length)
+  // Saltear el cierre normal (que espera al renderer con un timer de hasta
+  // 4s, ver _requestQuit/_doQuit): para actualizar, el cierre lo maneja este
+  // flujo de punta a punta.
   if (_quitTimer) { clearTimeout(_quitTimer); _quitTimer = null }
   if (_quitting) return
   _quitting = true
 
-  let _yaInstalando = false
-  const _finalizarInstalacion = () => {
-    if (_yaInstalando) return
-    _yaInstalando = true
-    app.removeAllListeners('window-all-closed')
-    BrowserWindow.getAllWindows().forEach((w) => {
-      try { if (!w.isDestroyed()) w.destroy() } catch (e) {}
+  const installerPath = autoUpdater.installerPath
+  _logQuit('installerPath=' + installerPath)
+
+  // Guardado del renderer (progreso + nube), con tope de 1.5 s.
+  const _guardado = new Promise((resolve) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      ipcMain.once('save-before-quit-done', () => resolve(true))
+      mainWindow.webContents.send('save-before-quit')
+    } else resolve(false)
+    setTimeout(() => resolve(false), 1500)
+  })
+
+  if (!installerPath) {
+    // Sin ruta del instalador ya descargado: camino original de electron-updater.
+    _logQuit('sin installerPath, usando quitAndInstall original de electron-updater')
+    _guardado.then(() => {
+      app.removeAllListeners('window-all-closed')
+      autoUpdater.quitAndInstall()
     })
-    autoUpdater.quitAndInstall()
+    return
   }
 
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    ipcMain.once('save-before-quit-done', _finalizarInstalacion)
-    mainWindow.webContents.send('save-before-quit')
-  }
-  // Fallback si el renderer nunca responde (o no hay mainWindow).
-  setTimeout(_finalizarInstalacion, 1500)
+  // 1) Arrancar YA, en paralelo con el guardado: el splash y el waiter.
+  try { fs.unlinkSync(_MARCA_SPLASH_VISIBLE) } catch (e) {}
+  try { fs.unlinkSync(_MARCA_APP_ABIERTA) } catch (e) {}
+  const _splashPromise = _lanzarSplashActualizando()
+  const _waiterPromise = _lanzarWaiterActualizacion(installerPath)
+
+  // 2) Cerrar RYOKU recién cuando: el guardado terminó, los dos procesos ya
+  //    existen (lanzadores WMI confirmados -- ver _lanzarProcesoIndependiente)
+  //    y el splash ya está en pantalla. Todo con topes de seguridad.
+  Promise.all([
+    _guardado,
+    _conTimeout(_splashPromise, 8000, 'splash de actualizacion'),
+    _conTimeout(_waiterPromise, 8000, 'waiter de actualizacion'),
+  ])
+    .then(() => _esperarArchivo(_MARCA_SPLASH_VISIBLE, 5000))
+    .then((visible) => {
+      _logQuit('splash ' + (visible ? 'visible' : 'NO confirmado (sigo igual)') + ', cerrando RYOKU')
+      app.removeAllListeners('window-all-closed')
+      BrowserWindow.getAllWindows().forEach((w) => {
+        try { if (!w.isDestroyed()) w.destroy() } catch (e) {}
+      })
+      app.on('quit', () => _logQuit('evento quit disparado'))
+      app.quit()
+    })
 })
 ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates().catch((e) => { throw e }))

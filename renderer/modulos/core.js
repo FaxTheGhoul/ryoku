@@ -92,10 +92,10 @@ async function seleccionarFuenteManga(id) {
 
 async function _syncModOverlaySrc(idOverride) {
   const id = idOverride !== undefined ? idOverride : (await window.api?.getMangaSource?.())
-  const srcMap = { zonatmo: 'zonatmo.org', novelcool: 'es.novelcool.com' }
+  const srcMap = { zonatmo: 'zonatmo.org', 'manga-oni': 'manga-oni.com' }
   const srcEl = document.getElementById('modcard-manga-src')
   if (srcEl) srcEl.textContent = id ? srcMap[id] || id : 'Elige fuente'
-  ;['zonatmo','novelcool'].forEach(s => {
+  ;['zonatmo','manga-oni'].forEach(s => {
     document.getElementById('modcard-src-' + s)?.classList.toggle('activo', s === id)
   })
   // Sync anime source display
@@ -105,11 +105,11 @@ async function _syncModOverlaySrc(idOverride) {
 // ── Fuente anime ──────────────────────────────────────────────────────────
 async function _syncAnimeOverlaySrc(idOverride) {
   const id = idOverride !== undefined ? idOverride : (await window.api?.getAnimeSource?.())
-  const srcMap = { latanime: 'latanime.org', monoschinos: 'monoschinos.st' }
+  const srcMap = { latanime: 'latanime.org', animeav1: 'animeav1.com' }
   const effectiveId = id || 'latanime'
   const srcEl = document.getElementById('modcard-anime-src')
   if (srcEl) srcEl.textContent = srcMap[effectiveId] || effectiveId
-  ;['latanime','monoschinos'].forEach(s => {
+  ;['latanime','animeav1'].forEach(s => {
     document.getElementById('modcard-src-' + s)?.classList.toggle('activo', s === effectiveId)
   })
   // Reflect on the parent anime card too
@@ -133,6 +133,11 @@ async function seleccionarFuenteAnime(id) {
   _syncAnimeOverlaySrc(id)
   cerrarSwitcherModulos()
   activarModulo('anime')
+  // La fuente activa cambió (latanime <-> monoschinos): "Series recientes" y
+  // "Top de la semana" (que cruza el ranking real con el catálogo del sitio
+  // activo) seguían mostrando el contenido de la fuente anterior porque nada
+  // los recargaba al cambiar de fuente — hay que refrescarlos.
+  if (typeof cargarRecientes === 'function') cargarRecientes()
 }
 
 // Listeners nav-btn de ANIME
@@ -236,6 +241,8 @@ const ACCENTS = {
   miku:   { primary:'#39C5BB', hover:'#4DD6CB', glow:'#7FF0E4', dim:'rgba(57,197,187,0.18)', rgb:'57,197,187' },
   neru:   { primary:'#F2A30E', hover:'#FFC94D', glow:'#FFE29A', dim:'rgba(242,163,14,0.18)', rgb:'242,163,14' },
   berserker: { primary:'#C1121F', hover:'#E5383B', glow:'#FF5A5F', dim:'rgba(193,18,31,0.18)', rgb:'193,18,31' },
+  metaphor:  { primary:'#B04950', hover:'#BE6A70', glow:'#CE8E92', dim:'rgba(176,73,80,0.18)', rgb:'176,73,80' },
+  kaneki:    { primary:'#A31621', hover:'#D62839', glow:'#FF4D5E', dim:'rgba(163,22,33,0.18)', rgb:'163,22,33' },
 }
 const MODOS = {
   oscuro: { main:'#0F172A', secondary:'#1E293B', card:'#111827', border:'#334155', textMain:'#F8FAFC', textSecondary:'#CBD5E1', textMuted:'#64748B' },
@@ -322,6 +329,8 @@ const BG_GRADIENTS = {
   // ajusta el encuadre después, eso sigue mandando como siempre.
   neru:       { nombre: 'Akita Neru', css: "url('assets/neru-bg.jpg')", posDefault: '48.3% 55%', scaleDefault: 1 },
   berserker:  { nombre: 'Berserker',  css: "url('assets/berserker-bg.jpg')", posDefault: '50% 50%', scaleDefault: 1 },
+  metaphor:   { nombre: 'Metaphor: ReFantazio', css: "url('assets/metaphor-bg.jpg')", posDefault: '50% 40%', scaleDefault: 1 },
+  kaneki:     { nombre: 'Tokyo Ghoul',           css: "url('assets/kaneki-bg.jpg')",    posDefault: '62% 35%', scaleDefault: 1 },
 }
 
 // ── Temas completos (presets curados) ─────────────────────────────────────
@@ -335,6 +344,8 @@ const PRESETS = {
   miku:       { nombre: 'Hatsune Miku',       modo: 'oled',   accent: 'miku',   bg: 'miku',        neon: true  },
   neru:       { nombre: 'Akita Neru',          modo: 'claro',  accent: 'neru',   bg: 'neru',        neon: true  },
   berserker:  { nombre: 'Berserker',            modo: 'oled',   accent: 'berserker', bg: 'berserker', neon: true  },
+  metaphor:   { nombre: 'Metaphor: ReFantazio', modo: 'oled',   accent: 'metaphor',  bg: 'metaphor',  neon: true  },
+  kaneki:     { nombre: 'Tokyo Ghoul',           modo: 'oled',   accent: 'kaneki',    bg: 'kaneki',    neon: true  },
 }
 
 // Debounce para sync cloud — evita disparar un sync por cada clic en config
@@ -353,6 +364,7 @@ let _app18             = false
 let _activityShare     = true
 let _discordActivity   = true
 let _sidebarAutohide   = false
+let _socialFabAutohide = false  // FABs de chat/amigos: false = siempre visibles (default)
 let _portadasMaxActual = 0  // 0 = automático
 let _searchbarAutohide = false
 let _appBgImage = null   // dataUrl de la imagen de fondo (cargada desde disco)
@@ -370,6 +382,9 @@ let _appGlass    = true
 
 function setSidebarAutohide(val) {
   _sidebarAutohide = val; window.api.configSet('sidebar-autohide', val); _aplicarSidebarAutohide()
+}
+function setSocialFabAutohide(val) {
+  _socialFabAutohide = val; window.api.configSet('social-fab-autohide', val); _aplicarSocialFabAutohide()
 }
 
 // ── Portadas visibles unificada (anime + manga) ─────────────────────────────
@@ -470,7 +485,17 @@ function _socialEdgeMouseMove(e) {
     }
   })
 }
-document.addEventListener('mousemove', _socialEdgeMouseMove, { passive: true })
+function _aplicarSocialFabAutohide() {
+  document.removeEventListener('mousemove', _socialEdgeMouseMove)
+  if (_socialFabAutohide) {
+    document.body.classList.add('social-fab-autohide')
+    document.body.classList.remove('social-edge-visible')
+    document.addEventListener('mousemove', _socialEdgeMouseMove, { passive: true })
+  } else {
+    document.body.classList.remove('social-fab-autohide')
+    document.body.classList.remove('social-edge-visible')
+  }
+}
 
 function setSearchbarAutohide(val) {
   _searchbarAutohide = val; window.api.configSet('searchbar-autohide', val)
@@ -610,6 +635,8 @@ function aplicarPreset(nombre) {
   if (nombre === 'miku' && typeof window._mikuTemaChime === 'function') window._mikuTemaChime()
   if (nombre === 'neru' && typeof window._neruTemaChime === 'function') window._neruTemaChime()
   if (nombre === 'berserker' && typeof window._berserkerTemaChime === 'function') window._berserkerTemaChime()
+  if (nombre === 'metaphor' && typeof window._metaphorTemaChime === 'function') window._metaphorTemaChime()
+  if (nombre === 'kaneki' && typeof window._kanekiTemaChime === 'function') window._kanekiTemaChime()
   _mostrarToast(`Tema aplicado: ${p.nombre}`)
 }
 // ── Identidad del tema aplicado (para efectos especiales tipo Miku) ──────
@@ -620,6 +647,8 @@ function _setTemaId(id) {
   if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(id)
   if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(id)
   if (typeof window._berserkerTemaAplicado === 'function') window._berserkerTemaAplicado(id)
+  if (typeof window._metaphorTemaAplicado === 'function') window._metaphorTemaAplicado(id)
+  if (typeof window._kanekiTemaAplicado === 'function') window._kanekiTemaAplicado(id)
   _syncGuardarInmediato()
 }
 function setConfig18(val) {
@@ -994,6 +1023,7 @@ function abrirConfig() {
   document.querySelectorAll('.cfg-color').forEach(b => b.classList.toggle('activo', b.dataset.accent === _appAccent))
   const tog18 = document.getElementById('cfg-tog-18'); if (tog18) tog18.checked = _app18
   const togSb = document.getElementById('cfg-tog-sidebar'); if (togSb) togSb.checked = _sidebarAutohide
+  const togSocialFab = document.getElementById('cfg-tog-social-fab'); if (togSocialFab) togSocialFab.checked = _socialFabAutohide
   const togNeon = document.getElementById('cfg-tog-neon'); if (togNeon) togNeon.checked = _sidebarNeon
   const togActivity = document.getElementById('cfg-tog-activity'); if (togActivity) togActivity.checked = _activityShare
   const togDiscord  = document.getElementById('cfg-tog-discord');  if (togDiscord)  togDiscord.checked  = _discordActivity
@@ -1151,7 +1181,7 @@ async function initConfig() {
     // ── Migración desde localStorage (primera vez con config en archivo) ──
     if (Object.keys(cfg).length === 0) {
       const KEYS = ['app-modo','app-accent','app-18','sidebar-autohide',
-                    'searchbar-autohide','sidebar-neon','app-bg-opacity']
+                    'searchbar-autohide','sidebar-neon','app-bg-opacity','social-fab-autohide']
       const migrated = {}
       KEYS.forEach(k => { const v = localStorage.getItem(k); if (v !== null) migrated[k] = v })
       if (Object.keys(migrated).length > 0) {
@@ -1171,6 +1201,7 @@ async function initConfig() {
     _appAccent = cfg['app-accent'] || 'blue'
     _app18     = cfg['app-18'] === true || cfg['app-18'] === 'true'
     _sidebarAutohide   = cfg['sidebar-autohide']   === true || cfg['sidebar-autohide']   === 'true'
+    _socialFabAutohide = cfg['social-fab-autohide'] === true || cfg['social-fab-autohide'] === 'true'
     _searchbarAutohide = cfg['searchbar-autohide'] === true || cfg['searchbar-autohide'] === 'true'
     _sidebarNeon       = cfg['sidebar-neon']       === true || cfg['sidebar-neon']       === 'true'
     _neonIntensidad    = cfg['neon-intensidad'] || 'medio'
@@ -1215,6 +1246,7 @@ async function initConfig() {
 
     document.body.classList.toggle('show-18', _app18)
     _aplicarSidebarAutohide()
+    _aplicarSocialFabAutohide()
     document.body.classList.toggle('searchbar-autohide', _searchbarAutohide)
     document.body.classList.toggle('sidebar-neon', _sidebarNeon)
     document.body.dataset.neonIntensidad = _neonIntensidad
@@ -1229,6 +1261,8 @@ async function initConfig() {
     if (typeof window._mikuTemaAplicado === 'function') window._mikuTemaAplicado(_appTemaId)
     if (typeof window._neruTemaAplicado === 'function') window._neruTemaAplicado(_appTemaId)
     if (typeof window._berserkerTemaAplicado === 'function') window._berserkerTemaAplicado(_appTemaId)
+    if (typeof window._metaphorTemaAplicado === 'function') window._metaphorTemaAplicado(_appTemaId)
+    if (typeof window._kanekiTemaAplicado === 'function') window._kanekiTemaAplicado(_appTemaId)
     const _cfgMikuSonido = document.getElementById('cfg-tog-miku-sonido')
     if (_cfgMikuSonido) _cfgMikuSonido.checked = _appMikuSonido
     document.querySelectorAll('.cfg-color').forEach(b => b.classList.toggle('activo', b.dataset.accent === _appAccent))
@@ -1258,7 +1292,7 @@ async function initConfig() {
   } catch(e) {}
 }
 
-// ── Fullscreen + cursor temático (Miku/Neru) ─────────────────────────────
+// ── Fullscreen + cursor temático (Miku/Neru/Berserker/Metaphor/Kaneki) ───
 // #miku-cursor-fx / #neru-cursor-fx cuelgan directo de <body> (ver
 // miku.js/neru.js). La Fullscreen API del navegador solo pinta el elemento
 // que entra en pantalla completa (.rp-shell del reproductor) y sus
@@ -1270,7 +1304,7 @@ async function initConfig() {
 // mientras dure, y se devuelve a <body> al salir.
 function _reubicarCursorTematicoFullscreen() {
   const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.body
-  ;['miku-cursor-fx', 'neru-cursor-fx', 'berserker-cursor-fx'].forEach(id => {
+  ;['miku-cursor-fx', 'neru-cursor-fx', 'berserker-cursor-fx', 'metaphor-cursor-fx', 'kaneki-cursor-fx'].forEach(id => {
     const el = document.getElementById(id)
     if (el && el.parentNode !== fsEl) fsEl.appendChild(el)
   })
@@ -1278,5 +1312,21 @@ function _reubicarCursorTematicoFullscreen() {
 document.addEventListener('fullscreenchange', _reubicarCursorTematicoFullscreen)
 document.addEventListener('webkitfullscreenchange', _reubicarCursorTematicoFullscreen)
 window._reubicarCursorTematicoFullscreen = _reubicarCursorTematicoFullscreen
+
+// El cursor temático (#miku-cursor-fx / #neru-cursor-fx / #berserker-cursor-fx)
+// solo se oculta con mouseleave (mouse fuera de la ventana) -- nunca por
+// inactividad. Eso significa que cuando el reproductor oculta sus controles
+// tras unos segundos sin mover el mouse (ver showControls/hideControls en
+// anime.js), el cursor NATIVO sí se oculta pero este sprite se queda
+// pegado en pantalla para siempre en el último punto donde se movió el
+// mouse. Se expone esta función para que el reproductor pueda ocultarlo
+// también -- basta con sacarle la clase "activo" (visibilidad es puro CSS);
+// para volver a mostrarlo no hace falta reponer nada: el próximo mousemove
+// real ya la vuelve a poner sola (mismo evento que reabre los controles).
+window._cursorTematicoOcultar = function() {
+  ;['miku-cursor-fx', 'neru-cursor-fx', 'berserker-cursor-fx', 'metaphor-cursor-fx', 'kaneki-cursor-fx'].forEach(id => {
+    document.getElementById(id)?.classList.remove('activo')
+  })
+}
 
 initConfig()

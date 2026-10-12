@@ -226,6 +226,7 @@
     onAoCFUnlocking:() => {},
 
     // Auto-updater (Android lo maneja diferente)
+    onAppUpdated:       () => {},
     onUpdateAvailable:  () => {},
     onUpdateProgress:   () => {},
     onUpdateDownloaded: () => {},

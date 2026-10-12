@@ -11,6 +11,24 @@ function _mnSrc() { return window._activeMangaSource ? '-' + window._activeManga
 // Cache en memoria de portadas: url → imgUrl (evita re-pedir al IPC en la misma sesión)
 const _portadaCache = new Map()
 
+// ── TOMBSTONES MANGA (borrados) ──────────────────────────────────────────
+// Igual que en anime (main.js): sin esto, borrar un favorito o el historial
+// de manga no se respetaba -- la sync mergea local + nube como unión, así que
+// lo borrado volvía desde la nube. Un tombstone guarda CUÁNDO se borró cada
+// ítem; sync.js lo descarta solo si el ítem se volvió a agregar después (ts
+// más nuevo). Un solo store para todas las fuentes (las URLs no se repiten).
+const _MN_TOMB_KEY = 'manga-tombstones'
+function _mnMarcarBorrado(tipo, claves) {
+  try {
+    const t = JSON.parse(localStorage.getItem(_MN_TOMB_KEY) || '{}')
+    t.favs = t.favs || {}; t.hist = t.hist || {}; t.prog = t.prog || {}
+    t[tipo] = t[tipo] || {}
+    const ahora = Date.now()
+    for (const k of claves || []) if (k) t[tipo][k] = ahora
+    localStorage.setItem(_MN_TOMB_KEY, JSON.stringify(t))
+  } catch (e) {}
+}
+
 // ── FAVORITOS MANGA (localStorage) ──────────────────────────────────────
 function getMangaFavs() {
   return JSON.parse(localStorage.getItem('manga-favs' + _mnSrc()) || '[]')
@@ -28,12 +46,14 @@ function toggleMangaFav() {
   const idx = favs.findIndex(f => f.url === _mangaActual.url)
   if (idx > -1) {
     favs.splice(idx, 1)
+    _mnMarcarBorrado('favs', [_mangaActual.url])
   } else {
     favs.unshift({
       url: _mangaActual.url,
       titulo: _mangaActual.titulo,
       imagen: _mangaActual.imagen || '',
-      generos: _mangaActual.generos || []
+      generos: _mangaActual.generos || [],
+      ts: Date.now()  // cuándo se agregó -- lo usa la sync contra los tombstones
     })
   }
   setMangaFavs(favs)
@@ -86,15 +106,25 @@ function cargarMangaHistorial() {
 // También guarda el número de capítulo para poder reconstruir la navegación
 
 function limpiarMangaHistorial() {
+  try {
+    const hist = JSON.parse(localStorage.getItem('manga-historial' + _mnSrc()) || '[]')
+    _mnMarcarBorrado('hist', hist.map(h => h.link))
+  } catch (e) {}
   localStorage.removeItem('manga-historial' + _mnSrc())
   cargarMangaHistorial()
 }
 function _detectarFuenteUrl(url) {
   if (!url) return null
-  if (url.includes('novelcool.com')) return 'novelcool'
+  if (url.includes('manga-oni.com')) return 'manga-oni'
   if (url.includes('zonatmo.org') || url.includes('zonatmo.net') || url.includes('visortmo.com') || url.includes('tmo.to')) return 'zonatmo'
   return null
 }
+
+// Tope único del historial — antes había 3 políticas distintas (60 / 500 / sin
+// tope) según qué función tocaba manga-historial, lo que dejaba crecer el
+// array sin control al marcar un manga completo de un tirón. Un solo límite
+// compartido para las tres rutas que escriben ahí.
+const _MANGA_HIST_MAX = 60
 
 function guardarMangaHistorial(capLink, titulo, imagen, mangaUrl) {
   const hist = JSON.parse(localStorage.getItem('manga-historial' + _mnSrc()) || '[]')
@@ -112,7 +142,7 @@ function guardarMangaHistorial(capLink, titulo, imagen, mangaUrl) {
     fecha: new Date().toLocaleDateString('es'),
     ts: Date.now()
   })
-  if (hist.length > 60) hist.shift()
+  if (hist.length > _MANGA_HIST_MAX) hist.shift()
   localStorage.setItem('manga-historial' + _mnSrc(), JSON.stringify(hist))
   if (_getProgresoPaginas(capLink) === 0) _guardarProgresoPaginas(capLink, 0)
 }
@@ -147,10 +177,45 @@ function _getLeidosSet() {
 function _setCapLeido(link, esLeido) {
   try {
     const leidos = JSON.parse(localStorage.getItem('manga-leidos' + _mnSrc()) || '{}')
-    if (esLeido) leidos[link] = 1
-    else delete leidos[link]
+    // El valor es CUÁNDO se marcó (antes era 1): la sync lo compara contra
+    // el tombstone de "desmarcado" para saber cuál de los dos fue último.
+    if (esLeido) leidos[link] = Date.now()
+    else { delete leidos[link]; _mnMarcarBorrado('leidos', [link]) }
     localStorage.setItem('manga-leidos' + _mnSrc(), JSON.stringify(leidos))
   } catch(e) {}
+  if (_mangaActual && _mangaActual.capitulos && _mangaActual.capitulos.some(c => c.link === link)) {
+    _recalcAlDiaManga(_mangaActual)
+  }
+}
+
+// ─── "AL DÍA" (auto) — mangas donde el usuario ya leyó TODOS los capítulos
+// que existen ahora mismo. Igual que en anime.js: se recalcula solo cada vez
+// que hay datos frescos (al abrir el manga, al marcar/desmarcar un capítulo,
+// al leer hasta el final), así que si sale un capítulo nuevo sin leer, deja
+// de contar como "al día" hasta que también se lea ese capítulo.
+const _ALDIA_MANGA_KEY = 'ryoku-al-dia-manga'
+
+function _getAlDiaManga() {
+  try { return JSON.parse(localStorage.getItem(_ALDIA_MANGA_KEY) || '{}') } catch (e) { return {} }
+}
+
+function _setAlDiaMangaEntry(url, entry) {
+  const mapa  = _getAlDiaManga()
+  const antes = JSON.stringify(mapa[url] || null)
+  if (entry) mapa[url] = entry
+  else delete mapa[url]
+  if (JSON.stringify(mapa[url] || null) === antes) return
+  localStorage.setItem(_ALDIA_MANGA_KEY, JSON.stringify(mapa))
+  if (typeof window._ryokuMarcarSyncPendiente === 'function') window._ryokuMarcarSyncPendiente()
+}
+
+function _recalcAlDiaManga(manga) {
+  if (!manga || !manga.url || !manga.capitulos || !manga.capitulos.length) return
+  const leidos = _getLeidosSet()
+  const todosLeidos = manga.capitulos.every(c => leidos.has(c.link))
+  _setAlDiaMangaEntry(manga.url, todosLeidos
+    ? { titulo: manga.titulo, imagen: manga.imagen || '', totalCaps: manga.capitulos.length, fecha: Date.now() }
+    : null)
 }
 
 // Progreso real en porcentaje para "Continuar leyendo"
@@ -237,6 +302,7 @@ async function quitarDeContinuar(mangaUrl) {
 
   const hist = JSON.parse(localStorage.getItem('manga-historial' + _mnSrc()) || '[]')
   const nuevo = hist.filter(h => (h.mangaUrl || h.link) !== mangaUrl)
+  _mnMarcarBorrado('hist', hist.filter(h => (h.mangaUrl || h.link) === mangaUrl).map(h => h.link))
   localStorage.setItem('manga-historial' + _mnSrc(), JSON.stringify(nuevo))
   mnActualizarContinuar()
 }
@@ -373,46 +439,11 @@ let _mnBibType        = ''
 let _mnBibDemo        = ''
 let _mnBibGenders     = []   // ZonaTMO: IDs numéricos
 let _mnBibExclude     = []
-let _mnBibNcGenders   = []   // NovelCool: strings directos
-let _mnBibNcExclude   = []
 let _mnBibStatus      = ''
 let _mnBibYear        = ''
 let _mnBibRate        = ''
 let _mnBibPag         = 1
 
-// Lista completa de géneros de NovelCool (de su búsqueda avanzada)
-const NC_GENRES_LIST = [
-  '4-Koma','Action','Adaptation','Animals','Anime','Anthology',
-  'Boys Love','Cartoon','Comedy','Comic','Cooking','Crime','Crossdressing',
-  'Cyberpunk','Cultivation','Delinquents','Demons','Detective','Doujinshi','Drama',
-  'Ecchi','Fantasy','Full Color','Gender Bender','Ghosts','Girls Love','Gore',
-  'Gyaru','Harem','Hentai','Historical','Horror','Incest','Isekai','Josei',
-  'Loli','Long Strip','Magic','Magical Girls','Manga','Manhua','Manhwa',
-  'Martial Arts','Mature','Mecha','Medical','Military','Monster Girls','Monsters',
-  'Music','Mystery','Ninja','One-Shot','Philosophical','Police','Post-Apocalyptic',
-  'Psychological','Reincarnation','Romance','Samurai','School Life','Sci-Fi',
-  'Seinen','Self-Published','Sexual Violence','Shoujo','Shoujo-ai',
-  'Shounen','Shounen Ai','Shota','Slice Of Life','Smut','Sports','Super Natural',
-  'Superhero','Survival','Suspense','Thriller','Time Travel','Traditional Games',
-  'Tragedy','Traps','Vampires','Video Games','Virtual Reality',
-  'Webcomic','Webtoon','Wuxia','Yonkoma','Zombie'
-]
-
-function _mnBibInitNcGeneros() {
-  const incEl = document.getElementById('mnbib-nc-generos-inc')
-  const excEl = document.getElementById('mnbib-nc-generos-exc')
-  if (!incEl || incEl.children.length) return  // ya inicializado
-  NC_GENRES_LIST.forEach(g => {
-    const bi = document.createElement('button')
-    bi.className = 'mnbib-genero'; bi.dataset.ncg = g
-    bi.textContent = g; bi.onclick = () => mnBibNcGenero(bi, 'inc')
-    incEl.appendChild(bi)
-    const be = document.createElement('button')
-    be.className = 'mnbib-genero'; be.dataset.ncg = g
-    be.textContent = g; be.onclick = () => mnBibNcGenero(be, 'exc')
-    excEl.appendChild(be)
-  })
-}
 let _mnBibFiltro      = 'all'
 let _mnBibTotal       = 0
 let _mnBibCargando    = false
@@ -424,7 +455,6 @@ function _mnBibAbrirConQuery(q) {
   // Reset completo igual que mnBibReset
   _mnBibOrden = 'likes'; _mnBibDir = 'desc'; _mnBibPag = 1
   _mnBibType = ''; _mnBibDemo = ''; _mnBibGenders = []; _mnBibExclude = []
-  _mnBibNcGenders = []; _mnBibNcExclude = []
   _mnBibStatus = ''; _mnBibYear = ''; _mnBibRate = ''
   _mnBibQuery = q; _mnBibTotal = 0; _mnBibCargando = false
   _mnBibVistosLinks = new Set()
@@ -573,6 +603,31 @@ function _mnRenderTendencias(res) {
   _mnRenderGrilla('grilla-trend', res.trend?.general || [])
   _mnRenderGrilla('grilla-new',   res.nuevos         || [])
 
+  // ── Panel "Top de la semana" (junto al banner) ──────────────────────────
+  const mnTopList = document.getElementById('mn-home-top-list')
+  if (mnTopList) {
+    const topManga = (res.pop?.general || []).slice(0, 5)
+    if (topManga.length) {
+      mnTopList.innerHTML = topManga.map((m, idx) => {
+        const url = m.link || m.url || ''
+        const img = m.imagen || _portadaCache.get(url) || ''
+        return `<div class="home-top-item" onclick="abrirManga('${_esc(url)}','${_esc(m.titulo||'')}')">
+          <span class="home-top-rank">${idx+1}</span>
+          <div class="home-top-media">
+            <img class="home-top-bg" src="${img}" onerror="this.style.visibility='hidden'" />
+            <div class="home-top-overlay"></div>
+            <div class="home-top-info">
+              <div class="home-top-title">${_esc(m.titulo||'')}</div>
+            </div>
+            ${m.tipo ? `<div class="home-top-studio">${m.tipo}</div>` : ''}
+          </div>
+        </div>`
+      }).join('')
+    } else {
+      mnTopList.innerHTML = '<div class="loading">Sin datos.</div>'
+    }
+  }
+
   // Slider con populares que tienen imagen — pedir portadas si faltan
   const todos = [...(res.pop?.general || [])]
   const conImg = todos.filter(m => m.imagen || _portadaCache.has(m.link || ''))
@@ -603,11 +658,11 @@ function _mnRenderTendencias(res) {
 }
 
 // ── CONTINUAR LEYENDO — max configurable ─────────────────────────────────
-let _mnContinuarMax = 0  // 0 = automático (6)
+let _mnContinuarMax = 0  // 0 = automático (12)
 
 function _getMnContinuarMax() {
-  const base = _mnContinuarMax > 0 ? _mnContinuarMax : (typeof _ventanaMaximizada !== 'undefined' && _ventanaMaximizada ? 6 : 4)
-  if (typeof _ventanaMaximizada !== 'undefined' && !_ventanaMaximizada && base > 4) return 4
+  const base = _mnContinuarMax > 0 ? _mnContinuarMax : (typeof _ventanaMaximizada !== 'undefined' && _ventanaMaximizada ? 12 : 8)
+  if (typeof _ventanaMaximizada !== 'undefined' && !_ventanaMaximizada && base > 8) return 8
   return base
 }
 
@@ -701,8 +756,8 @@ function mnActualizarContinuar() {
     const progPct    = _getProgresoPct(h.link)
     const letra      = tituloBase.charAt(0)
     const src        = h.source || _detectarFuenteUrl(mangaUrl)
-    const srcLabel   = src === 'novelcool' ? 'NC' : src === 'zonatmo' ? 'ZT' : ''
-    const srcColor   = src === 'novelcool' ? '#185FA5' : '#1D9E75'
+    const srcLabel   = src === 'manga-oni' ? 'MO' : src === 'zonatmo' ? 'ZT' : ''
+    const srcColor   = src === 'manga-oni' ? '#B5541D' : '#1D9E75'
     const srcBadge   = srcLabel ? `<div class="mn-cont-src-badge" style="background:${srcColor}">${srcLabel}</div>` : ''
     const coverHtml  = `<div class="mn-cont-cover-ph" data-lazy-url="${mangaUrl.replace(/"/g,'&quot;')}" data-src="${img.replace(/"/g,'&quot;')}" data-letra="${letra}">${letra}${srcBadge}</div>`
     return `<div class="mn-cont-card"
@@ -857,8 +912,6 @@ async function _mnBibCargar(reset = false) {
     if (_mnBibDemo)             params.demography      = _mnBibDemo
     if (_mnBibGenders?.length)    params.genders         = _mnBibGenders
     if (_mnBibExclude?.length)    params.exclude_genders = _mnBibExclude
-    if (_mnBibNcGenders?.length)  params.nc_genders      = _mnBibNcGenders
-    if (_mnBibNcExclude?.length)  params.nc_exclude      = _mnBibNcExclude
     if (_mnBibStatus)             params.status          = _mnBibStatus
     if (_mnBibYear)             params.year            = _mnBibYear
     if (_mnBibRate)             params.rate            = _mnBibRate
@@ -883,7 +936,11 @@ async function _mnBibCargar(reset = false) {
     }
     if (countEl)  countEl.textContent  = `${_mnBibTotal} mangas`
     if (pagLabel) pagLabel.textContent = `Página ${_mnBibPag}`
-    const _pageSize = window._activeMangaSource === 'novelcool' ? 48 : 24
+    // Las fuentes (zonatmo, manga-oni) devuelven hasta 48 items por página de
+    // búsqueda/biblioteca -- antes se asumía 24, lo que hacía aparecer
+    // "Siguiente" habilitado en la última página real cada vez que devolvían
+    // entre 24 y 47 resultados.
+    const _pageSize = 48
     const hayMas = lista.length >= _pageSize
     if (btnPrev) btnPrev.disabled = _mnBibPag <= 1
     if (btnNext) btnNext.disabled = !hayMas
@@ -943,7 +1000,7 @@ function mnBibToggleDrop(id) {
   if (!panel) return
   const open = panel.classList.toggle('open')
   drop.classList.toggle('open', open)
-  ;['tipo','demo','gen','exc','nc-gen','nc-exc','estado','rate'].filter(d=>d!==id).forEach(d=>{
+  ;['tipo','demo','gen','exc','estado','rate'].filter(d=>d!==id).forEach(d=>{
     document.getElementById(`drop-${d}-panel`)?.classList.remove('open')
     document.getElementById(`drop-${d}`)?.classList.remove('open')
   })
@@ -1033,50 +1090,26 @@ function mnBibYear(sel) {
   _mnBibAutocargar()
 }
 function _mnBibSyncSource(src) {
-  const isNC = src === 'novelcool'
-  // Orden/Dir: solo ZonaTMO
+  const isMO = src === 'manga-oni'
+  // Orden/Dir: MangaOni no tiene combos de order_item/order_dir en su
+  // /directorio (buscarManga en manga-oni.js nunca lee p.order_item/
+  // p.order_dir) -- se oculta para no mostrar un control sin efecto.
   const ordenWrap = document.getElementById('mnbib-orden-wrap')
-  if (ordenWrap) ordenWrap.style.display = isNC ? 'none' : 'contents'
-  // Demografía: solo ZonaTMO
+  if (ordenWrap) ordenWrap.style.display = isMO ? 'none' : 'contents'
+  // Demografía y géneros (incluir): ZonaTMO directo, MangaOni vía DEMO_TO_MO /
+  // GID_TO_MO en manga-oni.js -- visibles para las dos.
   const demoEl = document.getElementById('drop-demo')
-  if (demoEl) demoEl.style.display = isNC ? 'none' : ''
-  // Géneros/Excluir ZT: solo ZonaTMO
+  if (demoEl) demoEl.style.display = ''
   const ztFilters = document.getElementById('mnbib-zt-filters')
-  if (ztFilters) ztFilters.style.display = isNC ? 'none' : 'contents'
-  // Géneros/Excluir NC: solo NovelCool
-  const ncFilters = document.getElementById('mnbib-nc-filters')
-  if (ncFilters) ncFilters.style.display = isNC ? 'contents' : 'none'
-  // Rating y Año: NovelCool no los soporta sin form automation → ocultar para NC
+  if (ztFilters) ztFilters.style.display = 'contents'
+  // Excluir géneros, Rating y Año: MangaOni no los soporta (su buscarManga
+  // nunca lee p.exclude_genders / p.rate / p.year).
+  const dropExc = document.getElementById('drop-exc')
+  if (dropExc) dropExc.style.display = isMO ? 'none' : ''
   const rateEl = document.getElementById('drop-rate')
-  if (rateEl) rateEl.style.display = isNC ? 'none' : ''
+  if (rateEl) rateEl.style.display = isMO ? 'none' : ''
   const yearEl = document.getElementById('drop-year')
-  if (yearEl) yearEl.style.display = isNC ? 'none' : ''
-  // Estado: ambas fuentes lo soportan (NC via categorías /completed y /updated)
-  // Inicializar botones NC si aún no se hizo
-  if (isNC) _mnBibInitNcGeneros()
-}
-function mnBibNcGenero(btnEl, mode) {
-  const g = btnEl.dataset.ncg
-  if (mode === 'inc') {
-    const idx = _mnBibNcGenders.indexOf(g)
-    if (idx >= 0) { _mnBibNcGenders.splice(idx, 1); btnEl.classList.remove('inc') }
-    else          { _mnBibNcGenders.push(g);          btnEl.classList.add('inc') }
-    _mnBibNcExclude = _mnBibNcExclude.filter(x => x !== g)
-    document.querySelectorAll(`#mnbib-nc-generos-exc [data-ncg="${g}"]`).forEach(b => b.classList.remove('exc'))
-  } else {
-    const idx = _mnBibNcExclude.indexOf(g)
-    if (idx >= 0) { _mnBibNcExclude.splice(idx, 1); btnEl.classList.remove('exc') }
-    else          { _mnBibNcExclude.push(g);          btnEl.classList.add('exc') }
-    _mnBibNcGenders = _mnBibNcGenders.filter(x => x !== g)
-    document.querySelectorAll(`#mnbib-nc-generos-inc [data-ncg="${g}"]`).forEach(b => b.classList.remove('inc'))
-  }
-  const gv = document.getElementById('drop-nc-gen-val')
-  const ev = document.getElementById('drop-nc-exc-val')
-  if (gv) gv.textContent = _mnBibNcGenders.length ? `${_mnBibNcGenders.length} sel.` : ''
-  if (ev) ev.textContent = _mnBibNcExclude.length ? `${_mnBibNcExclude.length} excl.` : ''
-  document.getElementById('drop-nc-gen')?.classList.toggle('has-filter', _mnBibNcGenders.length > 0)
-  document.getElementById('drop-nc-exc')?.classList.toggle('has-filter', _mnBibNcExclude.length > 0)
-  _mnBibAutocargar()
+  if (yearEl) yearEl.style.display = isMO ? 'none' : ''
 }
 function mnBibBuscar() {
   _mnBibCargando = false  // reset por si quedó bloqueado de una búsqueda anterior
@@ -1093,7 +1126,6 @@ function mnBibAplicarFiltros() {
 function mnBibReset() {
   _mnBibOrden='likes'; _mnBibDir='desc'; _mnBibPag=1
   _mnBibType=''; _mnBibDemo=''; _mnBibGenders=[]; _mnBibExclude=[]
-  _mnBibNcGenders=[]; _mnBibNcExclude=[]
   _mnBibStatus=''; _mnBibYear=''; _mnBibRate=''
   _mnBibQuery=''; _mnBibTotal=0; _mnBibCargando=false; _mnBibVistosLinks=new Set()
   // Reset UI labels
@@ -1106,12 +1138,6 @@ function mnBibReset() {
   const ev=document.getElementById('drop-exc-val'); if(ev) ev.textContent=''
   document.getElementById('drop-gen')?.classList.remove('has-filter')
   document.getElementById('drop-exc')?.classList.remove('has-filter')
-  document.getElementById('drop-nc-gen')?.classList.remove('has-filter')
-  document.getElementById('drop-nc-exc')?.classList.remove('has-filter')
-  const ncgv=document.getElementById('drop-nc-gen-val'); if(ncgv) ncgv.textContent=''
-  const ncev=document.getElementById('drop-nc-exc-val'); if(ncev) ncev.textContent=''
-  document.querySelectorAll('#mnbib-nc-generos-inc .mnbib-genero').forEach(b=>b.classList.remove('inc'))
-  document.querySelectorAll('#mnbib-nc-generos-exc .mnbib-genero').forEach(b=>b.classList.remove('exc'))
   document.querySelectorAll('#page-manga-biblioteca [data-type]').forEach(b=>b.classList.toggle('activo',b.dataset.type===''))
   document.querySelectorAll('#page-manga-biblioteca [data-demo]').forEach(b=>b.classList.toggle('activo',b.dataset.demo===''))
   document.querySelectorAll('.mnbib-genero').forEach(b=>b.classList.remove('inc','exc'))
@@ -1423,13 +1449,14 @@ function toggleCapLeido(link, titulo, mangaUrl) {
     const capNum = titulo.split(' - Cap ')[1] || ''
     if (idx > -1) hist.splice(idx, 1)
     hist.push({ link, titulo, mangaUrl, capNum, imagen, fecha: new Date().toLocaleDateString('es'), ts: Date.now() })
-    if (hist.length > 500) hist.shift()
+    if (hist.length > _MANGA_HIST_MAX) hist.shift()
   }
   // Al desmarcar: resetear progreso de páginas
   if (estaLeido) {
     const prog = JSON.parse(localStorage.getItem('manga-progreso' + _mnSrc()) || '{}')
     delete prog[link]
     localStorage.setItem('manga-progreso' + _mnSrc(), JSON.stringify(prog))
+    _mnMarcarBorrado('prog', [link])
   }
   // Al desmarcar NO eliminamos del historial para que siga en "continuar leyendo"
   localStorage.setItem('manga-historial' + _mnSrc(), JSON.stringify(hist))
@@ -1516,6 +1543,8 @@ function _mdRenderCapitulos(capsList, tituloManga) {
       )
     }
   })
+
+  _recalcAlDiaManga(_mangaActual)
 }
 
 function mdToggleOrden() {
@@ -1612,17 +1641,25 @@ window.toggleMangaCompletado = function () {
       const leidos = JSON.parse(localStorage.getItem('manga-leidos'   + _mnSrc()) || '{}')
       const ahora   = Date.now()
       const fechaStr = new Date().toLocaleDateString('es')
-      _mangaActual.capitulos.forEach(cap => {
-        const tituloC = `${_mangaActual.titulo} - Cap ${cap.num}`
-        // manga-historial: eliminar entrada previa y agregar actualizada
-        const idxCap = hist.findIndex(h => h.link === cap.link)
+      // manga-leidos: marcar TODOS como leídos (fuente de verdad del ojo y de "al día")
+      _mangaActual.capitulos.forEach(cap => { leidos[cap.link] = ahora })
+      // manga-historial: antes esto empujaba UNA entrada por capítulo (podía ser
+      // cientos en un manga largo) sin ningún tope — solo hacía falta una, la del
+      // último capítulo (capitulos[0], vienen ordenados desc), para que "continuar
+      // leyendo" quede al día. El resto de capítulos ya quedan marcados vía leidos.
+      const capUltimo = _mangaActual.capitulos[0]
+      if (capUltimo) {
+        const idxCap = hist.findIndex(h => h.link === capUltimo.link)
         if (idxCap > -1) hist.splice(idxCap, 1)
-        hist.push({ mangaUrl: _mangaActual.url, link: cap.link, titulo: tituloC, imagen: _mangaActual.imagen || '', capNum: String(cap.num), fecha: fechaStr, ts: ahora })
-        // manga-leidos: marcar como leído (fuente de verdad del ojo)
-        leidos[cap.link] = 1
-      })
+        hist.push({ mangaUrl: _mangaActual.url, link: capUltimo.link, titulo: `${_mangaActual.titulo} - Cap ${capUltimo.num}`, imagen: _mangaActual.imagen || '', capNum: String(capUltimo.num), fecha: fechaStr, ts: ahora })
+        while (hist.length > _MANGA_HIST_MAX) hist.shift()
+      }
       localStorage.setItem('manga-historial' + _mnSrc(), JSON.stringify(hist))
       localStorage.setItem('manga-leidos'   + _mnSrc(), JSON.stringify(leidos))
+      // Antes esto se saltaba _setCapLeido() (que es quien dispara el recálculo
+      // de "al día" para el perfil), así que marcar Completado no actualizaba el
+      // contador de Manga en el perfil. Recalculamos directo acá.
+      _recalcAlDiaManga(_mangaActual)
       _mdRenderCapitulos(_mangaActual.capitulos, _mangaActual.titulo)
       if (typeof mnActualizarContinuar === 'function') mnActualizarContinuar()
     }
@@ -1723,7 +1760,7 @@ async function abrirCapitulo(url, titulo, caps = null, capIdx = -1) {
   // Sidebar capítulos con nuevo render
   rlRenderCapsSidebar()
 
-  // Cargar páginas — NovelCool muestra source picker antes de cargar
+  // Cargar páginas
   const pags = document.getElementById('manga-lector-paginas')
   _urlCapActual = url    // guardar para el progreso por páginas
   pags.innerHTML = `<div class="rl-loading"><div class="mn-spinner"></div><span>Cargando capítulo...<br><small style="font-size:10px;color:#555;margin-top:4px;display:block">Puede tardar unos segundos</small></span></div>`
@@ -1732,61 +1769,11 @@ async function abrirCapitulo(url, titulo, caps = null, capIdx = -1) {
   // Stale-load guard: si otro abrirCapitulo arranca después, este resultado se descarta.
   const _mySeq = ++_capLoadSeq
 
-  // ── Streaming progresivo (NovelCool) ──────────────────────────────────────
-  // onChunk rellena slots placeholder pre-creados — el contador no cambia.
-  window.api.offNcPagesMore?.()
-  window.api.offNcPagesDone?.()
-
-  // Al terminar la carga, recortar placeholders vacíos sobrantes del final
-  window.api.onNcPagesDone?.((actualTotal) => {
-    if (_capLoadSeq !== _mySeq) return
-    const pagsEl = document.getElementById('manga-lector-paginas')
-    if (!pagsEl) return
-    // Eliminar placeholders vacíos al final (cuando totalEst > páginas reales)
-    while (_rlPaginasUrls.length > actualTotal && _rlPaginasUrls[_rlPaginasUrls.length - 1] === '') {
-      const lastIdx = _rlPaginasUrls.length - 1
-      _rlPaginasUrls.pop()
-      pagsEl.querySelector(`img[data-idx="${lastIdx}"]`)?.remove()
-    }
-    // Actualizar el total real (solo si cambió)
-    if (_rlTotalPaginas !== _rlPaginasUrls.length) {
-      _rlTotalPaginas = _rlPaginasUrls.length
-      updateProgress(_rlPaginaActual, _rlTotalPaginas)
-    }
-  })
-
-  window.api.onNcPagesMore?.((newPages) => {
-    if (_capLoadSeq !== _mySeq) return
-    if (!newPages?.length) return
-    const pagsEl = document.getElementById('manga-lector-paginas')
-    if (!pagsEl) return
-    let startIdx = _rlPaginasUrls.indexOf('')
-    newPages.forEach((p, offset) => {
-      if (!p) return
-      const idx = startIdx >= 0 ? startIdx + offset : _rlPaginasUrls.length
-      if (idx < _rlPaginasUrls.length) {
-        _rlPaginasUrls[idx] = p
-        const img = pagsEl.querySelector(`img[data-idx="${idx}"]`)
-        if (img) { img.src = p; img.style.opacity = '0'; img.onload = () => { img.style.opacity = '1' } }
-      } else {
-        _rlPaginasUrls.push(p)
-        const i = _rlPaginasUrls.length - 1
-        const img = document.createElement('img')
-        img.className = 'manga-pagina'; img.dataset.idx = String(i); img.src = p
-        img.style.cssText = 'opacity:0;transition:opacity 0.2s'; img.loading = 'lazy'
-        img.onload = () => { img.style.opacity = '1' }
-        img.onerror = () => { img.style.opacity = '1'; img.style.minHeight = '0'; img.style.height = '0' }
-        pagsEl.appendChild(img)
-      }
-    })
-    if (_rlModo === 'vertical') _rlIniciarScrollObserver(pagsEl)
-  })
-
   const result = await window.api.getMangaPaginas(url, 1)
 
   if (_mySeq !== _capLoadSeq) return
 
-  // Soporta array simple (ZonaTMO) y {pages, total} (NovelCool progresivo)
+  // Soporta array simple (ZonaTMO, MangaOni) y {pages, total} (formato progresivo)
   const isProgressive = result && !Array.isArray(result) && Array.isArray(result.pages)
   const firstPages = isProgressive ? result.pages : (Array.isArray(result) ? result : [])
   const totalEst   = isProgressive ? result.total  : firstPages.length
@@ -2500,6 +2487,7 @@ function _rlIrAPagina(idx, guardar = true) {
 // Guardamos la URL del capítulo actual para el progreso
 let _urlCapActual = ''
 
+let _rlCambioCapPendiente = false
 function rlNextPag() {
   const pags = document.getElementById('manga-lector-paginas')
   const total = pags?.querySelectorAll('.manga-pagina').length || 0
@@ -2508,10 +2496,15 @@ function rlNextPag() {
     _rlIrAPagina(_rlPaginaActual - 1 + paso)
   } else {
     const siguienteIdx = _capActualIdx - 1
-    if (siguienteIdx >= 0) {
+    // Un solo cambio de capítulo a la vez: dejar la flecha apretada al final
+    // programaba una apertura por cada repetición de tecla (y cada una
+    // cada una abre una ventana oculta que vive hasta 2 minutos).
+    if (siguienteIdx >= 0 && !_rlCambioCapPendiente) {
       const c = _capsActuales[siguienteIdx]
+      _rlCambioCapPendiente = true
       _rlToastCap(`Capítulo ${c.num}`)
       setTimeout(() => {
+        _rlCambioCapPendiente = false
         abrirCapitulo(c.link, `${_mangaTituloActual} - Cap ${c.num}`, null, siguienteIdx)
       }, 800)
     }
@@ -2590,7 +2583,7 @@ function rlRenderCapsSidebar() {
       ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
       : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`
     return `<div class="rl-cap-item${esActivo ? ' activo' : ''}${esLeidoReal ? ' leido' : ''}"
-      data-idx="${i}" data-link="${c.link.replace(/"/g,'&quot;')}" data-titulo="${_esc(tituloBase + ' - Cap ' + c.num)}">
+      data-idx="${i}" data-link="${c.link.replace(/"/g,'&quot;')}" data-titulo="${_escHtml(tituloBase + ' - Cap ' + c.num)}">
       <div class="rl-cap-body">
         <div class="rl-cap-nombre">Capítulo ${c.num}</div>
         <div class="rl-cap-fecha">${c.fecha || ''}</div>
@@ -2806,6 +2799,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', e => {
     const lector = document.getElementById('page-manga-lector')
     if (!lector?.classList.contains('activa')) return
+    // No robar teclas mientras se escribe (p.ej. el chat abierto encima del
+    // lector): antes A/D pasaban de página y no se podían escribir.
+    const _ae = document.activeElement
+    if (_ae && (_ae.tagName === 'INPUT' || _ae.tagName === 'TEXTAREA' || _ae.isContentEditable)) return
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); if (_rlTipoObra !== 'manhwa' && _rlTipoObra !== 'manhua') rlNextPag() }
     if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { e.preventDefault(); if (_rlTipoObra !== 'manhwa' && _rlTipoObra !== 'manhua') rlPrevPag() }
   })
@@ -2833,222 +2830,4 @@ document.addEventListener('DOMContentLoaded', () => {
     if (q) { if (typeof sbSaveHistory === 'function') sbSaveHistory('manga', q); _mnBibAbrirConQuery(q) }
   })
 
-  // ── AUTOCOMPLETE DE BÚSQUEDA (deshabilitado) ───────────────────────────────
-  ;(function _mnSuggestInit() { return;
-    if (!document.getElementById('mn-suggest-style')) {
-      const s = document.createElement('style')
-      s.id = 'mn-suggest-style'
-      s.textContent =
-        '.mn-suggest-drop{position:fixed;z-index:99999;background:var(--bg-2,#16162a);' +
-        'border:1px solid rgba(124,58,237,.4);border-radius:12px;overflow:hidden;' +
-        'box-shadow:0 12px 40px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.04);' +
-        'backdrop-filter:blur(12px)}' +
-
-        '.mn-suggest-header{padding:8px 14px 6px;font-size:10px;font-weight:600;' +
-        'letter-spacing:.8px;color:var(--accent,#7C3AED);text-transform:uppercase;' +
-        'border-bottom:1px solid rgba(255,255,255,.06)}' +
-
-        '.mn-suggest-scroll{max-height:340px;overflow-y:auto}' +
-        '.mn-suggest-scroll::-webkit-scrollbar{width:4px}' +
-        '.mn-suggest-scroll::-webkit-scrollbar-track{background:transparent}' +
-        '.mn-suggest-scroll::-webkit-scrollbar-thumb{background:rgba(124,58,237,.4);border-radius:2px}' +
-
-        '.mn-suggest-loading{padding:14px 16px;font-size:12px;color:var(--text-2,#9ca3af);' +
-        'display:flex;align-items:center;gap:8px}' +
-        '.mn-suggest-spinner{width:13px;height:13px;border:2px solid rgba(124,58,237,.3);' +
-        'border-top-color:var(--accent,#7C3AED);border-radius:50%;animation:mn-sug-spin .7s linear infinite;flex-shrink:0}' +
-        '@keyframes mn-sug-spin{to{transform:rotate(360deg)}}' +
-
-        '.mn-suggest-item{display:flex;align-items:center;gap:10px;padding:7px 12px;' +
-        'cursor:pointer;transition:background .1s;border-bottom:1px solid rgba(255,255,255,.04)}' +
-        '.mn-suggest-item:last-child{border-bottom:none}' +
-        '.mn-suggest-item:hover,.mn-suggest-item.mn-sf{background:rgba(124,58,237,.15)}' +
-
-        '.mn-sug-img-wrap{width:36px;height:48px;flex-shrink:0;border-radius:5px;overflow:hidden;' +
-        'background:var(--bg-3,#1e1e38);display:flex;align-items:center;justify-content:center}' +
-        '.mn-sug-img-wrap img{width:100%;height:100%;object-fit:cover}' +
-        '.mn-sug-letter{font-size:15px;font-weight:700;color:var(--accent,#7C3AED);opacity:.7}' +
-
-        '.mn-suggest-txt{overflow:hidden;min-width:0;flex:1}' +
-        '.mn-suggest-title{font-size:13px;font-weight:500;color:var(--text-1,#e2e8f0);' +
-        'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}' +
-        '.mn-suggest-badges{display:flex;align-items:center;gap:5px;margin-top:3px}' +
-        '.mn-sug-tipo{font-size:9px;font-weight:600;letter-spacing:.5px;padding:1px 5px;' +
-        'border-radius:3px;text-transform:uppercase}' +
-        '.mn-sug-tipo.manga{background:rgba(99,102,241,.2);color:#818cf8}' +
-        '.mn-sug-tipo.manhwa{background:rgba(16,185,129,.2);color:#34d399}' +
-        '.mn-sug-tipo.manhua{background:rgba(245,158,11,.2);color:#fbbf24}' +
-        '.mn-sug-tipo.default{background:rgba(124,58,237,.2);color:#a78bfa}' +
-
-        '.mn-suggest-footer{padding:7px 14px;font-size:11px;color:var(--accent,#7C3AED);' +
-        'cursor:pointer;text-align:center;border-top:1px solid rgba(255,255,255,.06);' +
-        'transition:background .1s;font-weight:500}' +
-        '.mn-suggest-footer:hover{background:rgba(124,58,237,.1)}'
-      document.head.appendChild(s)
-    }
-
-    const _drop = document.createElement('div')
-    _drop.className = 'mn-suggest-drop'
-    _drop.style.display = 'none'
-    document.body.appendChild(_drop)
-
-    let _reqTimer = null, _loadTimer = null, _lastQ = '', _focus = -1, _sugs = [], _activeInput = null
-
-    const _cerrar = () => {
-      _drop.style.display = 'none'
-      clearTimeout(_reqTimer); clearTimeout(_loadTimer)
-      _focus = -1; _sugs = []; _lastQ = ''
-    }
-
-    const _posicionar = (input) => {
-      const r = input.getBoundingClientRect()
-      const w = Math.max(r.width, 300)
-      _drop.style.width  = w + 'px'
-      _drop.style.top    = (r.bottom + 4) + 'px'
-      _drop.style.left   = r.left + 'px'
-    }
-
-    const _mostrarLoading = (input) => {
-      _drop.innerHTML =
-        '<div class="mn-suggest-header">Buscando en NovelCool</div>' +
-        '<div class="mn-suggest-loading"><div class="mn-suggest-spinner"></div>Buscando...</div>'
-      _posicionar(input)
-      _drop.style.display = 'block'
-    }
-
-    const _tipoClass = (tipo) => {
-      const t = (tipo || '').toLowerCase()
-      return t === 'manhwa' ? 'manhwa' : t === 'manhua' ? 'manhua' : t === 'manga' ? 'manga' : 'default'
-    }
-
-    const _render = (resultados, input, query) => {
-      // Deduplicar por título (misma búsqueda puede devolver variantes con distinto URL)
-      const _seenT = new Set()
-      _sugs = (resultados || []).filter(m => {
-        const t = (m.titulo || '').toLowerCase().trim()
-        if (!t || _seenT.has(t)) return false
-        _seenT.add(t); return true
-      })
-      _focus = -1
-      if (!_sugs.length) { _cerrar(); return }
-
-      const itemsHTML = _sugs.map((m, i) => {
-        const letra = (m.titulo || '?').charAt(0).toUpperCase()
-        const imgHTML = m.imagen
-          ? '<img src="' + m.imagen + '" id="mn-sug-img-' + i + '" onerror="this.style.display=\'none\';document.getElementById(\'mn-sug-ph-' + i + '\').style.display=\'flex\'">' +
-            '<span class="mn-sug-letter" id="mn-sug-ph-' + i + '" style="display:none">' + letra + '</span>'
-          : '<span class="mn-sug-letter" id="mn-sug-ph-' + i + '">' + letra + '</span>'
-        const tc = _tipoClass(m.tipo)
-        return '<div class="mn-suggest-item" data-i="' + i + '">' +
-          '<div class="mn-sug-img-wrap">' + imgHTML + '</div>' +
-          '<div class="mn-suggest-txt">' +
-          '<div class="mn-suggest-title">' + (m.titulo || '') + '</div>' +
-          '<div class="mn-suggest-badges"><span class="mn-sug-tipo ' + tc + '">' + (m.tipo || 'MANGA') + '</span></div>' +
-          '</div></div>'
-      }).join('')
-
-      _drop.innerHTML =
-        '<div class="mn-suggest-header">Resultados para "' + (query || '') + '"</div>' +
-        '<div class="mn-suggest-scroll">' + itemsHTML + '</div>' +
-        '<div class="mn-suggest-footer" id="mn-sug-footer">Ver todos los resultados →</div>'
-
-      _drop.querySelectorAll('.mn-suggest-item').forEach((el, i) => {
-        el.addEventListener('mousedown', (e) => {
-          e.preventDefault(); e.stopPropagation()
-          _cerrar()
-          abrirManga(_sugs[i].link, _sugs[i].titulo)
-        })
-      })
-
-      // Footer: ejecutar búsqueda completa
-      const footer = document.getElementById('mn-sug-footer')
-      if (footer) {
-        footer.addEventListener('mousedown', (e) => {
-          e.preventDefault()
-          _cerrar()
-          const q = input.value.trim()
-          if (q) { if (typeof sbSaveHistory === 'function') sbSaveHistory('manga', q); _mnBibAbrirConQuery(q) }
-        })
-      }
-
-      // Portadas: pedir todas en paralelo (las que ya tienen imagen se muestran directo,
-      // las sin imagen cargan desde IPC y actualizan el DOM cuando llegan)
-      _sugs.forEach((m, i) => {
-        if (m.imagen) return  // ya tiene imagen, nada que hacer
-        if (!m.link) return
-        window.api.getMangaPortada(m.link).then(url => {
-          if (!url) return
-          const wrap = document.querySelector('.mn-suggest-scroll .mn-suggest-item[data-i="' + i + '"] .mn-sug-img-wrap')
-          if (!wrap) return
-          const letra = (m.titulo || '?').charAt(0).toUpperCase()
-          wrap.innerHTML = '<img src="' + url + '" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<span class=mn-sug-letter>' + letra + '</span>\'">'
-        }).catch(() => {})
-      })
-
-      _posicionar(input)
-      _drop.style.display = 'block'
-    }
-
-    const _nav = (e) => {
-      if (_drop.style.display === 'none') return
-      const rows = _drop.querySelectorAll('.mn-suggest-item')
-      if (!rows.length) return
-      if (e.key === 'ArrowDown') { e.preventDefault(); _focus = Math.min(_focus + 1, rows.length - 1) }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); _focus = Math.max(_focus - 1, -1) }
-      else if (e.key === 'Escape') { e.stopPropagation(); _cerrar(); return }
-      else if (e.key === 'Enter' && _focus >= 0) {
-        e.preventDefault(); e.stopPropagation()
-        const m = _sugs[_focus]; if (m) { _cerrar(); abrirManga(m.link, m.titulo) }
-        return
-      } else { return }
-      rows.forEach((r, i) => r.classList.toggle('mn-sf', i === _focus))
-      // Scroll al ítem enfocado
-      if (_focus >= 0) rows[_focus]?.scrollIntoView({ block: 'nearest' })
-    }
-
-    const _attach = (inputId) => {
-      const input = document.getElementById(inputId)
-      if (!input) return
-
-      input.addEventListener('input', () => {
-        const q = input.value.trim()
-        _activeInput = input
-        clearTimeout(_reqTimer); clearTimeout(_loadTimer)
-
-        if (q.length < 2) { _cerrar(); return }
-
-        // Mostrar spinner enseguida (100ms) para feedback inmediato
-        _loadTimer = setTimeout(() => { if (input.value.trim() === q) _mostrarLoading(input) }, 100)
-
-        _reqTimer = setTimeout(async () => {
-          if (input.value.trim() !== q) return
-          clearTimeout(_loadTimer)
-          // sugerirManga es el endpoint ligero (límite 8, solo SSR)
-          // Si no está disponible (fuente no-novelcool) cae a buscarManga
-          const apiFn = window.api.sugerirManga || window.api.buscarManga
-          const res = await apiFn(q)
-          if (input.value.trim() !== q) return
-          _lastQ = q
-          _render(res, input, q)
-        }, 400)
-      })
-
-      input.addEventListener('keydown', _nav)
-
-      input.addEventListener('focus', () => {
-        _activeInput = input
-        if (_lastQ && input.value.trim() === _lastQ && _sugs.length) {
-          _posicionar(input); _drop.style.display = 'block'
-        }
-      })
-    }
-
-    _attach('manga-buscador-2')
-    _attach('manga-buscador')
-    _attach('mnbib-input')
-
-    document.addEventListener('mousedown', (e) => {
-      if (!_drop.contains(e.target) && e.target !== _activeInput) _cerrar()
-    }, true)
-  })()
 })

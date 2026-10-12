@@ -51,10 +51,29 @@ window.abrirPerfil = async function (uid, isOwn) {
 
   try {
     var doc = await _db.collection('users').doc(_viewingUid).get()
-    _profileData = doc.data() || {}
-    var historial = []
-    try { historial = (await window.api.getHistorial()) || [] } catch(e){}
-    _profileData._historial = historial
+    _profileData = _sanearPerfil(doc.data() || {})
+
+    // Stats ("Anime"/"Manga") — DEBEN ser del usuario que se está viendo
+    // (_viewingUid), no de este dispositivo. Antes esto siempre leía
+    // localStorage de ESTE dispositivo sin importar de quién fuera el
+    // perfil, así que un amigo veía sus propios números reflejados en TODOS
+    // los perfiles que abriera. Perfil propio: datos locales (más al día
+    // que la nube, que solo se sincroniza cada pocos minutos). Perfil
+    // ajeno: se leen los documentos sincronizados de ESE usuario en Firestore.
+    if (_isOwn) {
+      _profileData._animeAlDia = _leerJSON(localStorage.getItem('ryoku-al-dia-anime'))
+      _profileData._mangaAlDia = _leerJSON(localStorage.getItem('ryoku-al-dia-manga'))
+    } else {
+      var _dataCol = _db.collection('users').doc(_viewingUid).collection('data')
+      var _res = await Promise.all([
+        _dataCol.doc('anime_al_dia').get().catch(function(){ return null }),
+        _dataCol.doc('manga_al_dia').get().catch(function(){ return null }),
+      ])
+      var _animeAlDiaDoc = _res[0], _mangaAlDiaDoc = _res[1]
+      _profileData._animeAlDia = (_animeAlDiaDoc && _animeAlDiaDoc.exists && _animeAlDiaDoc.data().datos) || {}
+      _profileData._mangaAlDia = (_mangaAlDiaDoc && _mangaAlDiaDoc.exists && _mangaAlDiaDoc.data().datos) || {}
+    }
+
     // Sincronizar foto de perfil en sidebar al abrir perfil propio
     if (_isOwn && _profileData.avatarURL && window._authSetAvatarURL) {
       window._authSetAvatarURL(_profileData.avatarURL)
@@ -63,6 +82,10 @@ window.abrirPerfil = async function (uid, isOwn) {
   } catch (e) {
     console.error('[profile] load error', e)
   }
+}
+
+function _leerJSON(str) {
+  try { return JSON.parse(str || '{}') } catch (e) { return {} }
 }
 
 window.cerrarPerfil = function () {
@@ -115,19 +138,21 @@ function _renderPerfil() {
   var nameColor      = d.nameColor       || '#ffffff'
   var favorites      = d.favorites       || []
   var favsManga      = d.favorites_manga || []
-  var historial      = d._historial      || []
   var pub       = d.profilePublic !== false
   var bannerPos   = d.bannerPosition || 'center center'
   var avatarPos   = d.avatarPosition || 'center center'
   var bannerScale = d.bannerScale || 1
 
-  // Stats — completados desde localStorage
-  var animeCompletados = []
-  var mangaCompletados = []
-  try { animeCompletados = JSON.parse(localStorage.getItem('ryoku-completados-anime') || '[]') } catch (e) {}
-  try { mangaCompletados = JSON.parse(localStorage.getItem('ryoku-completados-manga') || '[]') } catch (e) {}
-
-  var epsCount = historial.length
+  // Stats — "Anime"/"Manga" = títulos donde ya se vio/leyó TODO lo que existe
+  // ahora mismo (automático, ver anime.js/manga.js _recalcAlDia*; vuelve a
+  // bajar solo si en algún momento sale contenido nuevo sin ver/leer).
+  // Estos datos ya vienen resueltos por usuario desde abrirPerfil() (propios
+  // o del perfil que se esté viendo, según corresponda) -- nunca desde el
+  // localStorage de este dispositivo a secas.
+  var animeAlDia = d._animeAlDia || {}
+  var mangaAlDia = d._mangaAlDia || {}
+  var animeVistosCount = Object.keys(animeAlDia).length
+  var mangaVistosCount = Object.keys(mangaAlDia).length
 
   // Avatar
   var photoURL   = d.avatarURL || d.photoURL || (_currentUser && _isOwn ? _currentUser.photoURL : null)
@@ -154,9 +179,9 @@ function _renderPerfil() {
           ? '<button class="pf-fav-remove" onclick="window._profileRemoveFav(\'' + tipo + '\',' + i + ')" title="Quitar">✕</button>'
           : ''
         html += '<div class="pf-fav-slot filled" style="position:relative">' +
-          (fav.image ? '<img src="' + fav.image + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />' :
-            '<div style="width:100%;height:100%;border-radius:8px;background:#2a2a3a;display:flex;align-items:center;justify-content:center;font-size:11px;color:rgba(255,255,255,.5);text-align:center;padding:4px">' + fav.title + '</div>') +
-          '<div class="pf-fav-title">' + fav.title + '</div>' +
+          (_urlSegura(fav.image) ? '<img src="' + _urlSegura(fav.image) + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />' :
+            '<div style="width:100%;height:100%;border-radius:8px;background:#2a2a3a;display:flex;align-items:center;justify-content:center;font-size:11px;color:rgba(255,255,255,.5);text-align:center;padding:4px">' + _escapeHtml(fav.title || '') + '</div>') +
+          '<div class="pf-fav-title">' + _escapeHtml(fav.title || '') + '</div>' +
           removeBtn +
         '</div>'
       } else {
@@ -215,9 +240,8 @@ function _renderPerfil() {
     '</div>' +
 
     '<div class="pf-stats-row">' +
-      '<div class="pf-stat"><div class="pf-stat-n">' + animeCompletados.length + '</div><div class="pf-stat-l">Anime</div></div>' +
-      '<div class="pf-stat"><div class="pf-stat-n">' + mangaCompletados.length + '</div><div class="pf-stat-l">Manga</div></div>' +
-      '<div class="pf-stat"><div class="pf-stat-n">' + epsCount + '</div><div class="pf-stat-l">Eps vistos</div></div>' +
+      '<div class="pf-stat"><div class="pf-stat-n">' + animeVistosCount + '</div><div class="pf-stat-l">Anime</div></div>' +
+      '<div class="pf-stat"><div class="pf-stat-n">' + mangaVistosCount + '</div><div class="pf-stat-l">Manga</div></div>' +
     '</div>' +
 
     '<div class="pf-section pf-favs-section">' +
@@ -272,6 +296,28 @@ function _renderPerfil() {
       '<div class="pf-section-label" id="pf-fav-picker-label">Seleccionar favorito</div>' +
       '<div id="pf-fav-list" class="pf-fav-picker-list"></div>' +
     '</div>'
+}
+
+// Valores de un perfil que van DENTRO de style="..." o url(...) (colores,
+// posiciones, imágenes). _escapeHtml no se aplicaba ahí: un perfil ajeno con
+// un "color" como  red" onmouseover="...  se salía del atributo y ejecutaba
+// código al verlo. Se dejan solo caracteres válidos de color/gradiente/
+// posición, y solo imágenes http(s)/data:image con sus comillas codificadas.
+function _cssSeguro(v) { return v == null ? v : String(v).replace(/[^#a-zA-Z0-9(),.%:\s-]/g, '') }
+function _urlSegura(v) {
+  if (!v) return v
+  var s = String(v).trim()
+  if (!/^(https?:|data:image\/)/i.test(s)) return ''
+  // %XX a mano: encodeURIComponent deja pasar ( ) y ' -- un ")" cerraba el url(...)
+  return s.replace(/["'()\\<>\s]/g, function (c) { return '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0') })
+}
+function _sanearPerfil(d) {
+  var o = Object.assign({}, d)
+  ;['bannerColor', 'accentColor', 'frameColor', 'nameColor', 'bannerPosition', 'avatarPosition'].forEach(function (k) {
+    if (o[k] != null) o[k] = _cssSeguro(o[k])
+  })
+  ;['avatarURL', 'photoURL', 'bannerURL'].forEach(function (k) { if (o[k]) o[k] = _urlSegura(o[k]) })
+  return o
 }
 
 function _escapeHtml(s) {

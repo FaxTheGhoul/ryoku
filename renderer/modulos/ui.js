@@ -228,6 +228,9 @@ let _sliderIdx = 0, _sliderTotal = 0, _sliderTimer = null
 
 
 let _appReadyFired = false
+function _elsDe(s) {
+  return (Array.isArray(s) ? s : [s]).map(q => document.querySelector(q)).filter(Boolean)
+}
 function animarEntrada(modulo) {
   // Notificar al proceso principal que el renderer está listo para mostrarse.
   // Se hace aquí, justo antes de la animación, para que la ventana aparezca
@@ -244,13 +247,20 @@ function animarEntrada(modulo) {
   const DELAY = 220   // ms entre cada elemento
   const PAUSA = 400   // ms de pantalla vacía antes de empezar
 
+  // Antes usaba ':nth-of-type(2)' para el título de "Series recientes", pero
+  // cada <h2 class="seccion-titulo"> es HIJO ÚNICO de su propio .home-section
+  // (nth-of-type cuenta entre TODOS los <div>/<h2> hermanos de un mismo padre,
+  // no entre los que comparten clase) — ese selector nunca matcheaba nada, así
+  // que ese título (y el botón "Ver todo" de abajo, que no estaba en ninguna
+  // lista) quedaban siempre visibles, fuera de la animación. Ahora se usan IDs
+  // fijos en cada sección.
   const selAnime = [
     '.home-hero-continuar',
-    '.home-hero-banner',
-    '#page-inicio .seccion-titulo:nth-of-type(1)',
+    ['.home-hero-banner', '#page-inicio .home-top-panel'], // misma fila → mismo paso, no uno detrás del otro
+    '#home-sec-recientes .seccion-titulo',
     '#grilla-recientes',
-    '#page-inicio .seccion-titulo:nth-of-type(2)',
-    '#grilla-series',
+    '#home-sec-series .seccion-titulo',
+    ['#grilla-series', '#home-ver-todo-wrap'],
   ]
   const selManga = [
     '#page-manga-inicio .mn-searchbar',
@@ -265,30 +275,31 @@ function animarEntrada(modulo) {
   // En mobile el splash ya cubre la carga — mostrar todo de golpe sin animación
   if (document.body.classList.contains('mobile-mode')) {
     lista.forEach(s => {
-      const el = document.querySelector(s)
-      if (el) { el.style.visibility = ''; el.style.opacity = '' }
+      _elsDe(s).forEach(el => { el.style.visibility = ''; el.style.opacity = '' })
     })
     return
   }
 
   // Ocultar todos inmediatamente
   lista.forEach(s => {
-    const el = document.querySelector(s)
-    if (el) { el.style.visibility = 'hidden'; el.style.opacity = '0' }
+    _elsDe(s).forEach(el => { el.style.visibility = 'hidden'; el.style.opacity = '0' })
   })
 
-  // Después de la pausa, animar uno por uno en escalera
+  // Después de la pausa, animar uno por uno en escalera (cada paso puede ser
+  // un solo selector o un grupo de selectores que deben aparecer juntos)
   setTimeout(() => {
     lista.forEach((s, i) => {
-      const el = document.querySelector(s)
-      if (!el) return
+      const els = _elsDe(s)
+      if (!els.length) return
       setTimeout(() => {
-        el.style.visibility = ''
-        el.style.opacity = ''
-        el.classList.remove('ryoku-animar')
-        void el.offsetWidth
-        el.classList.add('ryoku-animar')
-        el.addEventListener('animationend', () => el.classList.remove('ryoku-animar'), { once: true })
+        els.forEach(el => {
+          el.style.visibility = ''
+          el.style.opacity = ''
+          el.classList.remove('ryoku-animar')
+          void el.offsetWidth
+          el.classList.add('ryoku-animar')
+          el.addEventListener('animationend', () => el.classList.remove('ryoku-animar'), { once: true })
+        })
       }, i * DELAY)
     })
   }, PAUSA)

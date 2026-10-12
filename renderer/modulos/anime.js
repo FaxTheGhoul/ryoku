@@ -56,13 +56,36 @@ function _epLinkToAnimeUrl(link) {
     const slug = link.split('/ver/')[1]?.replace(/-\d+$/, '') || ''
     return slug ? `https://www4.animeflv.net/anime/${slug}` : ''
   }
-  if (link.includes('monoschinos.st/ver/')) {
-    const slug = link.split('/ver/')[1]?.replace(/-episodio-\d+$/, '') || ''
-    return slug ? `https://monoschinos.st/anime/${slug}-sub-espanol` : ''
+  if (link.includes('animeav1.com/media/')) {
+    // animeav1 no usa /ver/ -- el link de episodio ya es /media/slug/N, así
+    // que la ficha del anime es directamente ese mismo link sin el número.
+    const slug = link.split('/media/')[1]?.split('/')[0] || ''
+    return slug ? `https://animeav1.com/media/${slug}` : ''
   }
   const slug = link.split('/ver/')[1]?.replace(/-episodio-\d+$/, '') || ''
   return slug ? `https://latanime.org/anime/${slug}` : ''
 }
+
+// ¿Es un link de EPISODIO de anime (sin importar la fuente)? latanime,
+// monoschinos y animeflv usan .../ver/..., pero animeav1 usa .../media/slug/N
+// (con el número de episodio al final, sin "/ver/" en ningún lado). Varios
+// puntos de este archivo usaban `link.includes('/ver/')` como atajo genérico
+// para "esto es un episodio, convertilo a URL de la ficha del anime" --
+// como animeav1 nunca matcheaba, quedaba excluido en silencio de "Continuar
+// viendo" (detección de nuevo episodio, miniaturas, salto directo al
+// selector de servidores, etc.). Esta función sí reconoce ambos formatos.
+function _esLinkEpisodioAnime(link) {
+  if (!link) return false
+  if (link.includes('/ver/')) return true
+  if (/animeav1\.com\/media\/[^/]+\/\d+(?:[/?]|$)/.test(link)) return true
+  return false
+}
+
+// Fuente de anime activa, cacheada para que _imgProxySrc pueda resolver
+// rutas relativas de forma síncrona (ver más abajo). Se refresca cada vez
+// que se recargan los recientes (cargarRecientes), que es cuando cambia el
+// contenido mostrado tras un cambio de fuente.
+let _srcActivaImgAnime = 'latanime'
 
 async function cargarRecientes(onDone) {
   const grilla   = document.getElementById('grilla-recientes')
@@ -70,9 +93,9 @@ async function cargarRecientes(onDone) {
   grilla.innerHTML  = '<div class="loading">Cargando...</div>'
   if (gSeries) gSeries.innerHTML = '<div class="loading">Cargando...</div>'
   // Ocultar para la animación de entrada
-  const _elemsAnime = ['.home-hero-continuar','.home-hero-banner',
-    '#page-inicio .seccion-titulo:nth-of-type(1)','#grilla-recientes',
-    '#page-inicio .seccion-titulo:nth-of-type(2)','#grilla-series']
+  const _elemsAnime = ['.home-hero-continuar','.home-hero-banner','#page-inicio .home-top-panel',
+    '#home-sec-recientes .seccion-titulo','#grilla-recientes',
+    '#home-sec-series .seccion-titulo','#grilla-series','#home-ver-todo-wrap']
   // En mobile no ocultar — el splash cubre la carga y animarEntrada no usa stagger
   if (!document.body.classList.contains('mobile-mode')) {
     _elemsAnime.forEach(s => { const el=document.querySelector(s); if(el){el.style.visibility='hidden';el.style.opacity='0'} })
@@ -81,6 +104,10 @@ async function cargarRecientes(onDone) {
   let _recData
   try {
     _recData = await window.api.getRecientes()
+    // Refrescar la fuente activa para que _imgProxySrc resuelva imágenes
+    // relativas contra el dominio correcto (antes _imgProxySrc asumía
+    // siempre latanime.org sin importar la fuente activa)
+    _srcActivaImgAnime = (await window.api?.getAnimeSource?.()) || 'latanime'
   } catch(e) {
     console.error('[cargarRecientes] error al obtener datos:', e)
     _elemsAnime.forEach(s => { const el=document.querySelector(s); if(el){el.style.visibility='';el.style.opacity='1'} })
@@ -184,43 +211,68 @@ async function cargarRecientes(onDone) {
   }
 
   // ── SERIES RECIENTES ────────────────────────────────────────────────────
-  if (!gSeries) return
-  if (!series || !series.length) {
-    gSeries.innerHTML = '<div class="loading">Sin series.</div>'
-    return
+  // Antes, si "series" venía vacío (p.ej. un timeout al traer los datos),
+  // esta función cortaba acá con return — nunca llegaba a "Top de la semana",
+  // cargarContinuarViendo() ni animarEntrada(), así que TODO lo que
+  // _elemsAnime dejó oculto al principio se quedaba invisible para siempre,
+  // sin ningún mensaje de error ni forma de reintentar. Ahora solo se salta
+  // el armado de la grilla de series (mostrando "Sin series.") pero la
+  // función sigue su curso normal.
+  if (gSeries) {
+    if (!series || !series.length) {
+      gSeries.innerHTML = '<div class="loading">Sin series.</div>'
+    } else {
+      const _isMobileSeries = document.body.classList.contains('mobile-mode')
+      const _rankColors = ['#2563eb','#f97316','#7c3aed','#16a34a','#dc2626']
+      gSeries.innerHTML = _marcarAdultos(_filtrarLista(series)).map((s, idx) => {
+        const letra = s.titulo.charAt(0)
+        const tieneImg = s.imagen && !s.imagen.includes('logito') && !s.imagen.includes('web.jpg')
+        const rankColor = _rankColors[idx] || '#6b7280'
+        return `
+        <div class="tarjeta tarjeta-serie" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">
+          <div class="tarjeta-img-wrap tarjeta-serie-cover${tieneImg ? '' : ' loaded'}" data-letra="${letra}">
+            ${tieneImg
+              ? `<img src="${s.imagen}" onload="imgLoaded(this)" onerror="imgError(this)" />`
+              : `<div class="tarjeta-letra-grande">${letra}</div>`}
+            ${_isMobileSeries ? `<div class="tarjeta-rank-badge" style="background:${rankColor}">${idx+1}</div>` : ''}
+            ${_isMobileSeries && s.rating ? `<div class="tarjeta-rating-badge">★ ${s.rating}</div>` : ''}
+          </div>
+          <div class="tarjeta-info">
+            <div class="tarjeta-titulo">${s.titulo}</div>
+            ${s.idioma ? `<div class="tarjeta-sub">${s.idioma}</div>` : ''}
+          </div>
+        </div>`
+      }).join('')
+      checkLoadedImgs(gSeries)
+      _enriquecerEnBackground(_filtrarLista(series), 'grilla-series')
+    }
   }
-  const _isMobileSeries = document.body.classList.contains('mobile-mode')
-  const _rankColors = ['#2563eb','#f97316','#7c3aed','#16a34a','#dc2626']
-  gSeries.innerHTML = _marcarAdultos(_filtrarLista(series)).map((s, idx) => {
-    const letra = s.titulo.charAt(0)
-    const tieneImg = s.imagen && !s.imagen.includes('logito') && !s.imagen.includes('web.jpg')
-    const rankColor = _rankColors[idx] || '#6b7280'
-    return `
-    <div class="tarjeta tarjeta-serie" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">
-      <div class="tarjeta-img-wrap tarjeta-serie-cover${tieneImg ? '' : ' loaded'}" data-letra="${letra}">
-        ${tieneImg
-          ? `<img src="${s.imagen}" onload="imgLoaded(this)" onerror="imgError(this)" />`
-          : `<div class="tarjeta-letra-grande">${letra}</div>`}
-        ${_isMobileSeries ? `<div class="tarjeta-rank-badge" style="background:${rankColor}">${idx+1}</div>` : ''}
-        ${_isMobileSeries && s.rating ? `<div class="tarjeta-rating-badge">★ ${s.rating}</div>` : ''}
-      </div>
-      <div class="tarjeta-info">
-        <div class="tarjeta-titulo">${s.titulo}</div>
-        ${s.idioma ? `<div class="tarjeta-sub">${s.idioma}</div>` : ''}
-      </div>
-    </div>`
-  }).join('')
-  checkLoadedImgs(gSeries)
-  _enriquecerEnBackground(_filtrarLista(series), 'grilla-series')
+  // ── Panel "Top de la semana" (junto al banner) ──────────────────────────
+  // Ya no se pinta primero con el orden local: eso hacía que por varios
+  // segundos se viera contenido que no correspondía al ranking real (título/
+  // imagen de "recién agregados", no del top). Ahora arranca en "Cargando" y
+  // _cargarTopSemanaReal() (fire-and-forget, no bloquea la animación de
+  // entrada del resto de la página) pinta directamente el resultado real de
+  // AniList/Jikan con un fundido — si esa fuente falla, ahí sí cae al orden
+  // local como respaldo, para no dejar el panel pegado en "Cargando".
+  const _seriesParaTop = _marcarAdultos(_filtrarLista(series))
+  if (_seriesParaTop.length) {
+    const topList = document.getElementById('home-top-list')
+    if (topList) topList.innerHTML = '<div class="loading">Cargando...</div>'
+    _cargarTopSemanaReal(_seriesParaTop)
+  } else {
+    const topList = document.getElementById('home-top-list')
+    if (topList) topList.innerHTML = '<div class="loading">Sin datos.</div>'
+  }
   await cargarContinuarViendo()
   if (typeof onDone === 'function') onDone()
   animarEntrada('anime')
 }
 
 // ── CONTINUAR VIENDO ─────────────────────────────────────────────────────
-// 4 en ventana normal, 6 maximizada
+// 8 en ventana normal, 12 maximizada (fila a todo el ancho en el nuevo layout apilado)
 function _getContinuarMax() {
-  return _ventanaMaximizada ? 6 : 4
+  return _ventanaMaximizada ? 12 : 8
 }
 
 // Pre-render síncrono desde localStorage — se llama en DOMContentLoaded
@@ -255,6 +307,33 @@ function _preRenderContinuarViendo() {
     if (btnVistos) btnVistos.style.display = ''
   } catch(e) {}
 }
+// Actualiza #continuar-lista con un fundido cuando ya tenía contenido (esta
+// función se vuelve a llamar seguido — al terminar un episodio, al sincronizar
+// con la nube, etc. — y reemplazar el innerHTML de golpe se veía como que la
+// fila "se quitaba y volvía a aparecer" bruscamente). En la carga inicial de
+// la página la lista todavía está vacía, así que ahí no se aplica ningún
+// fundido — no interfiere con la animación de entrada del resto del home.
+async function _actualizarContinuarConFade(lista, render) {
+  const teniaContenido = lista.innerHTML.trim().length > 0
+  if (!teniaContenido) { render(); return }
+  lista.style.opacity = '0'
+  await new Promise(r => setTimeout(r, 160))
+  render()
+  lista.style.opacity = '1'
+  // Entrada en cascada por tarjeta (fundido + deslizamiento leve) en vez de
+  // que toda la fila aparezca de golpe de una — mismo espíritu que el
+  // ryoku-animar del resto de la app, pero más chico/rápido porque esto
+  // pasa mientras el usuario ya está navegando, no en la carga de la página.
+  const tarjetas = lista.querySelectorAll('.ac-cont-card, .continuar-ver-mas')
+  tarjetas.forEach((card, i) => {
+    card.style.setProperty('--ac-cont-delay', `${Math.min(i, 8) * 45}ms`)
+    card.classList.remove('ac-cont-card-in')
+    void card.offsetWidth
+    card.classList.add('ac-cont-card-in')
+    card.addEventListener('animationend', () => card.classList.remove('ac-cont-card-in'), { once: true })
+  })
+}
+
 async function cargarContinuarViendo() {
   const panel = document.getElementById('home-hero-continuar')
   const lista  = document.getElementById('continuar-lista')
@@ -275,10 +354,12 @@ async function cargarContinuarViendo() {
   if (btnVistos) btnVistos.style.display = hayHistorial ? '' : 'none'
 
   if (!todos.length) {
-    panel.style.display = 'none'
-    lista.innerHTML = ''
+    await _actualizarContinuarConFade(lista, () => {
+      panel.style.display = 'none'
+      lista.innerHTML = ''
+    })
     if (hayHistorial) {
-      const vistos = Object.values(porAnime).filter(h => h.link?.includes('/ver/'))
+      const vistos = Object.values(porAnime).filter(h => _esLinkEpisodioAnime(h.link))
       if (vistos.length > 0) {
         await Promise.race([
           _chequearNuevosEpisodios(vistos, progresos),
@@ -289,17 +370,19 @@ async function cargarContinuarViendo() {
     window._continuarViendobListo = true
     return
   }
-  panel.style.display = 'flex'
-  lista.innerHTML = todos.slice(0,_getContinuarMax()).map(h => _continuarCard(h,progresos)).join('')
-  if (todos.length > _getContinuarMax()) {
-    const restantes = todos.length - _getContinuarMax()
-    lista.innerHTML += `<button class="continuar-ver-mas" onclick="abrirPaginaContinuar()"><span class="continuar-ver-num">+${restantes}</span><span class="continuar-ver-label">más</span></button>`
-  }
+  await _actualizarContinuarConFade(lista, () => {
+    panel.style.display = 'flex'
+    lista.innerHTML = todos.slice(0,_getContinuarMax()).map(h => _continuarCard(h,progresos)).join('')
+    if (todos.length > _getContinuarMax()) {
+      const restantes = todos.length - _getContinuarMax()
+      lista.innerHTML += `<button class="continuar-ver-mas" onclick="abrirPaginaContinuar()"><span class="continuar-ver-num">+${restantes}</span><span class="continuar-ver-label">más</span></button>`
+    }
+  })
   _continuarCargarPortadas(todos.slice(0, _getContinuarMax()), progresos)
   const vistos = Object.values(porAnime).filter(h => {
     const prog = progresos[h.link]
     const pct = prog?.duration ? (prog.currentTime / prog.duration) * 100 : 0
-    return pct >= 94 && h.link?.includes('/ver/')
+    return pct >= 94 && _esLinkEpisodioAnime(h.link)
   })
   if (vistos.length > 0) {
     await Promise.race([
@@ -327,7 +410,7 @@ async function _chequearNuevosEpisodios(vistos, progresos) {
       const lista = document.getElementById('continuar-lista')
       if (!lista) return
       if (lista.querySelector(`[data-anime-link="${CSS.escape(sigEp.link)}"]`)) return
-      const hNuevo = { link: sigEp.link, titulo: `${nombre} - Ep ${sigEp.num}`, anime: nombre, imagen: h.imagen || info.imagen }
+      const hNuevo = { link: sigEp.link, titulo: `${nombre} - Ep ${sigEp.num}`, anime: nombre, imagen: sigEp.imagen || info.imagen }
       const tempDiv = document.createElement('div')
       tempDiv.innerHTML = _continuarCard(hNuevo, progresos)
       const cardEl = tempDiv.firstChild
@@ -342,48 +425,55 @@ async function _chequearNuevosEpisodios(vistos, progresos) {
   }))
 }
 
+// Quita del historial todos los links dados, sin tocar el resto (orden
+// intacto). Usa el handler batch si existe; si no, uno por uno.
+async function _quitarLinksDelHistorial(links) {
+  if (!links || !links.length) return
+  if (window.api.removeHistorialBatch) return window.api.removeHistorialBatch(links)
+  for (const l of links) await window.api.removeHistorial(l)
+}
+
 async function _continuarCargarPortadas(items, progresos) {
-  // Cargar el historial completo una sola vez para actualizar las entradas
-  const historialCompleto = await window.api.getHistorial()
+  // Imágenes a actualizar en el historial guardado -- se aplican al final
+  // en su lugar (set-imagenes-historial), sin vaciar y rearmar el historial.
+  const cambios = []
 
   for (let i = 0; i < items.length; i++) {
     const h = items[i]
-    if (h.imagen) continue
-    if (!h.link?.includes('/ver/')) continue
+    if (!_esLinkEpisodioAnime(h.link)) continue
     const animeUrl = _epLinkToAnimeUrl(h.link)
     if (!animeUrl) continue
     try {
       const info = await window.api.getAnime(animeUrl)
-      if (info?.imagen) {
-        h.imagen = info.imagen
-        // Actualizar card en DOM
-        const card = document.querySelector(`.ac-cont-card[data-anime-link="${CSS.escape(h.link)}"]`)
-        if (card) {
-          const ph = card.querySelector('.ac-cont-cover-ph')
-          if (ph) {
-            const img = document.createElement('img')
-            img.className = 'ac-cont-cover'
-            img.src = info.imagen
-            img.onerror = () => img.remove()
-            ph.replaceWith(img)
-          }
-        }
-        // Persistir imagen en TODAS las entradas del historial de este anime
-        const nombre = h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo
-        let actualizado = false
-        historialCompleto.forEach(entry => {
-          const entryNombre = entry.anime || entry.titulo?.split(' - Ep')[0].trim() || entry.titulo
-          if (entryNombre === nombre && !entry.imagen) {
-            entry.imagen = info.imagen
-            actualizado = true
-          }
-        })
-        if (actualizado) {
-          await window.api.clearHistorial()
-          for (const entry of historialCompleto) await window.api.addHistorial(entry)
+      if (!info) continue
+      // Preferir la miniatura del episodio puntual; si no hay, usar la portada de la serie.
+      const epImg = info.episodios?.find(ep => ep.link === h.link)?.imagen
+      const mejorImg = epImg || info.imagen
+      if (!mejorImg || mejorImg === h.imagen) continue
+      h.imagen = mejorImg
+      // Actualizar card en DOM (reemplaza el placeholder o la imagen ya puesta)
+      const card = document.querySelector(`.ac-cont-card[data-anime-link="${CSS.escape(h.link)}"]`)
+      if (card) {
+        const ph = card.querySelector('.ac-cont-cover-ph')
+        if (ph) {
+          const img = document.createElement('img')
+          img.className = 'ac-cont-cover'
+          img.src = mejorImg
+          img.onerror = () => img.remove()
+          ph.replaceWith(img)
+        } else {
+          const imgEl = card.querySelector('.ac-cont-cover')
+          if (imgEl) imgEl.src = mejorImg
         }
       }
+      // Persistir sólo en la entrada de ESTE episodio (cada uno tiene su propia miniatura,
+      // a diferencia de la portada de serie que antes se repetía en todo el historial del anime)
+      cambios.push({ link: h.link, imagen: mejorImg })
     } catch(e) {}
+  }
+
+  if (cambios.length && window.api.setImagenesHistorial) {
+    try { await window.api.setImagenesHistorial(cambios) } catch (e) {}
   }
 }
 function _continuarCard(h, progresos) {
@@ -391,14 +481,14 @@ function _continuarCard(h, progresos) {
   const prog=progresos[h.link]
   const pct=prog?.duration?Math.round((prog.currentTime/prog.duration)*100):0
   const tiempoTexto=prog?.currentTime>0?formatTime(prog.currentTime):''
-  const visto=pct>=94
+  const visto=(prog?.porcentaje||0)>=95  // mismo umbral que la lista de episodios
   const epNum=h.titulo?.includes(' - Ep')?h.titulo.split(' - Ep')[1]?.trim():''
   const nombre=h.anime||h.titulo?.split(' - Ep')[0].trim()||h.titulo
-  const animeUrl=h.link?.includes('/ver/')?_epLinkToAnimeUrl(h.link):(h.link||'')
+  const animeUrl=_esLinkEpisodioAnime(h.link)?_epLinkToAnimeUrl(h.link):(h.link||'')
   const imgHtml=h.imagen?`<img class="ac-cont-cover" src="${h.imagen}" onerror="_ryokuImgHideOnFail(this)" />`:`<div class="ac-cont-cover-ph">${nombre.charAt(0)}</div>`
   const capTexto = visto ? 'Visto ✓' : (epNum ? `Ep ${epNum}${tiempoTexto?' · '+tiempoTexto:''}` : 'Ver anime')
   const cardStyle=''  // layout controlado por CSS mobile
-  return `<div class="ac-cont-card" ${cardStyle} data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}" data-anime-visto="${visto}" onclick="continuarClickCard(event,this)">${imgHtml}<div class="ac-cont-dots" onclick="continuarDotsClick(event,this)" data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}" data-anime-link="${_esc(h.link)}">⋯</div><div class="ac-cont-info"><div class="ac-cont-title">${nombre}</div><div class="ac-cont-cap">${capTexto}</div><div class="ac-cont-prog"><div class="ac-cont-prog-fill" style="width:${pct}%"></div></div><div class="ac-cont-pct">${pct>0?pct+'%':''}</div></div></div>`
+  return `<div class="ac-cont-card" ${cardStyle} data-anime-url="${_escHtml(animeUrl)}" data-anime-nombre="${_escHtml(nombre)}" data-anime-titulo="${_escHtml(h.titulo||nombre)}" data-anime-link="${_escHtml(h.link)}" data-anime-visto="${visto}" onclick="continuarClickCard(event,this)">${imgHtml}<div class="ac-cont-dots" onclick="continuarDotsClick(event,this)" data-anime-url="${_escHtml(animeUrl)}" data-anime-nombre="${_escHtml(nombre)}" data-anime-link="${_escHtml(h.link)}">⋯</div><div class="ac-cont-info"><div class="ac-cont-title">${nombre}</div><div class="ac-cont-cap">${capTexto}</div><div class="ac-cont-prog"><div class="ac-cont-prog-fill" style="width:${pct}%"></div></div><div class="ac-cont-pct">${pct>0?pct+'%':''}</div></div></div>`
 }
 let _animeContinuarCtx=null
 document.addEventListener('DOMContentLoaded',()=>{
@@ -409,8 +499,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     menu.classList.remove('visible'); if(!_animeContinuarCtx)return
     const nombre=_animeContinuarCtx.nombre
     const hist=await window.api.getHistorial()
-    const nuevos=hist.filter(h=>(h.anime||h.titulo?.split(' - Ep')[0].trim()||h.titulo)!==nombre)
-    await window.api.clearHistorial(); for(const h of nuevos)await window.api.addHistorial(h)
+    const aQuitar=hist.filter(h=>(h.anime||h.titulo?.split(' - Ep')[0].trim()||h.titulo)===nombre).map(h=>h.link)
+    await _quitarLinksDelHistorial(aQuitar)
     // Subir historial actualizado a Firestore para que el merge no restaure el anime borrado
     if (typeof window._syncGuardar === 'function') window._syncGuardar()
     const card=_animeContinuarCtx.el
@@ -494,7 +584,7 @@ function continuarClickCard(e,card){ if(e.target.closest('.ac-cont-dots'))return
 async function continuarClickAnime(el){
   const link=el.dataset.animeLink,animeUrl=el.dataset.animeUrl,nombre=el.dataset.animeNombre,titulo=el.dataset.animeTitulo||nombre,visto=el.dataset.animeVisto==='true'
   // Si tiene episodio en progreso, abrir selector directo (sin fetch)
-  if(link?.includes('/ver/')&&!visto){ abrirSelector(link,titulo) }
+  if(_esLinkEpisodioAnime(link)&&!visto){ abrirSelector(link,titulo) }
   // Si está visto o no tiene link de episodio, ir a la página del anime
   else { abrirAnime(animeUrl,nombre) }
 }
@@ -563,9 +653,8 @@ function _initHistorialLongPress(lista, todos) {
       }
       // Borrar del historial
       const hist = await window.api.getHistorial()
-      const nuevos = hist.filter(h => (h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo) !== nombre)
-      await window.api.clearHistorial()
-      for (const h of nuevos) await window.api.addHistorial(h)
+      const aQuitar = hist.filter(h => (h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo) === nombre).map(h => h.link)
+      await _quitarLinksDelHistorial(aQuitar)
       // Sincronizar con Firestore
       if (typeof window._syncGuardar === 'function') window._syncGuardar()
       // Si no quedan cards, mostrar vacío
@@ -611,18 +700,26 @@ function _initHistorialLongPress(lista, todos) {
 
 function _historialPortadaCard(h, progresos) {
   const nombre = h.anime || h.titulo?.split(' - Ep')[0].trim() || h.titulo || ''
-  const animeUrl = h.link?.includes('/ver/') ? _epLinkToAnimeUrl(h.link) : (h.link || '')
+  const animeUrl = _esLinkEpisodioAnime(h.link) ? _epLinkToAnimeUrl(h.link) : (h.link || '')
   const prog = progresos[h.link]
   const pct = prog?.duration ? Math.round((prog.currentTime / prog.duration) * 100) : 0
-  const visto = pct >= 94
+  const visto = (prog?.porcentaje || 0) >= 95  // mismo umbral que la lista de episodios
   const letra = nombre.charAt(0)
-  const imgHtml = h.imagen
-    ? `<img src="${h.imagen}" onload="imgLoaded(this)" onerror="imgError(this)" />`
+  // Portada del ANIME, no la miniatura del episodio -- h.imagen guarda el
+  // still del episodio (correcto para "Continuar viendo", donde interesa
+  // ver en qué episodio vas), pero esta lista es un ítem por anime, así que
+  // debe mostrar la carátula. h.animeImagen es el campo nuevo con la
+  // portada real; _coverCache cubre animes vistos en esta misma sesión;
+  // h.imagen queda como último fallback para historial viejo sin ese campo.
+  const cacheKey = animeUrl ? animeUrl.replace(/-(latino|castellano)$/, '') : ''
+  const imgSrc = h.animeImagen || (cacheKey && _coverCache[cacheKey]) || h.imagen
+  const imgHtml = imgSrc
+    ? `<img src="${imgSrc}" onload="imgLoaded(this)" onerror="imgError(this)" />`
     : `<div class="tarjeta-thumb"><div class="tarjeta-letra">${letra}</div></div>`
   const progBar = pct > 0 ? `<div class="tarjeta-prog-bar"><div style="width:${pct}%"></div></div>` : ''
   return `<div class="tarjeta"
-    data-anime-url="${_esc(animeUrl)}" data-anime-nombre="${_esc(nombre)}"
-    data-anime-titulo="${_esc(h.titulo||nombre)}" data-anime-link="${_esc(h.link)}"
+    data-anime-url="${_escHtml(animeUrl)}" data-anime-nombre="${_escHtml(nombre)}"
+    data-anime-titulo="${_escHtml(h.titulo||nombre)}" data-anime-link="${_escHtml(h.link)}"
     data-anime-visto="${visto}" onclick="continuarClickAnime(this)">
     <div class="play-overlay">▶</div>
     <div class="tarjeta-img-wrap${h.imagen ? '' : ' loaded'}" data-letra="${letra}">${imgHtml}${progBar}</div>
@@ -630,10 +727,13 @@ function _historialPortadaCard(h, progresos) {
   </div>`
 }
 
-// Resuelve URLs relativas de latanime.org a absolutas
+// Resuelve URLs relativas de imagen contra el dominio de la fuente de anime
+// activa (antes asumía siempre latanime.org, lo cual habría sido incorrecto
+// si monoschinos/animeav1 llegaran a mandar una ruta relativa)
+const _DOMINIOS_ANIME = { latanime: 'https://latanime.org', animeav1: 'https://animeav1.com' }
 function _imgProxySrc(url) {
   if (!url) return ''
-  if (url.startsWith('/')) return 'https://latanime.org' + url
+  if (url.startsWith('/')) return (_DOMINIOS_ANIME[_srcActivaImgAnime] || _DOMINIOS_ANIME.latanime) + url
   return url
 }
 
@@ -969,6 +1069,46 @@ async function abrirAnime(url, titulo) {
         onclick="event.stopPropagation();toggleEpVisto(this)">${toggleIcon}</button>
     </div>`
   }).join('')
+
+  _recalcAlDiaAnime(_animeActual)
+}
+
+// ─── "AL DÍA" (auto) — animes donde el usuario ya vio TODOS los episodios
+// que existen ahora mismo. A diferencia de "completado" (marcado a mano),
+// esto se recalcula solo cada vez que hay datos frescos de episodios/
+// progreso (al abrir el anime, al marcar/desmarcar un episodio, al terminar
+// de ver uno), así que si el anime saca un episodio nuevo que todavía no se
+// vio, deja de contar como "al día" hasta que también se vea ese episodio.
+// No hace llamadas de red propias -- reusa historial/progreso ya locales.
+const _ALDIA_ANIME_KEY = 'ryoku-al-dia-anime'
+
+function _getAlDiaAnime() {
+  try { return JSON.parse(localStorage.getItem(_ALDIA_ANIME_KEY) || '{}') } catch (e) { return {} }
+}
+
+function _setAlDiaAnimeEntry(url, entry) {
+  const mapa  = _getAlDiaAnime()
+  const antes = JSON.stringify(mapa[url] || null)
+  if (entry) mapa[url] = entry
+  else delete mapa[url]
+  if (JSON.stringify(mapa[url] || null) === antes) return // sin cambios reales
+  localStorage.setItem(_ALDIA_ANIME_KEY, JSON.stringify(mapa))
+  if (typeof window._ryokuMarcarSyncPendiente === 'function') window._ryokuMarcarSyncPendiente()
+}
+
+async function _recalcAlDiaAnime(anime) {
+  if (!anime || !anime.url || !anime.episodios || !anime.episodios.length) return
+  try {
+    const [historial, progresos] = await Promise.all([window.api.getHistorial(), window.api.getTodosProgresos()])
+    const linksVistos = new Set(historial.map(h => h.link))
+    const todosVistos = anime.episodios.every(ep => {
+      const prog = progresos[ep.link]
+      return linksVistos.has(ep.link) && prog?.porcentaje >= 95
+    })
+    _setAlDiaAnimeEntry(anime.url, todosVistos
+      ? { titulo: anime.titulo, imagen: anime.imagen || '', totalEps: anime.episodios.length, fecha: Date.now() }
+      : null)
+  } catch (e) {}
 }
 
 async function toggleEpVisto(btn) {
@@ -991,11 +1131,13 @@ async function toggleEpVisto(btn) {
     if (estado) estado.innerHTML = ''
   } else {
     await window.api.setProgreso(link, 1000, 1000)
+    const _epImgVisto = _animeActual?.episodios?.find(e => e.link === link)?.imagen
     await window.api.addHistorial({
       anime:  (_animeActual?.titulo || tituloE.split(' - Ep')[0]).trim(),
       titulo: tituloE,
       link,
-      imagen: _animeActual?.imagen || '',
+      imagen: _epImgVisto || _animeActual?.imagen || '',
+      animeImagen: _animeActual?.imagen || '',
       fecha:  new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric' })
     })
     item.classList.add('visto')
@@ -1006,9 +1148,12 @@ async function toggleEpVisto(btn) {
     if (typeof window._mikuSparkle === 'function') window._mikuSparkle(btn)
     if (typeof window._neruSparkle === 'function') window._neruSparkle(btn)
     if (typeof window._berserkerSparkle === 'function') window._berserkerSparkle(btn)
+    if (typeof window._metaphorSparkle === 'function') window._metaphorSparkle(btn)
+    if (typeof window._kanekiSparkle === 'function') window._kanekiSparkle(btn)
   }
   // Refrescar "Continuar viendo"
   if (typeof cargarContinuarViendo === 'function') cargarContinuarViendo()
+  _recalcAlDiaAnime(_animeActual)
 }
 
 document.getElementById('btn-volver').addEventListener('click', () => {
@@ -1038,16 +1183,397 @@ async function toggleFav() {
     if (btnFav && typeof window._mikuSparkle === 'function') window._mikuSparkle(btnFav)
     if (btnFav && typeof window._neruSparkle === 'function') window._neruSparkle(btnFav)
     if (btnFav && typeof window._berserkerSparkle === 'function') window._berserkerSparkle(btnFav)
+    if (btnFav && typeof window._metaphorSparkle === 'function') window._metaphorSparkle(btnFav)
+    if (btnFav && typeof window._kanekiSparkle === 'function') window._kanekiSparkle(btnFav)
   }
+}
+
+// Para valores dentro de atributos HTML que se leen después vía dataset
+// (data-*): ahí NO va _esc (utils.js), que es para strings JS dentro de
+// onclick y deja la barra literal -- "JoJo's" volvía como "JoJo\'s" y, por
+// ejemplo, "Quitar" de Continuar viendo no encontraba el anime.
+function _escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+// ─── Favoritos: carpetas + reordenamiento por arrastre ────────────────────
+let _favCarpetaActiva = ''
+let _favsCache        = []
+let _favCarpetasCache = []
+
+// Descarta entradas repetidas (misma url) preservando la primera aparición --
+// protección defensiva del lado del cliente ante datos ya duplicados de una
+// sincronización vieja (el backend también deduplica en _setF, pero esto
+// limpia la vista al toque sin esperar a que el usuario arrastre algo).
+function _dedupeFavsCliente(arr) {
+  const vistos = new Set()
+  const out = []
+  for (const f of (arr || [])) {
+    if (!f || !f.url || vistos.has(f.url)) continue
+    vistos.add(f.url)
+    out.push(f)
+  }
+  return out
 }
 
 async function cargarFavoritos() {
   const grilla = document.getElementById('grilla-favoritos')
   if (!grilla) return
-  const favs = await window.api.getFavs()
-  if (!favs.length) { grilla.innerHTML = '<div class="fav-vacio">No tienes animes guardados aún.<br>Dale ❤️ a un anime para guardarlo.</div>'; return }
-  grilla.innerHTML = favs.map(f => renderTarjeta({ titulo: f.titulo, link: f.url, imagen: f.imagen })).join('')
+  const [favs, carpetas] = await Promise.all([
+    window.api.getFavs(),
+    Promise.resolve(window.api.getCarpetasFavs?.()).catch(() => [])
+  ])
+  const favsCrudos = favs || []
+  _favsCache        = _dedupeFavsCliente(favsCrudos)
+  _favCarpetasCache = carpetas || []
+  if (_favCarpetaActiva && !_favCarpetasCache.includes(_favCarpetaActiva)) _favCarpetaActiva = ''
+  if (_favsCache.length !== favsCrudos.length) {
+    // Había duplicados guardados de antes -- persistir la limpieza ahora mismo.
+    window.api.reordenarFavs?.(_favsCache.map(f => f.url)).catch(() => {})
+  }
+  _renderFavCarpetas()
+  _renderFavGrilla()
+}
+
+function _renderFavCarpetas() {
+  const row = document.getElementById('fav-carpetas-row')
+  if (!row) return
+  if (!_favsCache.length && !_favCarpetasCache.length) { row.innerHTML = ''; return }
+  const chips = [`<div class="fav-carpeta-chip${_favCarpetaActiva === '' ? ' activo' : ''}" data-carpeta="">Todos</div>`]
+  for (const c of _favCarpetasCache) {
+    chips.push(`<div class="fav-carpeta-chip${_favCarpetaActiva === c ? ' activo' : ''}" data-carpeta="${_escHtml(c)}" title="Clic derecho para renombrar o eliminar">${_escHtml(c)}</div>`)
+  }
+  chips.push(`<div class="fav-carpeta-add" id="fav-carpeta-add" title="Crear carpeta">+ Carpeta</div>`)
+  row.innerHTML = chips.join('')
+  row.querySelectorAll('.fav-carpeta-chip').forEach(chip => {
+    chip.addEventListener('click', () => _favSetCarpetaActiva(chip.dataset.carpeta))
+    chip.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; chip.classList.add('drag-over') })
+    chip.addEventListener('dragleave', () => chip.classList.remove('drag-over'))
+    chip.addEventListener('drop', e => {
+      e.preventDefault()
+      chip.classList.remove('drag-over')
+      const url = e.dataTransfer.getData('text/plain')
+      if (!url) return
+      window.api.moverFavCarpeta(url, chip.dataset.carpeta).then(() => cargarFavoritos()).catch(e => console.warn('[fav] error moviendo a carpeta', e))
+    })
+    if (chip.dataset.carpeta) {
+      chip.addEventListener('contextmenu', e => { e.preventDefault(); _favCarpetaMenu(chip.dataset.carpeta, e) })
+    }
+  })
+  document.getElementById('fav-carpeta-add')?.addEventListener('click', _favCrearCarpeta)
+}
+
+function _favSetCarpetaActiva(c) {
+  _favCarpetaActiva = c || ''
+  _renderFavCarpetas()
+  _renderFavGrilla()
+}
+
+// "Todos" = favoritos SIN carpeta asignada (no es "absolutamente todo") --
+// cada anime vive en un solo lugar: en "Todos" si no tiene carpeta, o en su
+// carpeta si se le asignó una. Evita que un mismo anime aparezca a la vez
+// en "Todos" y en su carpeta (lo que el usuario ve como "duplicado").
+function _favVisibles() {
+  return _favCarpetaActiva
+    ? _favsCache.filter(f => (f.carpeta || '') === _favCarpetaActiva)
+    : _favsCache.filter(f => !f.carpeta)
+}
+
+function _renderFavGrilla() {
+  const grilla = document.getElementById('grilla-favoritos')
+  if (!grilla) return
+  if (!_favsCache.length) { grilla.innerHTML = '<div class="fav-vacio">No tienes animes guardados aún.<br>Dale ❤️ a un anime para guardarlo.</div>'; return }
+  const visibles = _favVisibles()
+  if (!visibles.length) {
+    grilla.innerHTML = _favCarpetaActiva
+      ? '<div class="fav-vacio">No hay animes en esta carpeta todavía.<br>Arrastrá una portada hasta la pestaña de la carpeta para moverla acá.</div>'
+      : '<div class="fav-vacio">No tenés animes sin carpeta — están todos organizados.<br>Arrastrá una portada hasta "Todos" para sacarla de su carpeta.</div>'
+    return
+  }
+  grilla.innerHTML = visibles.map(f => renderTarjeta({ titulo: f.titulo, link: f.url, imagen: f.imagen })).join('')
   checkLoadedImgs(grilla)
+  grilla.querySelectorAll('.tarjeta[data-link]').forEach(t => t.setAttribute('draggable', 'true'))
+  _wireFavDragAndDrop(grilla)
+}
+
+// ── Drag & drop de favoritos con hueco animado (placeholder) ───────────────
+// En vez de solo resaltar la tarjeta destino, mientras se arrastra se inserta
+// un "hueco" (placeholder punteado, con pulso) en el lugar exacto donde
+// quedaría la portada al soltarla. Las tarjetas vecinas se reacomodan al
+// toque (se probó animar ese reacomodo con la técnica FLIP, pero la medición
+// de posiciones se contaminaba en arrastres largos y generaba glitches, así
+// que se dejó sin animar esa parte -- el hueco con su pulso es la animación
+// que realmente importa).
+let _favPlaceholderEl = null
+let _favArrastreActivo = false
+function _favGetPlaceholder() {
+  if (!_favPlaceholderEl) {
+    _favPlaceholderEl = document.createElement('div')
+    _favPlaceholderEl.className = 'fav-drag-placeholder'
+  }
+  return _favPlaceholderEl
+}
+
+function _favDragCleanup(grilla) {
+  _favArrastreActivo = false
+  grilla?.querySelectorAll('.tarjeta.dragging').forEach(c => c.classList.remove('dragging'))
+  if (_favPlaceholderEl?.parentElement) _favPlaceholderEl.remove()
+}
+
+// Encuentra dónde insertar el hueco: primero decide la FILA (según en qué
+// franja vertical cae el cursor) y recién ahí, dentro de esa fila, decide
+// antes/después de qué tarjeta según la posición horizontal.
+// OJO: la versión anterior comparaba distancia euclídea al centro de TODAS
+// las tarjetas de la grilla a la vez -- justo en el borde entre dos filas,
+// una tarjeta de la fila de arriba y una de la fila de abajo pueden quedar
+// casi igual de "cerca", así que al mover el mouse verticalmente el
+// resultado saltaba de una a otra en cada frame, moviendo el hueco (y
+// recalculando el acomodo de toda la grilla) sin parar -- eso era el
+// "se enloquece" al mover algo de arriba hacia abajo o viceversa.
+function _favDragClosest(grilla, x, y) {
+  const els = [...grilla.querySelectorAll('.tarjeta:not(.dragging)')]
+  if (!els.length) return { closest: null, insertAfter: false }
+
+  const filas = []
+  for (const el of els) {
+    const box = el.getBoundingClientRect()
+    let fila = filas.find(f => Math.abs(f.top - box.top) < 4)
+    if (!fila) { fila = { top: box.top, bottom: box.bottom, items: [] }; filas.push(fila) }
+    fila.bottom = Math.max(fila.bottom, box.bottom)
+    fila.items.push({ el, box })
+  }
+
+  let fila = filas.find(f => y >= f.top && y <= f.bottom)
+  if (!fila) {
+    fila = filas.reduce((mejor, f) => {
+      const centroF = (f.top + f.bottom) / 2
+      const centroM = (mejor.top + mejor.bottom) / 2
+      return Math.abs(y - centroF) < Math.abs(y - centroM) ? f : mejor
+    }, filas[0])
+  }
+
+  let closest = fila.items[0].el, insertAfter = false, mejorDist = Infinity
+  for (const { el, box } of fila.items) {
+    const cx = box.left + box.width / 2
+    const dist = Math.abs(x - cx)
+    if (dist < mejorDist) { mejorDist = dist; closest = el; insertAfter = x > cx }
+  }
+  return { closest, insertAfter }
+}
+
+// Mueve el placeholder a la posición indicada. Las tarjetas vecinas se
+// reacomodan al toque (sin animación de deslizamiento) -- ver comentario
+// arriba de por qué se sacó esa parte.
+function _favMoverPlaceholder(grilla, closest, insertAfter) {
+  const placeholder = _favGetPlaceholder()
+  const yaAhi = closest
+    ? (insertAfter ? closest.nextSibling === placeholder : closest.previousSibling === placeholder)
+    : grilla.lastElementChild === placeholder
+  if (yaAhi) return
+
+  if (!closest) grilla.appendChild(placeholder)
+  else if (insertAfter) closest.after(placeholder)
+  else closest.before(placeholder)
+}
+
+// Red de seguridad global: en ventanas de Electron sin marco nativo (como
+// esta, con su propio titlebar) a veces el navegador NO llega a disparar
+// 'dragend' en la tarjeta de origen si el arrastre termina de forma rara
+// (se suelta fuera de la ventana, se pierde el foco, el SO intercepta el
+// gesto, etc.) -- sin esto, el hueco punteado se queda pegado en la grilla
+// para siempre hasta que algo la vuelva a renderizar. Se registra UNA sola
+// vez a nivel de documento y limpia sin importar qué elemento originó el
+// drag.
+let _favDragSafetyNetInstalada = false
+function _favInstalarRedSeguridadDrag() {
+  if (_favDragSafetyNetInstalada) return
+  _favDragSafetyNetInstalada = true
+  const limpiar = () => _favDragCleanup(document.getElementById('grilla-favoritos'))
+  // OJO: 'drop' NO va acá -- 'dragend' siempre llega DESPUÉS de que el
+  // 'drop' real (en la grilla o en un chip de carpeta) ya leyó la posición
+  // del placeholder para calcular el nuevo orden. Si se limpiara también en
+  // captura de 'drop', esta red de seguridad borraría el placeholder ANTES
+  // de que el handler de la grilla llegue a usarlo, rompiendo el reordenado
+  // en cada suelte normal.
+  document.addEventListener('dragend', limpiar, true)
+  window.addEventListener('blur', limpiar)
+}
+
+function _wireFavDragAndDrop(grilla) {
+  _favInstalarRedSeguridadDrag()
+  grilla.querySelectorAll('.tarjeta[data-link]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', card.dataset.link)
+      // Se demora un tick para que el navegador ya haya capturado la imagen
+      // "fantasma" del drag antes de sacar la tarjeta original de la grilla.
+      _favArrastreActivo = true
+      setTimeout(() => card.classList.add('dragging'), 0)
+      // El drag nativo deja de emitir mousemove, así que el cursor temático
+      // (Miku/Neru/Berserker/Metaphor) se quedaría congelado en su última
+      // posición. En vez de intentar seguirle el paso al drag (queda detrás
+      // de la imagen fantasma nativa del SO, algo que no se puede evitar),
+      // simplemente lo ocultamos durante el arrastre; el próximo mousemove
+      // real al soltar ya lo vuelve a mostrar solo.
+      window._cursorTematicoOcultar?.()
+    })
+    card.addEventListener('dragend', () => _favDragCleanup(grilla))
+  })
+
+  // Los listeners del contenedor (que manejan el hueco/placeholder) solo se
+  // registran una vez -- #grilla-favoritos nunca se recrea, solo su innerHTML.
+  if (grilla._favDragWired) return
+  grilla._favDragWired = true
+
+  // 'dragover' dispara MUCHAS veces por segundo (atado al movimiento del
+  // mouse), y cada recálculo del hueco hace varios getBoundingClientRect()
+  // sobre toda la grilla (fuerza reflow). Sin límite, en una grilla con
+  // varias decenas de favoritos esto satura el hilo principal y se siente
+  // como que la app "se traba" un instante mientras se arrastra. Se
+  // throttlea a lo sumo un recálculo por frame (rAF), siempre con la
+  // posición del cursor más reciente.
+  let dragX = 0, dragY = 0, dragFrameProgramado = false
+  grilla.addEventListener('dragover', e => {
+    if (!e.dataTransfer.types.includes('text/plain')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    dragX = e.clientX; dragY = e.clientY
+    if (dragFrameProgramado) return
+    dragFrameProgramado = true
+    requestAnimationFrame(() => {
+      dragFrameProgramado = false
+      if (!_favArrastreActivo) return // el drag ya terminó mientras este frame esperaba turno
+      const { closest, insertAfter } = _favDragClosest(grilla, dragX, dragY)
+      _favMoverPlaceholder(grilla, closest, insertAfter)
+    })
+  })
+
+  // Al soltar, en vez de reconstruir toda la grilla (lo que recrea todas las
+  // <img> y hace parpadear todas las portadas como si la página se hubiera
+  // recargado), se reemplaza el hueco directamente por la tarjeta real que
+  // ya estaba oculta -- ningún <img> se vuelve a crear, cero parpadeo.
+  grilla.addEventListener('drop', e => {
+    e.preventDefault()
+    _favArrastreActivo = false
+    const urlOrigen   = e.dataTransfer.getData('text/plain')
+    const placeholder = _favGetPlaceholder()
+    const draggedCard = grilla.querySelector('.tarjeta.dragging')
+    if (!urlOrigen || !placeholder.parentElement || !draggedCard) { _favDragCleanup(grilla); return }
+    placeholder.replaceWith(draggedCard)
+    draggedCard.classList.remove('dragging')
+    const nuevoVisibleOrder = [...grilla.querySelectorAll('.tarjeta[data-link]')].map(el => el.dataset.link)
+    _aplicarNuevoOrdenVisible(nuevoVisibleOrder, false)
+  })
+}
+
+// Recibe el nuevo orden visible (según la carpeta activa) ya calculado a
+// partir del DOM tras soltar, y lo traduce al orden GLOBAL de la fuente
+// (_favsCache completo), preservando intacta la posición relativa de los
+// favoritos que no pertenecen a la carpeta activa. Actualiza la UI al toque
+// (optimista) y persiste con reordenar-favs.
+function _aplicarNuevoOrdenVisible(nuevoVisibleOrder, rerender = true) {
+  const fullOrder  = _favsCache.map(f => f.url)
+  const visibles   = _favVisibles().map(f => f.url)
+  if (nuevoVisibleOrder.length !== visibles.length) return // algo no cuadra, no arriesgar el orden
+  const visibleSet = new Set(visibles)
+  const cola       = [...nuevoVisibleOrder]
+  const nuevoOrden = fullOrder.map(u => visibleSet.has(u) ? cola.shift() : u)
+  const byUrl = new Map(_favsCache.map(f => [f.url, f]))
+  _favsCache = nuevoOrden.map(u => byUrl.get(u)).filter(Boolean)
+  if (rerender) _renderFavGrilla()
+  window.api.reordenarFavs(nuevoOrden).catch(() => {})
+}
+
+function _favCrearCarpeta() {
+  _favModalInput('Nueva carpeta', '', nombre => {
+    window.api.crearCarpetaFav(nombre)
+      .then(() => { _favCarpetaActiva = nombre; cargarFavoritos() })
+      .catch(e => console.warn('[fav] error creando carpeta', e))
+  })
+}
+
+function _favCarpetaMenu(nombre, evt) {
+  document.getElementById('fav-carpeta-menu')?.remove()
+  const menu = document.createElement('div')
+  menu.id = 'fav-carpeta-menu'
+  menu.className = 'fav-carpeta-menu'
+  menu.style.left = evt.clientX + 'px'
+  menu.style.top  = evt.clientY + 'px'
+  menu.innerHTML = `<div class="fav-carpeta-menu-item" data-accion="renombrar">✏️ Renombrar</div><div class="fav-carpeta-menu-item fav-carpeta-menu-danger" data-accion="borrar">🗑️ Eliminar</div>`
+  document.body.appendChild(menu)
+  menu.querySelector('[data-accion="renombrar"]').addEventListener('click', () => {
+    menu.remove()
+    _favModalInput('Renombrar carpeta', nombre, nuevo => {
+      if (nuevo === nombre) return
+      window.api.renombrarCarpetaFav(nombre, nuevo).then(() => {
+        if (_favCarpetaActiva === nombre) _favCarpetaActiva = nuevo
+        cargarFavoritos()
+      }).catch(e => console.warn('[fav] error renombrando carpeta', e))
+    })
+  })
+  menu.querySelector('[data-accion="borrar"]').addEventListener('click', () => {
+    menu.remove()
+    _favModalConfirm(`¿Eliminar la carpeta "${nombre}"? Los animes dentro volverán a "Todos".`, () => {
+      window.api.borrarCarpetaFav(nombre).then(() => {
+        if (_favCarpetaActiva === nombre) _favCarpetaActiva = ''
+        cargarFavoritos()
+      }).catch(e => console.warn('[fav] error borrando carpeta', e))
+    })
+  })
+  setTimeout(() => {
+    document.addEventListener('click', function _cerrar(e) {
+      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', _cerrar) }
+    })
+  }, 10)
+}
+
+// Modal genérico con campo de texto (crear/renombrar carpeta) — sin prompt()
+// nativo, siguiendo el mismo patrón de modal manual usado en el resto de la app.
+function _favModalInput(titulo, valorInicial, onOk) {
+  document.getElementById('fav-modal-input')?.remove()
+  const modal = document.createElement('div')
+  modal.id = 'fav-modal-input'
+  modal.style.cssText = 'position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center'
+  modal.innerHTML = `<div style="background:var(--bg-1);border:1px solid var(--border);border-radius:14px;padding:20px 22px;width:300px;max-width:calc(100vw - 40px);display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:14px;color:var(--text-1);font-weight:600">${_escHtml(titulo)}</div>
+    <input id="fav-modal-input-campo" type="text" maxlength="40" value="${_escHtml(valorInicial || '')}" placeholder="Nombre de la carpeta" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-3);color:var(--text-1);font-size:13px;outline:none" />
+    <div style="display:flex;gap:8px">
+      <button id="fav-modal-input-cancel" style="flex:1;padding:8px;border-radius:8px;background:var(--bg-3);border:none;color:var(--text-1);font-size:13px;cursor:pointer">Cancelar</button>
+      <button id="fav-modal-input-ok" style="flex:1;padding:8px;border-radius:8px;background:var(--primary);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Guardar</button>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+  const campo = document.getElementById('fav-modal-input-campo')
+  campo.focus(); campo.select()
+  const cerrar = () => modal.remove()
+  const confirmar = () => { const v = campo.value.trim(); cerrar(); if (v) onOk(v) }
+  document.getElementById('fav-modal-input-cancel').addEventListener('click', cerrar)
+  document.getElementById('fav-modal-input-ok').addEventListener('click', confirmar)
+  campo.addEventListener('keydown', e => {
+    if (e.key === 'Enter') confirmar()
+    if (e.key === 'Escape') cerrar()
+  })
+  modal.addEventListener('mousedown', e => { if (e.target === modal) cerrar() })
+}
+
+// Modal genérico de confirmación (borrar carpeta) — mismo patrón que _chatConfirm en chat.js.
+function _favModalConfirm(message, onYes) {
+  document.getElementById('fav-modal-confirm')?.remove()
+  const modal = document.createElement('div')
+  modal.id = 'fav-modal-confirm'
+  modal.style.cssText = 'position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center'
+  modal.innerHTML = `<div style="background:var(--bg-1);border:1px solid var(--border);border-radius:14px;padding:20px 22px;width:280px;max-width:calc(100vw - 40px);display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:14px;color:var(--text-1);line-height:1.4">${_escHtml(message)}</div>
+    <div style="display:flex;gap:8px">
+      <button id="fav-modal-confirm-no" style="flex:1;padding:8px;border-radius:8px;background:var(--bg-3);border:none;color:var(--text-1);font-size:13px;cursor:pointer">Cancelar</button>
+      <button id="fav-modal-confirm-yes" style="flex:1;padding:8px;border-radius:8px;background:#ef4444;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Eliminar</button>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+  const cerrar = () => modal.remove()
+  document.getElementById('fav-modal-confirm-no').addEventListener('click', cerrar)
+  document.getElementById('fav-modal-confirm-yes').addEventListener('click', () => { cerrar(); onYes() })
+  modal.addEventListener('mousedown', e => { if (e.target === modal) cerrar() })
 }
 
 // ─── PASO 1: SELECTOR DE SERVIDOR ─────────────────────────────────────────
@@ -1098,7 +1624,7 @@ async function abrirSelector(url, titulo) {
   if (!_animeActual || _animeActual.titulo !== animeName) {
     _animeActual = null // resetear para no mostrar datos del anime anterior
     // Buscar URL del anime desde la URL del episodio
-    const animeUrl = url.includes('/ver/')
+    const animeUrl = _esLinkEpisodioAnime(url)
       ? _epLinkToAnimeUrl(url)
       : ''
     if (animeUrl) {
@@ -1152,13 +1678,28 @@ async function pedirServidorEp(url, titulo) {
 function _renderListaServidores() {
   const lista = document.getElementById('srv-lista')
   const _indexados = _servidores.map((s, i) => ({ ...s, _idx: i }))
-  _indexados.sort((a, b) => _esFuncional(b.nombre) - _esFuncional(a.nombre))
+  // Fuentes que distinguen idioma (p.ej. AnimeAV1: sub / latino): agrupar,
+  // subtitulados arriba y latino abajo, cada grupo con su título.
+  const _porIdioma = _indexados.some(s => s.idioma)
+  const _grupo = s => (s.idioma === 'latino' ? 1 : 0)
+  _indexados.sort((a, b) => {
+    if (_porIdioma && _grupo(a) !== _grupo(b)) return _grupo(a) - _grupo(b)
+    return _esFuncional(b.nombre) - _esFuncional(a.nombre)
+  })
   if (lista) {
+    let _grupoActual = null
     lista.innerHTML = _indexados.map(s => {
       const ok = _esFuncional(s.nombre)
-      return `<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
+      let titulo = ''
+      if (_porIdioma && s.idioma !== _grupoActual) {
+        _grupoActual = s.idioma
+        titulo = `<div class="srv-grupo">${s.idioma === 'latino' ? 'Latino' : 'Subtitulado'}</div>`
+      }
+      // Bajo su título de grupo, el sufijo de idioma del nombre sobra
+      const nombre = _porIdioma ? s.nombre.replace(/\s+(sub|latino)$/i, '') : s.nombre
+      return `${titulo}<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
         <div class="srv-dot ${ok ? 'srv-dot-ok' : ''}"></div>
-        <span class="srv-nombre">${s.nombre}</span>
+        <span class="srv-nombre">${nombre}</span>
       </button>`
     }).join('')
   }
@@ -1212,6 +1753,15 @@ document.getElementById('srv-cerrar').addEventListener('click', () => {
   // Limpiar cache al cerrar sin elegir servidor
   for (const k in _streamCache) delete _streamCache[k]
   document.getElementById('overlay-servidor').classList.remove('activo')
+  // Si se estaba preparando un video en segundo plano (el reproductor todavía
+  // no se había mostrado), cancelarlo: antes seguía cargando y, al estar
+  // listo, abría el reproductor solo aunque hubieras cerrado el selector.
+  if (!document.getElementById('overlay-player')?.classList.contains('activo')) {
+    _reproducirToken++
+    if (hls) { hls.destroy(); hls = null }
+    const v = document.getElementById('player-video')
+    if (v) { v.oncanplay = null; v.onerror = null; v.pause(); v.src = '' }
+  }
 })
 
 // ─── PASO 2: REPRODUCTOR ──────────────────────────────────────────────────
@@ -1291,12 +1841,17 @@ async function elegirServidor(idx) {
   // visible: el usuario no llega a ver el player roto ni por un instante.
   // Si hay episodio pendiente (cambio desde el player), confirmar ahora
   if (_pendingEp) {
+    await _guardarProgresoEpisodioSaliente()
     _urlEpisodioActual = _pendingEp.url
     _tituloActual = _pendingEp.titulo
     _pendingEp = null
     if (hls) { hls.destroy(); hls = null }
     const _vid = document.getElementById('player-video')
-    if (_vid) _vid.src = ''
+    // Soltar los handlers del episodio viejo ANTES de vaciar el src: vaciarlo
+    // siempre dispara 'error', y el onerror viejo lo tomaba como una falla
+    // real -- cerraba el reproductor, abría el selector y tachaba un servidor
+    // que funcionaba, justo al pasar al siguiente episodio.
+    if (_vid) { _vid.oncanplay = null; _vid.onerror = null; _vid.src = '' }
   }
   _idxActivo = idx
   if (window._chatUpdateFAB) window._chatUpdateFAB()
@@ -1349,6 +1904,7 @@ async function elegirServidor(idx) {
 
   const video = document.getElementById('player-video')
   if (hls) { hls.destroy(); hls = null }
+  video.oncanplay = null; video.onerror = null  // ver comentario arriba
   video.src = ''
   // Pasar el stream ya obtenido para no pedirlo dos veces
   await reproducir(idx, false, resultado)
@@ -1376,9 +1932,19 @@ function _actualizarProximoEp() {
       if (g('rp-next-title')) g('rp-next-title').textContent = `Episodio ${next.num}`
       if (g('rp-next-sub')) g('rp-next-sub').textContent = _animeActual.titulo || ''
       const nextThumb = g('rp-next-thumb')
-      if (nextThumb && _animeActual.imagen) {
-        nextThumb.src = _animeActual.imagen
-        nextThumb.onerror = () => { nextThumb.style.display = 'none' }
+      const nextImg = next.imagen || _animeActual.imagen
+      if (nextThumb && nextImg) {
+        nextThumb.src = nextImg
+        // Si la miniatura propia del episodio falla, caer a la portada del
+        // anime en vez de ocultar la imagen directamente.
+        nextThumb.onerror = () => {
+          if (next.imagen && nextThumb.src !== _animeActual.imagen && _animeActual.imagen) {
+            nextThumb.onerror = () => { nextThumb.style.display = 'none' }
+            nextThumb.src = _animeActual.imagen
+          } else {
+            nextThumb.style.display = 'none'
+          }
+        }
       }
     } else {
       nextSection.style.display = 'none'
@@ -1393,9 +1959,17 @@ function _actualizarProximoEp() {
       if (g('rp-prev-title')) g('rp-prev-title').textContent = `Episodio ${prev.num}`
       if (g('rp-prev-sub')) g('rp-prev-sub').textContent = _animeActual.titulo || ''
       const prevThumb = g('rp-prev-thumb')
-      if (prevThumb && _animeActual.imagen) {
-        prevThumb.src = _animeActual.imagen
-        prevThumb.onerror = () => { prevThumb.style.display = 'none' }
+      const prevImg = prev.imagen || _animeActual.imagen
+      if (prevThumb && prevImg) {
+        prevThumb.src = prevImg
+        prevThumb.onerror = () => {
+          if (prev.imagen && prevThumb.src !== _animeActual.imagen && _animeActual.imagen) {
+            prevThumb.onerror = () => { prevThumb.style.display = 'none' }
+            prevThumb.src = _animeActual.imagen
+          } else {
+            prevThumb.style.display = 'none'
+          }
+        }
       }
     } else {
       prevSection.style.display = 'none'
@@ -1517,8 +2091,22 @@ async function poblarEpsPlayer() {
   }, 100)
 }
 
+// Guarda el avance del episodio que se está dejando ANTES de cambiar a otro
+// desde el reproductor. Antes no se guardaba: se perdían hasta 15s (lo que
+// tarda el guardado periódico) y, si se pasaba al siguiente durante los
+// créditos, el anterior nunca quedaba como visto. Si se deja con 90% o más
+// visto, se marca como completo (los créditos/preview suelen ser el ~5-10%).
+async function _guardarProgresoEpisodioSaliente() {
+  const v = document.getElementById('player-video')
+  const link = _urlEpisodioActual
+  if (!v || !link || !(v.duration > 0)) return
+  const ct = (v.currentTime / v.duration) >= 0.90 ? v.duration : v.currentTime
+  try { await window.api.setProgreso(link, ct, v.duration) } catch (e) {}
+}
+
 async function cambiarEpisodioPlayer(url, titulo) {
   _reproducirToken++  // cancela carga anterior
+  await _guardarProgresoEpisodioSaliente()
   _urlEpisodioActual = url
   _tituloActual = titulo
   const g = id => document.getElementById(id)
@@ -1538,7 +2126,9 @@ async function cambiarEpisodioPlayer(url, titulo) {
 
 
 
-async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenovado = false) {
+// _reanudarEn: segundo donde seguir (se usa al renovar el link de un video
+// que se cortó a mitad del episodio, para no volver al principio).
+async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenovado = false, _reanudarEn = 0) {
   const s = _servidores[idx]
   if (!s) { spinnerShow(false); return }
   const miToken = ++_reproducirToken
@@ -1611,7 +2201,14 @@ async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenova
     _volverASelectorTrasFallo(idx)
   }, 20000)
   const _limpiarWatchdog = () => { if (_watchdogTimer) { clearTimeout(_watchdogTimer); _watchdogTimer = null } }
+  // 'canplay' se vuelve a disparar después de cada salto (seek) o corte de
+  // buffer, no solo al arrancar. Antes onListo corría cada vez: si pausabas y
+  // adelantabas, el video se reanudaba solo (video.play()), y además volvía a
+  // escribir el historial y reiniciaba el guardado de progreso. Una sola vez.
+  let _listoHecho = false
   const onListo = async () => {
+    if (_listoHecho || cancelado()) return
+    _listoHecho = true
     _limpiarWatchdog()
     // Recién acá se confirmó que el video arranca de verdad -- mostrar el
     // player (si todavía no estaba, p.ej. viniendo de elegirServidor) y
@@ -1634,11 +2231,13 @@ async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenova
       window._friendsSetActivity({ type: 'anime', title: _tituloActual.split(' - Ep')[0].trim(), episode: epPart ? epPart.trim() : '' })
     }
     const ahora = new Date()
+    const _epImgActual = _animeActual?.episodios?.find(e => e.link === _urlEpisodioActual)?.imagen
     await window.api.addHistorial({
       anime: _tituloActual.split(' - Ep')[0].trim(),
       titulo: _tituloActual,
       link: _urlEpisodioActual || '',
-      imagen: _animeActual?.imagen || '',
+      imagen: _epImgActual || _animeActual?.imagen || '',
+      animeImagen: _animeActual?.imagen || '',
       fecha: ahora.toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric' })
     })
     if (video._progresoInterval) clearInterval(video._progresoInterval)
@@ -1646,6 +2245,12 @@ async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenova
       if (video.duration > 0 && _urlEpisodioActual && !video.paused)
         window.api.setProgreso(_urlEpisodioActual, video.currentTime, video.duration)
     }, 15000)
+    if (_reanudarEn > 0) {
+      // Link renovado tras un corte: seguir donde estaba, sin preguntar.
+      try { if (Math.abs(video.currentTime - _reanudarEn) > 2) video.currentTime = _reanudarEn } catch (e) {}
+      video.play().catch(() => {})
+      return
+    }
     const prog = await window.api.getProgreso(_urlEpisodioActual)
     if (prog && prog.currentTime > 10 && prog.porcentaje < 95) {
       const _tokenSnapshot = _reproducirToken
@@ -1665,11 +2270,16 @@ async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenova
     // PC: HLS.js (necesita MSE, respeta CORS)
     if (!Hls.isSupported()) { spinnerShow(false); return }
     if (hls) { hls.destroy(); hls = null }
-    hls = new Hls()
+    hls = new Hls(_reanudarEn > 0 ? { startPosition: _reanudarEn } : undefined)
     hls.loadSource(url)
     hls.attachMedia(video)
     hls.on(Hls.Events.MANIFEST_PARSED, onListo)
     let _hlsRecoverAttempts = 0
+    // Los 3 reintentos son por racha de errores, no por todo el episodio:
+    // antes el contador nunca volvía a 0, así que con una conexión inestable
+    // el 4to corte en un episodio largo (aunque los anteriores se hubieran
+    // recuperado bien) te sacaba del reproductor.
+    hls.on(Hls.Events.FRAG_BUFFERED, () => { _hlsRecoverAttempts = 0 })
     hls.on(Hls.Events.ERROR, (_, d) => {
       if (!d.fatal) return
       if (cancelado()) return
@@ -1693,8 +2303,10 @@ async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenova
       // realmente caído.
       if (!_yaRenovado && resultado.referer) {
         _limpiarWatchdog()
+        const _t = video.currentTime > 2 ? video.currentTime : 0
+        if (_t && video.duration > 0 && _urlEpisodioActual) window.api.setProgreso(_urlEpisodioActual, _t, video.duration)
         hls.destroy(); hls = null
-        reproducir(idx, true, null, true)
+        reproducir(idx, true, null, true, _t)
         return
       }
       _limpiarWatchdog()
@@ -1717,10 +2329,17 @@ async function reproducir(idx, renovar = false, _streamPreload = null, _yaRenova
       // overlay del player ya se había cerrado, se veía como que "la lista
       // de servidores no cierra".
       if (cancelado()) return
-      if (video.currentTime > 2) return
+      const _t = video.currentTime > 2 ? video.currentTime : 0
+      if (_t && video.duration > 0 && _urlEpisodioActual) window.api.setProgreso(_urlEpisodioActual, _t, video.duration)
       if (!_yaRenovado && resultado.referer) {
         _limpiarWatchdog()
-        reproducir(idx, true, null, true)
+        reproducir(idx, true, null, true, _t)
+        return
+      }
+      if (_t) {
+        // Se cortó a mitad del episodio y no hay cómo renovar el link. Antes
+        // esto se ignoraba y el video quedaba congelado sin ningún aviso.
+        _mostrarErrorPlayer('Se cortó la conexión con este servidor. Cierra y elige otro: tu avance quedó guardado.')
         return
       }
       _limpiarWatchdog()
@@ -1748,7 +2367,7 @@ async function _discordSetEp(titulo) {
   }''
   // Fuente activa para mostrar en state
   const srcId  = await window.api?.getAnimeSource?.() || 'latanime'
-  const srcMap = { latanime: 'Latanime', animeflv: 'AnimeFLV' }
+  const srcMap = { latanime: 'Latanime', animeflv: 'AnimeFLV', animeav1: 'AnimeAV1' }
   const srcName = srcMap[srcId] || srcId
   const portada = _animeActual?.imagen || ''
   window.api.discordUpdate({
@@ -1812,8 +2431,15 @@ async function cerrarReproductor() {
   const video = document.getElementById('player-video')
   const epUrl = _urlEpisodioActual
   const ct = video.currentTime, dur = video.duration
+  // Lo que se muestra en la lista: set-progreso NO pisa un episodio ya
+  // completado (>=95%) con un tiempo menor, así que si estaba visto hay que
+  // mostrarlo visto -- antes se pintaba con el tiempo real de reproducción y
+  // aparecía como "no visto" hasta volver a abrir el anime.
+  let uiCt = ct, uiDur = dur
   if (dur > 0 && epUrl) {
     await window.api.setProgreso(epUrl, ct, dur)  // esperar antes de refrescar
+    const guardado = await window.api.getProgreso(epUrl).catch(() => null)
+    if (guardado && guardado.porcentaje >= 95) { uiCt = 1; uiDur = 1 }
   }
   if (video._progresoInterval) { clearInterval(video._progresoInterval); video._progresoInterval = null }
   video.oncanplay = null; video.onerror = null
@@ -1825,16 +2451,19 @@ async function cerrarReproductor() {
     else if (document.webkitExitFullscreen) document.webkitExitFullscreen()
   }
   // Actualizar barra de progreso del episodio en la lista de detalle (sin recrear el DOM)
-  if (epUrl && dur > 0) _actualizarEpProgresoEnLista(epUrl, ct, dur)
+  if (epUrl && dur > 0) _actualizarEpProgresoEnLista(epUrl, uiCt, uiDur)
   // Refrescar sección continuar viendo con el progreso actualizado
   cargarContinuarViendo()
+  _recalcAlDiaAnime(_animeActual)
 }
 
 function _actualizarEpProgresoEnLista(link, currentTime, duration) {
   const item = document.querySelector(`.ep-item[data-ep-link="${CSS.escape(link)}"]`)
   if (!item) return
   const pct = Math.round((currentTime / duration) * 100)
-  const visto = pct >= 95
+  // Umbral sobre el porcentaje real (no el redondeado): 94.6% se redondea a
+  // 95 pero lo guardado es 94.6 y al recargar la lista salía "no visto".
+  const visto = (currentTime / duration) * 100 >= 95
   const enProg = pct > 5 && pct < 95
   const estado = item.querySelector('.ep-estado')
   if (!estado) return
@@ -2025,11 +2654,52 @@ document.getElementById('rp-play-small')?.addEventListener('click', (e) => {
   e.stopPropagation()
   if (video.paused) video.play(); else video.pause()
 })
-video.addEventListener('play',    () => { syncPlayBtns(true);  document.getElementById('rp-video-wrap')?.classList.remove('paused') })
-video.addEventListener('pause',   () => { syncPlayBtns(false); document.getElementById('rp-video-wrap')?.classList.add('paused') })
+video.addEventListener('play',    () => {
+  syncPlayBtns(true)
+  const wrap = document.getElementById('rp-video-wrap')
+  wrap?.classList.remove('paused')
+  // Al reanudar, si los controles ya estaban ocultos (se pausó y despausó
+  // sin mover el mouse) el cursor debe volver a ocultarse -- si no, si el
+  // usuario está sobre los controles, se deja como está.
+  if (wrap && !wrap.classList.contains('show-controls') && typeof _cursorVisible === 'function') _cursorVisible(false)
+})
+video.addEventListener('pause',   () => {
+  syncPlayBtns(false)
+  document.getElementById('rp-video-wrap')?.classList.add('paused')
+  // En pausa el cursor siempre debe verse (igual que el CSS ":not(.paused)")
+  if (typeof _cursorVisible === 'function') _cursorVisible(true)
+})
 video.addEventListener('waiting', () => drawPlayPauseCanvas(false, true))
 video.addEventListener('playing', () => drawPlayPauseCanvas(true,  false))
 video.addEventListener('canplay', () => drawPlayPauseCanvas(!video.paused, false))
+
+// Al terminar el episodio, marcarlo como visto de una -- antes dependía
+// pura y exclusivamente de que el guardado periódico de progreso (cada 15s,
+// ver _progresoInterval en reproducir()) hubiera alcanzado a caer lo
+// bastante cerca del final como para pasar el umbral de 95% que usa
+// "¿está visto?" en toda la app. Casi siempre alcanzaba, pero no siempre
+// (si el intervalo cayó justo antes de un salto/skip, o el episodio duraba
+// poco), y aunque alcanzara, el ✓ en la lista de episodios no aparecía
+// hasta recargar esa lista. Con esto queda garantizado apenas termina.
+video.addEventListener('ended', async () => {
+  if (!_urlEpisodioActual || !video.duration) return
+  const link = _urlEpisodioActual
+  try { await window.api.setProgreso(link, video.duration, video.duration) } catch (e) {}
+  const item = document.querySelector(`#eps-lista .ep-item[data-ep-link="${CSS.escape(link)}"]`)
+  if (item && !item.classList.contains('visto')) {
+    item.classList.add('visto')
+    const btn = item.querySelector('.ep-toggle')
+    if (btn) {
+      btn.classList.add('visto')
+      btn.title = 'Marcar como no visto'
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+    }
+    const estado = item.querySelector('.ep-estado')
+    if (estado) estado.innerHTML = ''
+  }
+  if (typeof cargarContinuarViendo === 'function') cargarContinuarViendo()
+  _recalcAlDiaAnime(_animeActual)
+})
 
 // Progreso — apuntar a los nuevos IDs del overlay flotante
 video.addEventListener('timeupdate', () => {
@@ -2244,7 +2914,7 @@ window.toggleCompletado = async function () {
         const tituloEp = `${_animeActual.titulo} - Ep ${ep.num}`
         return Promise.all([
           window.api.setProgreso(ep.link, 1000, 1000),
-          window.api.addHistorial({ anime: _animeActual.titulo, titulo: tituloEp, link: ep.link, imagen: _animeActual.imagen || '', fecha: fechaStr })
+          window.api.addHistorial({ anime: _animeActual.titulo, titulo: tituloEp, link: ep.link, imagen: ep.imagen || _animeActual.imagen || '', animeImagen: _animeActual.imagen || '', fecha: fechaStr })
         ])
       }))
       // Actualizar DOM de la lista de episodios
@@ -2260,6 +2930,7 @@ window.toggleCompletado = async function () {
   }
   localStorage.setItem(_COMP_KEY, JSON.stringify(lista))
   _actualizarEstadoCompletado(_animeActual.url)
+  _recalcAlDiaAnime(_animeActual)
 }
 
 function toggleFullscreenPlayer() {
@@ -2531,6 +3202,22 @@ function syncSkipIntro() {
   skipBtn.style.pointerEvents = mostrar ? 'all' : 'none'
 }
 
+// El CSS ya oculta el cursor vía ".rp-video-area:not(.show-controls):not(.paused)"
+// pero eso depende de que ningún estilo inline/otra regla gane la cascada --
+// se fija explícitamente por JS acá para que apagar/prender los controles
+// SIEMPRE controle el cursor de verdad, sin depender de la cascada de CSS.
+// Además, en los temas con cursor personalizado (Miku/Neru/Berserker) el
+// cursor NATIVO ya está en cursor:none permanentemente y lo que se ve es un
+// sprite propio (#miku-cursor-fx y similares) que solo se oculta con
+// mouseleave -- nunca por inactividad. Sin esto, ese sprite se queda
+// pegado en pantalla aunque los controles del reproductor ya se hayan
+// ocultado. No hace falta "reponerlo" al mostrar: el próximo mousemove
+// real (el mismo que reabre los controles) ya lo vuelve a mostrar solo.
+function _cursorVisible(visible) {
+  videoWrap.style.cursor = visible ? '' : 'none'
+  if (!visible && typeof window._cursorTematicoOcultar === 'function') window._cursorTematicoOcultar()
+}
+
 function showControls(e) {
   // No disparar si el mouse viene de la topbar o de los paneles laterales
   if (e) {
@@ -2539,6 +3226,7 @@ function showControls(e) {
     if (fromTop < 8) return // margen superior — viene del topbar
   }
   videoWrap.classList.add('show-controls')
+  _cursorVisible(true)
   clearTimeout(_ctrlTimer)
   syncSkipIntro()
   const toast = document.getElementById('toast-progreso')
@@ -2547,6 +3235,7 @@ function showControls(e) {
     _ctrlTimer = setTimeout(() => {
       if (!video.paused) {
         videoWrap.classList.remove('show-controls')
+        _cursorVisible(false)
         syncSkipIntro()
       }
     }, 3000)
@@ -2557,6 +3246,7 @@ function hideControls() {
   clearTimeout(_ctrlTimer)
   if (!video.paused) {
     videoWrap.classList.remove('show-controls')
+    _cursorVisible(false)
     syncSkipIntro()
   }
 }
@@ -2595,6 +3285,7 @@ videoWrap.addEventListener('mouseleave', e => {
     clearTimeout(_ctrlTimer)
     if (!video.paused) {
       videoWrap.classList.remove('show-controls')
+      _cursorVisible(false)
       syncSkipIntro()
     }
     return
@@ -2611,6 +3302,7 @@ let _mouseOverControls = false
     _mouseOverControls = true
     clearTimeout(_ctrlTimer)
     videoWrap.classList.add('show-controls')
+    _cursorVisible(true)
   })
   el.addEventListener('mouseleave', () => {
     _mouseOverControls = false
@@ -2618,6 +3310,7 @@ let _mouseOverControls = false
     if (!video.paused) {
       _ctrlTimer = setTimeout(() => {
         videoWrap.classList.remove('show-controls')
+        _cursorVisible(false)
         syncSkipIntro()
       }, 2000)
     }
@@ -2647,7 +3340,70 @@ function imgErrorCal(img) {
 // Slugs +18 conocidos de latanime (misma lista que main.js)
 
 
+// Formatea un conteo real (miembros/favoritos de MAL) estilo "572k"
+function _formatCount(n) {
+  if (!n) return ''
+  if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M'
+  if (n >= 1000) return Math.round(n/1000) + 'k'
+  return String(n)
+}
 
+// Pinta el panel "Top de la semana" con la lista dada (ya en el orden final)
+function _renderTopSemana(topSeries) {
+  const topList = document.getElementById('home-top-list')
+  if (!topList) return
+  if (!topSeries.length) { topList.innerHTML = '<div class="loading">Sin datos.</div>'; return }
+  topList.innerHTML = topSeries.map((s, idx) => {
+    const stat = s._malMiembros
+      ? `<div class="home-top-stat">${_formatCount(s._malMiembros)}</div>`
+      : (s.rating ? `<div class="home-top-stat">★ ${s.rating}</div>` : '')
+    return `<div class="home-top-item" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">
+      <span class="home-top-rank">${idx+1}</span>
+      <div class="home-top-media">
+        <img class="home-top-bg" src="${s.imagen||''}" onerror="_ryokuImgHideOnFail(this)" />
+        <div class="home-top-overlay"></div>
+        <div class="home-top-info">
+          <div class="home-top-title">${s.titulo}</div>
+          ${stat}
+        </div>
+        ${s.idioma ? `<div class="home-top-studio">${s.idioma}</div>` : ''}
+      </div>
+    </div>`
+  }).join('')
+}
+
+// Pinta el panel "Top de la semana" con el ranking REAL de MyAnimeList/AniList
+// cruzado contra el catálogo del sitio activo, para que cada fila abra
+// contenido real y reproducible — en vez del orden arbitrario de "recién
+// agregados". Se dispara sin esperar (fire-and-forget) desde cargarRecientes,
+// así que no atrasa la animación de entrada del resto de la página; mientras
+// tanto el panel se queda en "Cargando" (nunca pinta el orden local primero
+// para no mostrar, ni por un momento, algo que no es el ranking real).
+// seriesCandidatas es solo el respaldo por si la fuente real falla del todo.
+async function _cargarTopSemanaReal(seriesCandidatas) {
+  if (!window.api?.getTopSemanaReal) { _renderTopSemana(seriesCandidatas.slice(0, 5)); return }
+  let real = []
+  try {
+    real = await window.api.getTopSemanaReal()
+  } catch(e) {
+    console.error('[TopSemana] error llamando a getTopSemanaReal:', e)
+  }
+  if (!real || !real.length) { _renderTopSemana(seriesCandidatas.slice(0, 5)); return } // respaldo: la fuente real falló
+  const mapeado = real.map(r => ({
+    titulo: r.titulo, link: r.link, imagen: r.imagen, idioma: r.idioma,
+    _malMiembros: r.malMembers || 0, _malScore: r.malScore || 0
+  }))
+  // Fundido: pasa de "Cargando..." al contenido real sin un pop seco.
+  const topList = document.getElementById('home-top-list')
+  if (topList) {
+    topList.style.opacity = '0'
+    await new Promise(r => setTimeout(r, 220))
+    _renderTopSemana(mapeado.slice(0, 5))
+    requestAnimationFrame(() => { topList.style.opacity = '1' })
+  } else {
+    _renderTopSemana(mapeado.slice(0, 5))
+  }
+}
 
 // Enriquecer tarjetas con MAL en background — actualiza DOM una a una
 async function _enriquecerEnBackground(lista, contenedorId) {

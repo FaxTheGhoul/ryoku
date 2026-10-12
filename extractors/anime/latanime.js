@@ -46,32 +46,6 @@ function _extraerSinopsisHtml($) {
   return ''
 }
 
-async function _getSinopsis(url) {
-  try {
-    const { data } = await axios.get(url, { headers: HEADERS, timeout: 5000 })
-    const $ = cheerio.load(data)
-    const pagina = _extraerSinopsisHtml($)
-    if (pagina) return pagina
-    const s = $('meta[property="og:description"]').attr('content') || ''
-    return s.replace(/Todos los anime.*sin limites\./i, '').replace(/Para descargar.*sin limites\./i, '').trim()
-  } catch(e) { return '' }
-}
-
-async function _getSinopsisAF(titulo) {
-  try {
-    const q = titulo.replace(/\s+(Latino|Castellano)$/i, '').replace(/\s+S\d+$/i, '').trim()
-    const { data } = await axios.get(
-      `https://www3.animeflv.net/browse?q=${encodeURIComponent(q)}`,
-      { headers: HEADERS, timeout: 5000 }
-    )
-    const $ = cheerio.load(data)
-    const link = $('ul.ListAnimes li a').first().attr('href')
-    if (!link) return ''
-    const { data: page } = await axios.get(`https://www3.animeflv.net${link}`, { headers: HEADERS, timeout: 5000 })
-    return cheerio.load(page)('.sinopsis p, .Description p').first().text().trim() || ''
-  } catch(e) { return '' }
-}
-
 async function _getImagenAnilist(titulo) {
   try {
     const query = `query ($s: String) { Media(search: $s, type: ANIME) { coverImage { large } } }`
@@ -275,12 +249,23 @@ async function getAnime(url, { coverCache, jikanBuscar } = {}) {
     url
   ]
 
+  // OPTIMIZACIÓN: antes se probaban las 3 variantes de URL (latino,
+  // castellano, original) UNA POR UNA -- si la primera no existía (muy
+  // común: cada anime solo tiene UNA de las dos), se pagaba el timeout
+  // completo de esa antes de intentar la siguiente, pudiendo sumar hasta
+  // ~24s en el peor caso. Ahora se disparan las 3 peticiones EN PARALELO
+  // (arrancan todas de inmediato) pero se siguen consumiendo en el mismo
+  // orden de prioridad de antes (latino > castellano > original) -- así
+  // el resultado es idéntico, solo que las que no se terminan usando ya
+  // venían corriendo en background mientras se esperaba la primera.
+  const promesasHtml = urlsAProbar.map(u =>
+    axios.get(u, { headers: HEADERS, timeout: 8000 }).catch(() => null)
+  )
   let html = null
-  for (const u of urlsAProbar) {
-    try {
-      const res = await axios.get(u, { headers: HEADERS, timeout: 8000 })
-      if (res.status === 200) { html = res.data; break }
-    } catch(e) { continue }
+  let htmlUsadoIdx = -1
+  for (let i = 0; i < promesasHtml.length; i++) {
+    const res = await promesasHtml[i]
+    if (res && res.status === 200) { html = res.data; htmlUsadoIdx = i; break }
   }
   if (!html) return null
 
@@ -300,15 +285,33 @@ async function getAnime(url, { coverCache, jikanBuscar } = {}) {
       .replace(/Todos los anime.*sin limites\./i,'').replace(/Para descargar.*sin limites\./i,'').trim()
   }
 
+  // Antes esto volvía a pedir las otras 2 variantes de URL desde cero
+  // (_getSinopsis hacía un axios.get nuevo) aunque YA se habían pedido
+  // arriba (promesasHtml) al buscar el HTML principal -- dos peticiones
+  // HTTP completas tiradas a la basura. Ahora se reusan esas mismas
+  // respuestas (ya en vuelo desde el arranque de la función, así que
+  // esperarlas acá no dispara nada nuevo, solo recoge lo que ya venía
+  // llegando en paralelo).
   if (!sinopsis || sinopsis.length < 80) {
-    for (const u of urlsAProbar.slice(1)) {
-      const s = await _getSinopsis(u)
+    for (let i = 0; i < promesasHtml.length; i++) {
+      if (i === htmlUsadoIdx) continue // esa ya se usó arriba para el HTML principal
+      const res = await promesasHtml[i]
+      if (!res || res.status !== 200) continue
+      const $$ = cheerio.load(res.data)
+      let s = _extraerSinopsisHtml($$)
+      if (!s) {
+        s = ($$('meta[property="og:description"]').attr('content') || '')
+          .replace(/Todos los anime.*sin limites\./i, '').replace(/Para descargar.*sin limites\./i, '').trim()
+      }
       if (s && s.length > 80) { sinopsis = s; break }
     }
   }
-  if (!sinopsis || sinopsis.length < 80) {
-    sinopsis = await _getSinopsisAF(tituloLimpio) || await _getSinopsisAF(slugTitulo) || sinopsis
-  }
+  // NOTA: antes había acá un tercer intento contra animeflv.net (_getSinopsisAF)
+  // antes de caer a Jikan -- pero AnimeFLV ya está confirmado caído/inactivo
+  // en el resto de la app (ver comentarios de "AnimeFLV ya no es una fuente
+  // activa" en main.js), así que esas 2 peticiones casi nunca traían nada y
+  // solo sumaban espera (hasta ~10s) antes de llegar al fallback que sí
+  // funciona (Jikan). Se quita y se va directo a Jikan.
 
   // Último recurso: sinopsis de MyAnimeList vía Jikan (ya obtenida al buscar géneros)
   if ((!sinopsis || sinopsis.length < 80) && jikanBuscar) {
@@ -318,8 +321,9 @@ async function getAnime(url, { coverCache, jikanBuscar } = {}) {
     } catch(e) {}
   }
   if (!imagen || imagen.includes('web.jpg')) {
-    for (const t of [tituloLimpio, slugTitulo, titulo]) {
-      const img = await _getImagenAnilist(t)
+    const promesasImagen = [tituloLimpio, slugTitulo, titulo].map(t => _getImagenAnilist(t).catch(() => ''))
+    for (const p of promesasImagen) {
+      const img = await p
       if (img) { imagen = img; break }
     }
   }
@@ -352,15 +356,14 @@ async function getAnime(url, { coverCache, jikanBuscar } = {}) {
   })
   episodios.sort((a, b) => a.num - b.num)
 
-  let generos = []
-  try {
-    if (jikanBuscar) {
-      const mal = await jikanBuscar(tituloLimpio)
-      if (mal?.generos?.length) generos = mal.generos
-    }
-  } catch(e) {}
-
-  return { titulo, imagen, sinopsis, episodios, generos }
+  // NOTA: antes acá se hacía una llamada MÁS a Jikan (bloqueante) solo para
+  // traer "generos", pero ese campo nunca se pintaba en ningún lado de la
+  // ficha de anime (el panel #anime-panel-generos existe en el HTML pero
+  // nada lo llena) -- era puro tiempo de espera tirado a la basura, y con la
+  // cola de Jikan ocupada por el enriquecimiento de fondo de la grilla de
+  // inicio, esta llamada extra podía sumar varios segundos más a cada
+  // apertura de ficha. Se quita por completo.
+  return { titulo, imagen, sinopsis, episodios }
 }
 
 async function getServidores(url) {

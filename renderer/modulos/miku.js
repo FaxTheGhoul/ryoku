@@ -19,6 +19,10 @@
 
   function spawnParticula() {
     if (!activo || !contenedor) return
+    // Con el reproductor abierto no se ven y solo gastan GPU/CPU detrás del
+    // video (cada partícula es una animación con brillo). Se retoman solas
+    // al cerrarlo; las que ya estaban terminan su recorrido.
+    if (document.getElementById('overlay-player')?.classList.contains('activo')) return
     const el = document.createElement('span')
     const usarNota = Math.random() < 0.55
     const colorA = Math.random() < 0.5
@@ -131,29 +135,17 @@
     } catch (e) {}
   }
 
-  // ── Acorde de entrada — sonidentidad al activar el tema desde Configuración
-  // (arpegio de 3 notas, distinto del blip de _mikuBeep para que no se
-  // confundan; respeta el mismo switch de sonido) ───────────────────────
+  // ── Sonido de entrada — clip propio al activar el tema desde Configuración
+  // (reemplaza el arpegio sintetizado; respeta el mismo switch de sonido) ──
+  let _mikuChimeAudio = new Audio('assets/miku-chime.mp3')
+  _mikuChimeAudio.preload = 'auto'
+  _mikuChimeAudio.volume = 0.6
+  try { _mikuChimeAudio.load() } catch (e) {}
   function _mikuChimeEntrada() {
     if (window._ryokuMikuSonido === false) return
     try {
-      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)()
-      const t0 = audioCtx.currentTime
-      const notas = [659.25, 783.99, 987.77] // Mi5, Sol5, Si5
-      notas.forEach((freq, i) => {
-        const t = t0 + i * 0.11
-        const osc = audioCtx.createOscillator()
-        const gain = audioCtx.createGain()
-        osc.type = 'sine'
-        osc.frequency.setValueAtTime(freq, t)
-        gain.gain.setValueAtTime(0.0001, t)
-        gain.gain.exponentialRampToValueAtTime(0.13, t + 0.02)
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32)
-        osc.connect(gain)
-        gain.connect(audioCtx.destination)
-        osc.start(t)
-        osc.stop(t + 0.34)
-      })
+      _mikuChimeAudio.currentTime = 0
+      _mikuChimeAudio.play().catch(() => {})
     } catch (e) {}
   }
   window._mikuTemaChime = _mikuChimeEntrada

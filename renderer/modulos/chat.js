@@ -242,6 +242,21 @@ function _listenConvos() {
 function _refreshConvoListeners() {
   if (!_currentUser || !_db) return
   var friends = window._ryokuGetFriends ? window._ryokuGetFriends() : []
+  // Dejar de escuchar conversaciones de quien ya no es amigo: antes el
+  // listener quedaba vivo para siempre, sus mensajes seguían sumando al
+  // contador de no leídos y la conversación seguía en la lista. Solo con la
+  // lista de amigos ya cargada (vacía también puede ser "todavía cargando").
+  if (friends.length) {
+    var vigentes = {}
+    friends.forEach(function (f) { vigentes[_dmId(_currentUser.uid, f.uid)] = true })
+    Object.keys(_convos).forEach(function (dmId) {
+      if (vigentes[dmId]) return
+      var c = _convos[dmId]
+      if (c && c._unsub) { try { c._unsub() } catch (e) {} }
+      delete _convos[dmId]
+    })
+    _recalcUnread()
+  }
   friends.forEach(function (f) {
     var dmId = _dmId(_currentUser.uid, f.uid)
     if (_convos[dmId] && _convos[dmId]._listening) return
@@ -271,7 +286,12 @@ function _refreshConvoListeners() {
       if (isNew) _showFloatMsg(f.displayName || 'Usuario', data.lastMessage || '', f.photoURL || '', { type: 'dm', uid: f.uid })
       _recalcUnread()
       if (_panelOpen && _currentView === 'list' && _currentTab === 'dms') _renderBody()
+    }, function () {
+      // Error del listener (p.ej. ya no hay permiso tras dejar de ser
+      // amigos): liberar el lugar para que se pueda volver a intentar.
+      if (_convos[dmId]) _convos[dmId]._listening = false
     })
+    _convos[dmId]._unsub = unsub
     _convosUnsubs.push(unsub)
   })
 }

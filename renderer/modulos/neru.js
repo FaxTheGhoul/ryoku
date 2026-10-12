@@ -19,6 +19,10 @@
 
   function spawnParticula() {
     if (!activo || !contenedor) return
+    // Con el reproductor abierto no se ven y solo gastan GPU/CPU detrás del
+    // video (cada partícula es una animación con brillo). Se retoman solas
+    // al cerrarlo; las que ya estaban terminan su recorrido.
+    if (document.getElementById('overlay-player')?.classList.contains('activo')) return
     const el = document.createElement('span')
     const usarFlor = Math.random() < 0.55
     const colorA = Math.random() < 0.5
@@ -132,31 +136,17 @@
     } catch (e) {}
   }
 
-  // ── Acorde de entrada -- sonoridad propia al activar el tema desde
-  // Configuración, distinta a la de Miku para que se note la variación al
-  // cambiar de tema: onda triangular (más "electrónica/8-bit", acorde con
-  // la vibra de Neru) y un arpegio DESCENDENTE (Miku usa uno ascendente en
-  // seno puro) -- mismo mecanismo que _mikuChimeEntrada, timbre distinto.
+  // ── Sonido de entrada — clip propio al activar el tema desde Configuración
+  // (reemplaza el arpegio sintetizado; respeta el mismo switch de sonido) ──
+  let _neruChimeAudio = new Audio('assets/neru-chime.mp3')
+  _neruChimeAudio.preload = 'auto'
+  _neruChimeAudio.volume = 0.6
+  try { _neruChimeAudio.load() } catch (e) {}
   function _neruChimeEntrada() {
     if (window._ryokuMikuSonido === false) return
     try {
-      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)()
-      const t0 = audioCtx.currentTime
-      const notas = [880.00, 698.46, 587.33] // La5, Fa5, Re5 -- descendente
-      notas.forEach((freq, i) => {
-        const t = t0 + i * 0.11
-        const osc = audioCtx.createOscillator()
-        const gain = audioCtx.createGain()
-        osc.type = 'triangle'
-        osc.frequency.setValueAtTime(freq, t)
-        gain.gain.setValueAtTime(0.0001, t)
-        gain.gain.exponentialRampToValueAtTime(0.12, t + 0.02)
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32)
-        osc.connect(gain)
-        gain.connect(audioCtx.destination)
-        osc.start(t)
-        osc.stop(t + 0.34)
-      })
+      _neruChimeAudio.currentTime = 0
+      _neruChimeAudio.play().catch(() => {})
     } catch (e) {}
   }
   window._neruTemaChime = _neruChimeEntrada

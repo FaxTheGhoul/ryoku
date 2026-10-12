@@ -31,6 +31,15 @@ body:not(.splash-ready):not(.splash-done)::before {
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="metaphor-icon-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#227178"/>
+      <stop offset="50%" stop-color="#65CED7"/>
+      <stop offset="100%" stop-color="#B04950"/>
+    </linearGradient>
+  </defs>
+</svg>
 <script>
 /* Splash canvas — puertas diagonales + blur + logo girando */
 setTimeout(function(){;(function(){
@@ -68,6 +77,8 @@ setTimeout(function(){;(function(){
     miku:   { primary:'#39C5BB', rgb:'57,197,187'  },
     neru:   { primary:'#F2A30E', rgb:'242,163,14'  },
     berserker: { primary:'#C1121F', rgb:'193,18,31' },
+    metaphor:  { primary:'#B04950', rgb:'176,73,80'   },
+    kaneki:    { primary:'#A31621', rgb:'163,22,33'   },
   }
   var m = MODOS[_modo]     || MODOS.oscuro
   var a = ACCENTS[_accent] || ACCENTS.blue
@@ -403,25 +414,28 @@ setTimeout(function(){;(function(){
         <div class="home-hero-layout">
           <div class="home-hero-continuar" id="home-hero-continuar" style="display:none">
             <div class="continuar-header-row">
-              <div class="home-section-title continuar-section-title">
-                <svg class="home-section-icon" style="color:#60a5fa" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-                <span>Continuar viendo</span>
-              </div>
+              <h2 class="seccion-titulo">Continuar viendo</h2>
               <span class="home-section-ver-todo continuar-ver-vistos-link" id="continuar-ver-vistos-btn" onclick="abrirPaginaContinuar()" style="display:none">Ver todo ›</span>
             </div>
             <div class="ac-cont-grid" id="continuar-lista"></div>
           </div>
-          <div class="home-hero-banner">
-            <div class="slider-wrap" id="slider-wrap">
-              <div class="slider-track" id="slider-track"></div>
-              <button class="slider-arrow izq" id="slider-prev">&#8249;</button>
-              <button class="slider-arrow der" id="slider-next">&#8250;</button>
+          <div class="home-hero-top-row">
+            <div class="home-hero-banner">
+              <div class="slider-wrap" id="slider-wrap">
+                <div class="slider-track" id="slider-track"></div>
+                <button class="slider-arrow izq" id="slider-prev"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <button class="slider-arrow der" id="slider-next"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
               <div class="slider-dots" id="slider-dots"></div>
+            </div>
+            <div class="home-top-panel">
+              <div class="home-top-panel-head"><span>🔥 Top de la semana</span></div>
+              <div class="home-top-list" id="home-top-list"><div class="loading">Cargando...</div></div>
             </div>
           </div>
         </div>
         <!-- Sección: Añadidos recientemente -->
-        <div class="home-section">
+        <div class="home-section" id="home-sec-recientes">
           <div class="home-section-head">
             <div class="home-section-title">
               <svg class="home-section-icon" style="color:#60a5fa" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
@@ -434,7 +448,7 @@ setTimeout(function(){;(function(){
         </div>
 
         <!-- Sección: Populares esta semana -->
-        <div class="home-section">
+        <div class="home-section" id="home-sec-series">
           <div class="home-section-head">
             <div class="home-section-title">
               <svg class="home-section-icon" style="color:#f97316" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.66 11.2c-.23-.3-.51-.56-.77-.82-.67-.6-1.43-1.03-2.07-1.66C13.33 7.26 13 4.85 13.95 3c-.95.23-1.78.75-2.49 1.32-2.59 2.08-3.61 5.75-2.39 8.9.04.1.08.2.08.33 0 .22-.15.42-.35.5-.23.1-.47.04-.66-.12a.58.58 0 0 1-.14-.17c-1.13-1.43-1.31-3.48-.55-5.12C5.78 10 4.87 12.3 5 14.47c.06.5.12 1 .29 1.5.14.6.41 1.2.71 1.73 1.08 1.73 2.95 2.97 4.96 3.22 2.14.27 4.43-.12 6.07-1.6 1.83-1.66 2.47-4.32 1.53-6.6l-.13-.21-.77-.31Z"/></svg>
@@ -446,7 +460,7 @@ setTimeout(function(){;(function(){
           <div class="grilla grilla-series" id="grilla-series"><div class="loading">Cargando...</div></div>
         </div>
 
-        <div style="display:flex;justify-content:center;margin:32px 0 16px" class="desktop-only">
+        <div style="display:flex;justify-content:center;margin:32px 0 16px" class="desktop-only" id="home-ver-todo-wrap">
           <button class="mn-btn-biblioteca" onclick="abrirAnimeBiblioteca()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             Ver todo
@@ -526,6 +540,7 @@ setTimeout(function(){;(function(){
       </div>
       <div class="pagina" id="page-favoritos">
         <h2 class="seccion-titulo">❤️ Mis favoritos</h2>
+        <div class="fav-carpetas-row" id="fav-carpetas-row"></div>
         <div class="grilla" id="grilla-favoritos">
           <div class="fav-vacio">No tienes animes guardados aún.<br>Dale ❤️ a un anime para guardarlo.</div>
         </div>
@@ -710,14 +725,6 @@ setTimeout(function(){;(function(){
 
           <!-- ── COL DERECHA: panel info ── -->
           <div class="md-col-panel" id="anime-col-panel">
-            <div class="md-panel-section">
-              <div class="md-panel-titulo">Información</div>
-              <div class="md-panel-rows">
-                <div class="md-panel-row"><span class="md-panel-key">Tipo</span><span class="md-panel-val">Anime</span></div>
-                <div class="md-panel-row"><span class="md-panel-key">Idioma</span><span class="md-panel-val">Español</span></div>
-                <div class="md-panel-row" id="anime-panel-eps-row" style="display:none"><span class="md-panel-key">Episodios</span><span class="md-panel-val" id="anime-panel-eps-val">—</span></div>
-              </div>
-            </div>
             <div class="md-panel-section" id="anime-panel-generos-sec" style="display:none">
               <div class="md-panel-titulo">Géneros</div>
               <div class="md-panel-generos" id="anime-panel-generos"></div>
@@ -756,12 +763,18 @@ setTimeout(function(){;(function(){
             </div>
             <div class="mn-continuar-grid ac-cont-grid" id="mn-continuar-lista"></div>
           </div>
-          <div class="home-hero-banner">
-            <div class="slider-wrap" id="mn-slider-wrap">
-              <div class="slider-track" id="mn-slider-track"></div>
-              <button class="slider-arrow izq" id="mn-slider-prev">&#8249;</button>
-              <button class="slider-arrow der" id="mn-slider-next">&#8250;</button>
+          <div class="home-hero-top-row">
+            <div class="home-hero-banner">
+              <div class="slider-wrap" id="mn-slider-wrap">
+                <div class="slider-track" id="mn-slider-track"></div>
+                <button class="slider-arrow izq" id="mn-slider-prev"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <button class="slider-arrow der" id="mn-slider-next"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
               <div class="slider-dots" id="mn-slider-dots"></div>
+            </div>
+            <div class="home-top-panel">
+              <div class="home-top-panel-head"><span>🔥 Top de la semana</span></div>
+              <div class="home-top-list" id="mn-home-top-list"><div class="loading">Cargando...</div></div>
             </div>
           </div>
         </div>
@@ -816,7 +829,7 @@ setTimeout(function(){;(function(){
       </div>
       <!-- BUSCAR -->
       <div class="pagina" id="page-manga-buscar">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div class="mn-buscar-toprow" style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
           <div class="mn-searchbar" style="flex:1;max-width:500px;position:relative">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="manga-buscador-2" placeholder="Buscar manga..." autocomplete="off" />
@@ -825,7 +838,7 @@ setTimeout(function(){;(function(){
             <button id="manga-btn-buscar-2">Buscar</button>
           </div>
         </div>
-        <div style="display:flex;gap:6px;margin-bottom:16px">
+        <div class="mn-buscar-toprow" style="display:flex;gap:6px;margin-bottom:16px">
           <button class="mn-filtro activo" data-filtro="all" onclick="setFiltroManga(this)">Todo</button>
           <button class="mn-filtro" data-filtro="manga" onclick="setFiltroManga(this)">Manga</button>
           <button class="mn-filtro" data-filtro="manhwa" onclick="setFiltroManga(this)">Manhwa</button>
@@ -956,29 +969,7 @@ setTimeout(function(){;(function(){
               </div>
             </div><!-- /mnbib-zt-filters -->
 
-            <!-- Géneros NovelCool (strings directos, generados por JS) -->
-            <div id="mnbib-nc-filters" style="display:contents">
-              <div class="mnbib-drop" id="drop-nc-gen">
-                <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('nc-gen')">
-                  Géneros <span class="mnbib-drop-val mnbib-drop-tags" id="drop-nc-gen-val"></span>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-                </button>
-                <div class="mnbib-drop-panel wide nc" id="drop-nc-gen-panel">
-                  <div class="mnbib-generos" id="mnbib-nc-generos-inc"></div>
-                </div>
-              </div>
-              <div class="mnbib-drop" id="drop-nc-exc">
-                <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('nc-exc')">
-                  Excluir <span class="mnbib-drop-val mnbib-drop-tags" id="drop-nc-exc-val"></span>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-                </button>
-                <div class="mnbib-drop-panel wide nc" id="drop-nc-exc-panel">
-                  <div class="mnbib-generos" id="mnbib-nc-generos-exc"></div>
-                </div>
-              </div>
-            </div><!-- /mnbib-nc-filters -->
-
-            <!-- Estado, Rating y Año: compartidos entre fuentes -->
+                        <!-- Estado, Rating y Año: compartidos entre fuentes -->
             <div class="mnbib-drop" id="drop-estado">
               <button class="mnbib-drop-btn" onclick="mnBibToggleDrop('estado')">
                 Estado <span class="mnbib-drop-val" id="drop-estado-val">Todo</span>
@@ -1423,37 +1414,7 @@ setTimeout(function(){;(function(){
 
   </div><!-- /layout -->
 
-  <!-- ── MODAL: SOURCE PICKER (NovelCool) ─────────────────────────────────── -->
-  <div class="overlay" id="overlay-nc-fuente">
-    <div class="card-servidor">
-      <div class="card-servidor-header">
-        <div>
-          <p class="card-label">Elige una fuente de lectura</p>
-          <h3 id="nc-fuente-titulo"></h3>
-        </div>
-        <button class="btn-cerrar" id="nc-fuente-cerrar">✕</button>
-      </div>
-      <div class="nc-fuente-lista">
-        <button class="nc-fuente-btn" onclick="ncElegirFuente(1)">
-          <span class="nc-fuente-num">1</span>
-          <span class="nc-fuente-label">Fuente 1</span>
-          <span class="nc-fuente-desc">Directo · SSR</span>
-        </button>
-        <button class="nc-fuente-btn" onclick="ncElegirFuente(2)">
-          <span class="nc-fuente-num">2</span>
-          <span class="nc-fuente-label">Fuente 2</span>
-          <span class="nc-fuente-desc">CDN alternativo</span>
-        </button>
-        <button class="nc-fuente-btn" onclick="ncElegirFuente(3)">
-          <span class="nc-fuente-num">3</span>
-          <span class="nc-fuente-label">Fuente 3</span>
-          <span class="nc-fuente-desc">CDN alternativo</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div class="overlay" id="overlay-servidor">
+    <div class="overlay" id="overlay-servidor">
     <div class="card-servidor">
       <div class="card-servidor-header">
         <div>
@@ -1733,17 +1694,17 @@ setTimeout(function(){;(function(){
                 </div>
               </div>
 
-              <!-- NovelCool -->
-              <div class="mod-overlay-card" id="modcard-src-novelcool" onclick="seleccionarFuenteManga('novelcool')">
+              <!-- MangaOni -->
+              <div class="mod-overlay-card" id="modcard-src-manga-oni" onclick="seleccionarFuenteManga('manga-oni')">
                 <div class="mod-overlay-badge">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div class="mod-overlay-logo">
-                  <img src="https://www.google.com/s2/favicons?domain=novelcool.com&sz=128" width="52" height="52" style="border-radius:12px;object-fit:cover;image-rendering:auto;" alt="NovelCool" onerror="this.src='https://www.google.com/s2/favicons?domain=es.novelcool.com&sz=128'">
+                  <img src="https://www.google.com/s2/favicons?domain=manga-oni.com&sz=128" width="52" height="52" style="border-radius:12px;object-fit:cover;image-rendering:auto;" alt="MangaOni" onerror="this.src='https://www.google.com/s2/favicons?domain=manga-oni.com&sz=128'">
                 </div>
                 <div class="mod-overlay-info">
-                  <div class="mod-overlay-name">NovelCool</div>
-                  <div class="mod-overlay-src">es.novelcool.com</div>
+                  <div class="mod-overlay-name">MangaOni</div>
+                  <div class="mod-overlay-src">manga-oni.com</div>
                 </div>
               </div>
 
@@ -1778,17 +1739,17 @@ setTimeout(function(){;(function(){
 
               <!-- AnimeFLV se sacó del selector: el sitio se quedó sin catálogo -->
 
-              <!-- MonosChinos -->
-              <div class="mod-overlay-card" id="modcard-src-monoschinos" onclick="seleccionarFuenteAnime('monoschinos')">
+              <!-- AnimeAV1 -->
+              <div class="mod-overlay-card" id="modcard-src-animeav1" onclick="seleccionarFuenteAnime('animeav1')">
                 <div class="mod-overlay-badge">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div class="mod-overlay-logo">
-                  <div style="width:52px;height:52px;border-radius:12px;background:#121212;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#e53935;flex-shrink:0">MC</div>
+                  <div style="width:52px;height:52px;border-radius:12px;background:#121212;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#2dd4bf;flex-shrink:0">AV1</div>
                 </div>
                 <div class="mod-overlay-info">
-                  <div class="mod-overlay-name">MonosChinos</div>
-                  <div class="mod-overlay-src">monoschinos.st</div>
+                  <div class="mod-overlay-name">AnimeAV1</div>
+                  <div class="mod-overlay-src">animeav1.com</div>
                 </div>
               </div>
 
@@ -1827,14 +1788,11 @@ setTimeout(function(){;(function(){
       <div class="cfg-view" id="cfg-view-apariencia" style="display:none">
         <div class="cfg-section"><div class="cfg-section-label">Temas</div><div class="cfg-presets">
           <button class="cfg-preset-btn" data-preset="clasico" onclick="aplicarPreset('clasico')" title="Clásico"><span class="cfg-preset-swatch" style="background:#2563EB"></span>Clásico</button>
-          <button class="cfg-preset-btn" data-preset="medianoche" onclick="aplicarPreset('medianoche')" title="Medianoche violeta"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#232526,#3f2b96)"></span>Medianoche</button>
-          <button class="cfg-preset-btn" data-preset="sakura" onclick="aplicarPreset('sakura')" title="Sakura"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#ffdde1,#ee9ca7)"></span>Sakura</button>
-          <button class="cfg-preset-btn" data-preset="cyberpunk" onclick="aplicarPreset('cyberpunk')" title="Cyberpunk"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#0f2027,#ff2fb0)"></span>Cyberpunk</button>
-          <button class="cfg-preset-btn" data-preset="esmeralda" onclick="aplicarPreset('esmeralda')" title="Esmeralda"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#059669,#43cea2)"></span>Esmeralda</button>
-          <button class="cfg-preset-btn" data-preset="atardecer" onclick="aplicarPreset('atardecer')" title="Atardecer"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#ff9966,#ff5e62)"></span>Atardecer</button>
-          <button class="cfg-preset-btn cfg-preset-miku" data-preset="miku" onclick="aplicarPreset('miku')" title="Hatsune Miku"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#39C5BB,#FF2E92)"></span>Miku</button>
-          <button class="cfg-preset-btn cfg-preset-neru" data-preset="neru" onclick="aplicarPreset('neru')" title="Akita Neru"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#F2A30E,#8FBF3F)"></span>Neru</button>
-          <button class="cfg-preset-btn cfg-preset-berserker" data-preset="berserker" onclick="aplicarPreset('berserker')" title="Berserker"><span class="cfg-preset-swatch" style="background:linear-gradient(135deg,#000000,#C1121F)"></span>Berserker</button>
+          <button class="cfg-preset-btn cfg-preset-miku" data-preset="miku" onclick="aplicarPreset('miku')" title="Hatsune Miku"><span class="cfg-preset-swatch" style="background-image:url('assets/miku-bg.jpg');background-size:cover;background-position:48.6% 13.2%"></span>Miku</button>
+          <button class="cfg-preset-btn cfg-preset-neru" data-preset="neru" onclick="aplicarPreset('neru')" title="Akita Neru"><span class="cfg-preset-swatch" style="background-image:url('assets/neru-bg.jpg');background-size:cover;background-position:48.3% 55%"></span>Neru</button>
+          <button class="cfg-preset-btn cfg-preset-berserker" data-preset="berserker" onclick="aplicarPreset('berserker')" title="Berserker"><span class="cfg-preset-swatch" style="background-image:url('assets/berserker-bg.jpg');background-size:cover;background-position:50% 50%"></span>Berserker</button>
+          <button class="cfg-preset-btn cfg-preset-metaphor" data-preset="metaphor" onclick="aplicarPreset('metaphor')" title="Metaphor: ReFantazio"><span class="cfg-preset-swatch" style="background-image:url('assets/metaphor-bg.jpg');background-size:cover;background-position:50% 40%"></span>Metaphor</button>
+          <button class="cfg-preset-btn cfg-preset-kaneki" data-preset="kaneki" onclick="aplicarPreset('kaneki')" title="Tokyo Ghoul"><span class="cfg-preset-swatch" style="background-image:url('assets/kaneki-bg.jpg');background-size:cover;background-position:62% 35%"></span>Kaneki</button>
         </div></div>
         <div class="cfg-section"><div class="cfg-section-label">Modo</div><div class="cfg-row">
           <button class="cfg-mode-btn activo" id="cfg-modo-oscuro" onclick="setAppModo('oscuro')">Oscuro</button>
@@ -1863,6 +1821,8 @@ setTimeout(function(){;(function(){
             <button class="cfg-bg-gradient-swatch" data-grad="medianoche" onclick="setBgGradiente('medianoche')" title="Medianoche" style="background:linear-gradient(135deg,#232526,#3f2b96)"></button>
             <button class="cfg-bg-gradient-swatch" data-grad="miku" onclick="setBgGradiente('miku')" title="Hatsune Miku" style="background:linear-gradient(135deg,#39C5BB,#FF2E92)"></button>
             <button class="cfg-bg-gradient-swatch" data-grad="neru" onclick="setBgGradiente('neru')" title="Akita Neru" style="background:linear-gradient(135deg,#F2A30E,#8FBF3F)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="metaphor" onclick="setBgGradiente('metaphor')" title="Metaphor: ReFantazio" style="background:linear-gradient(135deg,#227178,#B04950)"></button>
+            <button class="cfg-bg-gradient-swatch" data-grad="kaneki" onclick="setBgGradiente('kaneki')" title="Tokyo Ghoul" style="background:linear-gradient(135deg,#000000,#A31621)"></button>
           </div>
           <div class="cfg-bg-actions">
             <button class="cfg-bg-btn" onclick="setBgImagen()">Seleccionar imagen</button>
@@ -1912,6 +1872,7 @@ setTimeout(function(){;(function(){
       <div class="cfg-view" id="cfg-view-interfaz" style="display:none">
         <div class="cfg-section">
           <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Barra lateral automática</div><div class="cfg-toggle-desc">Se oculta al alejar el cursor</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-sidebar" onchange="setSidebarAutohide(this.checked)"><span class="rl-toggle-track"></span></label></div>
+          <div class="cfg-toggle-row"><div><div class="cfg-toggle-title">Autoocultar chat y amigos</div><div class="cfg-toggle-desc">Botones flotantes visibles siempre; actívalo para que se oculten y aparezcan al acercar el cursor</div></div><label class="rl-toggle"><input type="checkbox" id="cfg-tog-social-fab" onchange="setSocialFabAutohide(this.checked)"><span class="rl-toggle-track"></span></label></div>
         </div>
         <div class="cfg-section">
           <div class="cfg-section-label">Portadas visibles</div>
@@ -2063,6 +2024,8 @@ setTimeout(function(){;(function(){
   <script src="modulos/miku.js"></script>
   <script src="modulos/neru.js"></script>
   <script src="modulos/berserker.js"></script>
+  <script src="modulos/metaphor.js"></script>
+  <script src="modulos/kaneki.js"></script>
 <!-- Firebase SDK local — no depende de CDN externo -->
 <script src="assets/firebase/firebase-app-compat.js"></script>
   <script src="assets/firebase/firebase-auth-compat.js"></script>
@@ -2082,6 +2045,12 @@ setTimeout(function(){;(function(){
   <div id="overlay-perfil" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.75);align-items:center;justify-content:center;padding:20px">
     <div id="perfil-panel" class="pf-panel"></div>
   </div>
+  <!-- ── TOAST "RECIÉN ACTUALIZADO" ────────────────────────────────────────── -->
+  <div id="update-done-toast" style="display:none;position:fixed;bottom:20px;right:20px;z-index:9999;background:var(--bg-secondary);border:1px solid #4ade80;border-radius:12px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.5);min-width:280px;max-width:340px">
+    <div style="font-size:13px;font-weight:600;color:var(--text-primary)">✅ RYOKU se actualizó</div>
+    <div id="update-done-version" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+  </div>
+
   <!-- ── BANNER ACTUALIZACIÓN ──────────────────────────────────────────────── -->
   <div id="update-banner" style="display:none;position:fixed;bottom:20px;right:20px;z-index:9999;background:var(--bg-secondary);border:1px solid var(--accent);border-radius:12px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.5);min-width:280px;max-width:340px">
     <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">🎉 Nueva versión disponible</div>
@@ -2117,6 +2086,12 @@ setTimeout(function(){;(function(){
       }).catch(function() {})
     })()
 
+    window.api.onAppUpdated?.((info) => {
+      var toast = document.getElementById('update-done-toast')
+      document.getElementById('update-done-version').textContent = 'Ahora estás en la versión ' + (info && info.to ? info.to : '')
+      toast.style.display = 'block'
+      setTimeout(() => { toast.style.display = 'none' }, 6000)
+    })
     window.api.onUpdateAvailable((version) => {
       document.getElementById('update-version').textContent = 'Versión ' + version + ' lista para instalar'
       document.getElementById('update-banner').style.display = 'block'
@@ -2128,7 +2103,14 @@ setTimeout(function(){;(function(){
     window.api.onUpdateDownloaded(() => {
       document.getElementById('update-btn').textContent = 'Reiniciar e instalar'
       document.getElementById('update-btn').disabled = false
-      document.getElementById('update-btn').onclick = () => window.api.updateInstall()
+      document.getElementById('update-btn').onclick = () => {
+        // Respuesta inmediata: la app sigue abierta unos segundos hasta que
+        // aparece la pantalla nativa de "Actualizando RYOKU..." encima.
+        const b = document.getElementById('update-btn')
+        b.textContent = 'Instalando…'
+        b.disabled = true
+        window.api.updateInstall()
+      }
       document.getElementById('update-progress-wrap').style.display = 'none'
     })
     window._checkForUpdates = function() {

@@ -1,6 +1,6 @@
 {
   "name": "ryoku",
-  "version": "1.1.9",
+  "version": "1.1.50",
   "description": "RYOKU - Anime streaming app",
   "main": "main.js",
   "scripts": {
@@ -24,6 +24,8 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
@@ -47,6 +49,9 @@
     "directories": {
       "output": "dist"
     },
+    "releaseInfo": {
+      "releaseNotesFile": "build/release-notes.md"
+    },
     "publish": {
       "provider": "github",
       "owner": "FaxTheGhoul",
@@ -56,7 +61,7 @@
   },
   "devDependencies": {
     "electron": "^28.3.3",
-    "electron-builder": "^24.0.0"
+    "electron-builder": "24.13.1"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",
