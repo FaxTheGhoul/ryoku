@@ -40,8 +40,13 @@ function _setLastRead(id) {
 
 function _tsToMs(ts) {
   if (!ts) return 0
-  if (ts.toMillis) return ts.toMillis()
   if (typeof ts === 'number') return ts
+  if (typeof ts.toMillis === 'function') return ts.toMillis()
+  if (ts instanceof Date) return ts.getTime()
+  // Timestamp de Firestore ya serializado (caché/sync): { seconds, nanoseconds }
+  const seg = ts.seconds ?? ts._seconds
+  if (typeof seg === 'number') return seg * 1000 + Math.floor((ts.nanoseconds ?? ts._nanoseconds ?? 0) / 1e6)
+  if (typeof ts === 'string') { const n = Date.parse(ts); return isNaN(n) ? 0 : n }
   return 0
 }
 

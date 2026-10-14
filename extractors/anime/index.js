@@ -14,6 +14,7 @@ const generico    = require('./generico')
 const hexload     = require('./hexload')
 const goodstream  = require('./goodstream')
 const filemoon    = require('./filemoon')
+const okru        = require('./okru')
 
 // Inline extractor for cuevana8 player (needs cuevana referer)
 const cuevanaPlayer = {
@@ -43,6 +44,7 @@ setInterval(() => {
 
 function detectar(url) {
   const u = url.toLowerCase()
+  if (u.includes('ok.ru/') || u.includes('odnoklassniki'))  return 'okru'
   if (u.includes('mp4upload'))                               return 'mp4upload'
   if (u.includes('voe') || u.includes('jessicayeah') ||
       u.includes('laymanlousest') || u.includes('housecardsunited') ||
@@ -72,7 +74,7 @@ function detectar(url) {
 
 const EXTRACTORES = {
   mp4upload, voe, doodstream, uqload, yourupload,
-  mixdrop, streamtape, fembed, savefiles, generico, goodstream, filemoon, hexload,
+  mixdrop, streamtape, fembed, savefiles, generico, goodstream, filemoon, hexload, okru,
   dsvplay: generico,
   streamwish: generico, filelions: generico,
   cuevana: cuevanaPlayer,

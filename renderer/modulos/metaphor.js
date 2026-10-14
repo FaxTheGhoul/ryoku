@@ -22,6 +22,7 @@
 
   function spawnParticula() {
     if (!activo || !contenedor) return
+    if (window._ryokuParticulas === false) return
     // Con el reproductor abierto no se ven y solo gastan GPU/CPU detrás del
     // video (cada partícula es una animación con brillo). Se retoman solas
     // al cerrarlo; las que ya estaban terminan su recorrido.
@@ -50,8 +51,8 @@
     if (activo) return
     activo = true
     contenedor.classList.add('activo')
-    for (let i = 0; i < 6; i++) setTimeout(spawnParticula, i * 380)
-    intervalId = setInterval(spawnParticula, 1100)
+    for (let i = 0; i < 3; i++) setTimeout(spawnParticula, i * 600)
+    intervalId = setInterval(spawnParticula, 2400)
     iniciarCursor()
   }
 

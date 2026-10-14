@@ -401,6 +401,9 @@ window._friendsAdd = async function() {
   }
 }
 
+// Lista de amigos (copia) para otros módulos, p.ej. "Ver juntos"
+window._friendsLista = function() { return _friends.slice() }
+
 window._friendsSetActivity = function(activityObj) {
   if (!_currentUser || !_db) return
   if (activityObj && window._ryokuActivityShare === false) return

@@ -378,6 +378,7 @@ let _appCorners  = 'redondeado' // 'redondeado' | 'cuadrado'
 let _appDensidad = 'comoda'
 let _appTemaId = ''
 let _appMikuSonido = true     // sonido del tema Miku (on/off)
+let _appParticulas = true     // partículas de fondo de los temas (on/off)
 let _appGlass    = true
 
 function setSidebarAutohide(val) {
@@ -539,6 +540,13 @@ function setAppGlass(val) {
   _appGlass = val
   window.api.configSet('app-glass', val)
   document.body.classList.toggle('sin-vidrio', !val)
+  _syncGuardarInmediato()
+}
+function setParticulas(val) {
+  _appParticulas = val
+  window._ryokuParticulas = val
+  document.body.classList.toggle('sin-particulas', !val)
+  window.api.configSet('app-particulas', val)
   _syncGuardarInmediato()
 }
 function setMikuSonido(val) {
@@ -1222,6 +1230,9 @@ async function initConfig() {
     _appTemaId            = cfg['app-tema-id'] || ''
     _appMikuSonido        = !(cfg['app-miku-sonido'] === false || cfg['app-miku-sonido'] === 'false')
     window._ryokuMikuSonido = _appMikuSonido
+    _appParticulas        = !(cfg['app-particulas'] === false || cfg['app-particulas'] === 'false')
+    window._ryokuParticulas = _appParticulas
+    document.body.classList.toggle('sin-particulas', !_appParticulas)
     // Portadas visibles unificada — usar el mismo valor para anime y manga
     // Prioridad: portadas-max > continuar-max > mn-continuar-max > 0 (automático)
     const _portMax = parseInt(cfg['portadas-max'] || cfg['continuar-max'] || cfg['mn-continuar-max'] || '0')
@@ -1265,6 +1276,8 @@ async function initConfig() {
     if (typeof window._kanekiTemaAplicado === 'function') window._kanekiTemaAplicado(_appTemaId)
     const _cfgMikuSonido = document.getElementById('cfg-tog-miku-sonido')
     if (_cfgMikuSonido) _cfgMikuSonido.checked = _appMikuSonido
+    const _cfgParticulas = document.getElementById('cfg-tog-particulas')
+    if (_cfgParticulas) _cfgParticulas.checked = _appParticulas
     document.querySelectorAll('.cfg-color').forEach(b => b.classList.toggle('activo', b.dataset.accent === _appAccent))
     const _cfgAccentCustomInput = document.getElementById('cfg-accent-custom-input')
     if (_cfgAccentCustomInput) _cfgAccentCustomInput.value = _appAccentCustomHex

@@ -8602,9 +8602,9 @@ body[data-tema-id="miku"] .cfg-panel > * { position: relative; z-index: 1; }
 /* ── Tipografía de acento en títulos destacados ─────────────────────────── */
 body[data-tema-id="miku"] .slider-info h2,
 body[data-tema-id="miku"] #anime-titulo {
-  font-family: 'Baloo 2', 'Inter', sans-serif !important;
+  font-family: 'Inter', sans-serif !important;
   font-weight: 800 !important;
-  letter-spacing: 0.2px;
+  letter-spacing: -0.4px;
 }
 
 /* ── Extras Miku v2: cursor, halo, luz de escenario, progreso bicolor ──── */
@@ -8897,9 +8897,9 @@ body[data-tema-id="neru"] #anime-titulo::after { animation-delay: 0.22s; }
 /* ── Tipografía de acento en títulos destacados ─────────────────────────── */
 body[data-tema-id="neru"] .slider-info h2,
 body[data-tema-id="neru"] #anime-titulo {
-  font-family: 'Baloo 2', 'Inter', sans-serif !important;
+  font-family: 'Inter', sans-serif !important;
   font-weight: 800 !important;
-  letter-spacing: 0.2px;
+  letter-spacing: -0.4px;
 }
 
 /* ── Halo de "respiración" en el logo de la sidebar ─────────────────────── */
@@ -9667,3 +9667,235 @@ body[data-tema-id="metaphor"] .rl-toggle input:checked + .rl-toggle-track {
 body[data-tema-id="metaphor"] .rl-toggle input:checked + .rl-toggle-track::after {
   box-shadow: 0 0 6px rgba(176,73,80,0.7);
 }
+
+/* ── Autocompletar en buscadores (anime / manga) ── */
+.ac-drop {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 210; display: none;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35); overflow: hidden; max-height: 420px; overflow-y: auto;
+}
+.ac-drop.visible { display: block; }
+.ac-header { padding: 8px 14px 4px; font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+.ac-item { display: flex; align-items: center; gap: 12px; padding: 7px 14px; cursor: pointer; transition: background .1s; }
+.ac-item:hover, .ac-item.activo { background: var(--bg-3); }
+.ac-img { width: 34px; height: 48px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: var(--bg-3); }
+.ac-txt { min-width: 0; flex: 1; }
+.ac-tit { font-size: 13px; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body[data-esquinas="cuadrado"] .ac-drop { border-radius: 0; }
+
+
+/* ══ Diseño pro (oct 2026) ═══════════════════════════════════════════════
+   1) Capa oscura sobre el fondo personalizado: el wallpaper da ambiente
+      pero no compite con las portadas. Más oscura hacia abajo, donde están
+      las filas de tarjetas. Solo en modo oscuro.
+   2) Partículas de los temas más tenues + switch para apagarlas. */
+#app-bg-scrim {
+  position: fixed; top: 0; left: 56px; right: 0; bottom: 0;
+  pointer-events: none; z-index: 0; display: none;
+  background:
+    linear-gradient(180deg, rgba(6,10,18,0.30) 0%, rgba(6,10,18,0.50) 38%, rgba(6,10,18,0.78) 100%),
+    radial-gradient(120% 80% at 50% 0%, transparent 40%, rgba(6,10,18,0.35) 100%);
+}
+body.has-bg #app-bg-scrim { display: block; }
+body.sidebar-autohide #app-bg-scrim { left: 0; }
+[data-tema="claro"] #app-bg-scrim { display: none !important; }
+
+#miku-particulas.activo, #neru-particulas.activo, #berserker-particulas.activo,
+#metaphor-particulas.activo, #kaneki-particulas.activo { opacity: 0.55; }
+body.sin-particulas #miku-particulas, body.sin-particulas #neru-particulas,
+body.sin-particulas #berserker-particulas, body.sin-particulas #metaphor-particulas,
+body.sin-particulas #kaneki-particulas { display: none !important; }
+
+
+/* ══ Inicio pro: manga + Top de la semana (oct 2026) ═════════════════════
+   Solo escritorio (no mobile-mode). */
+/* El inicio usa todo el ancho de la ventana. Para que el hero no quede
+   bajito y alargado en pantallas anchas, su alto crece con el ancho y la
+   imagen ya no tiene tope de 1100px. El Top también se ensancha un poco. */
+body:not(.mobile-mode) .home-hero-banner .slider-wrap { height: clamp(320px, 23vw, 640px); }
+body:not(.mobile-mode) .slider-slide-img { max-width: none; }
+body:not(.mobile-mode) .home-top-panel { max-width: 520px; }
+
+/* Hero: título más grande */
+body:not(.mobile-mode) .slider-info h2 { font-size: 27px; line-height: 1.15; letter-spacing: -0.4px; margin-bottom: 10px; }
+body:not(.mobile-mode) .slider-info { max-width: min(460px, 44%); }
+
+/* Grillas de manga: portadas más grandes y títulos legibles */
+body:not(.mobile-mode) .mn-tend-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 14px; }
+body:not(.mobile-mode) .mn-tend-title { font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+body:not(.mobile-mode) .mn-tend-cover,
+body:not(.mobile-mode) .mn-tend-placeholder { border-radius: 10px; }
+body:not(.mobile-mode) .mn-tend-rank { min-width: 24px; height: 24px; font-size: 11px; border-radius: 6px; }
+/* "MANGA" en todas las portadas no aporta: solo se ven MANHWA/MANHUA */
+.mn-tend-tipo.manga { display: none; }
+
+/* Top de la semana: miniatura a la izquierda + texto sobre fondo sólido
+   (antes el título iba encima de la imagen y casi no se leía). */
+body:not(.mobile-mode) .home-top-list { gap: 4px; }
+body:not(.mobile-mode) .home-top-item {
+  align-items: center; gap: 10px; padding: 6px 10px 6px 4px;
+  background: rgba(255,255,255,0.03); border: 1px solid transparent; border-radius: 10px;
+  min-height: 52px; transform: none;
+}
+body:not(.mobile-mode) .home-top-item:hover { background: rgba(255,255,255,0.07); border-color: rgba(var(--primary-rgb,37,99,235),0.45); transform: none; }
+body:not(.mobile-mode) .home-top-rank {
+  position: static; width: 28px; height: auto; flex-shrink: 0; background: none; border-radius: 0;
+  font-size: 24px; font-weight: 900; line-height: 1; text-align: center;
+  color: transparent; -webkit-text-stroke: 1.5px var(--primary-glow, #60A5FA);
+}
+body:not(.mobile-mode) .home-top-item:first-child .home-top-rank { color: var(--primary-glow, #60A5FA); -webkit-text-stroke: 0; }
+body:not(.mobile-mode) .home-top-media { display: flex; align-items: center; gap: 12px; height: 100%; background: none; overflow: visible; }
+body:not(.mobile-mode) .home-top-bg {
+  position: relative; inset: auto; flex: 0 0 auto;
+  height: 100%; max-height: 64px; min-height: 40px; width: auto; aspect-ratio: 16 / 10;
+  border-radius: 6px; object-position: center 25%; box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+}
+body:not(.mobile-mode) #mn-home-top-list .home-top-bg { aspect-ratio: 2 / 3; object-position: center top; }
+body:not(.mobile-mode) .home-top-overlay { display: none; }
+body:not(.mobile-mode) .home-top-info {
+  position: static; flex: 1; min-width: 0;
+  flex-direction: column; align-items: flex-start; gap: 3px;
+}
+body:not(.mobile-mode) .home-top-title {
+  font-size: 12.5px; font-weight: 700; color: var(--text-1, #F8FAFC); line-height: 1.3;
+  white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+body:not(.mobile-mode) .home-top-stat { margin-left: 0; font-size: 11px; font-weight: 700; }
+body:not(.mobile-mode) .home-top-studio {
+  position: static; flex-shrink: 0; font-size: 10px; font-weight: 600;
+  color: var(--text-muted, rgba(255,255,255,0.55)); text-transform: uppercase; letter-spacing: 0.3px;
+}
+body[data-tema="claro"]:not(.mobile-mode) .home-top-item { background: rgba(0,0,0,0.04); }
+
+
+/* ══ Selector de servidores: ventana centrada (oct 2026) ═════════════════
+   Mismo diseño que la hoja de Android, adaptado a escritorio. */
+#overlay-servidor { background: rgba(2,6,15,0.6); }
+body:not(.sin-vidrio) #overlay-servidor { backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+#overlay-servidor .card-servidor,
+body:not(.sin-vidrio) #overlay-servidor .card-servidor {
+  width: 92%; max-width: 500px; max-height: 88vh; display: flex; flex-direction: column;
+  border-radius: 24px; border: 1px solid rgba(255,255,255,0.08);
+  background: #111827; backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  animation: srv-entrar 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes srv-entrar { from { transform: translateY(10px) scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+#overlay-servidor .card-servidor-header { align-items: center; gap: 16px; padding: 22px 22px 18px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+.srv-portada { width: 64px; height: 90px; border-radius: 12px; object-fit: cover; flex-shrink: 0; background: #1f2937; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+.srv-head-txt { min-width: 0; flex: 1; }
+#overlay-servidor .card-label { font-size: 11px; font-weight: 800; letter-spacing: 2.5px; color: var(--primary-glow, #60A5FA); margin-bottom: 5px; }
+#overlay-servidor .card-servidor-header h3 { font-size: 20px; font-weight: 800; color: #F8FAFC; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srv-meta { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.srv-ep-chip {
+  font-size: 12.5px; font-weight: 700; color: #F8FAFC; padding: 3px 11px; border-radius: 20px;
+  background: rgba(var(--primary-rgb, 37,99,235), 0.18); border: 1px solid rgba(var(--primary-rgb, 37,99,235), 0.55);
+}
+.srv-cuenta { font-size: 13px; color: #94a3b8; }
+#overlay-servidor .btn-cerrar { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.08); border: none; color: #cbd5e1; flex-shrink: 0; align-self: flex-start; }
+#overlay-servidor .btn-cerrar:hover { background: rgba(239,68,68,0.18); color: #f87171; }
+
+#overlay-servidor .srv-lista { padding: 14px; gap: 8px; overflow-y: auto; flex: 1; min-height: 0; }
+#overlay-servidor .srv-btn {
+  padding: 9px 14px; min-height: 58px; gap: 14px; border-radius: 16px; text-align: left;
+  background: #1a2233; border: 1px solid rgba(255,255,255,0.07);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+#overlay-servidor .srv-btn:hover { background: #222c40; border-color: rgba(var(--primary-rgb, 96,165,250), 0.55); transform: translateX(2px); }
+.srv-ava {
+  width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800; color: #fff;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--srv-c) 92%, #fff), color-mix(in srgb, var(--srv-c) 78%, #000));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--srv-c) 40%, transparent);
+}
+.srv-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+#overlay-servidor .srv-nombre { font-size: 15px; font-weight: 700; color: #F8FAFC; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#overlay-servidor .srv-dot { width: 10px; height: 10px; }
+#overlay-servidor .srv-dot:not(.srv-dot-ok):not(.srv-dot-fail):not(.srv-dot-checking):not(.srv-dot-caido) { background: #475569; }
+#overlay-servidor .srv-dot.srv-dot-ok { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,0.15); }
+.srv-chev { color: #64748b; flex-shrink: 0; order: 5; }
+#overlay-servidor .srv-sin-resultado { margin-left: 0; order: 4; flex-shrink: 0; }
+#overlay-servidor .srv-btn.srv-no-funcional .srv-ava { filter: grayscale(0.8); opacity: 0.6; }
+#overlay-servidor .srv-btn.srv-no-funcional .srv-nombre { color: #64748b; }
+.srv-pie { text-align: center; font-size: 12.5px; color: #64748b; margin: 0; padding: 2px 16px 16px; flex-shrink: 0; }
+
+/* Modo claro */
+body[data-tema="claro"] #overlay-servidor .card-servidor { background: #F8FAFC !important; border-color: rgba(15,23,42,0.08) !important; }
+body[data-tema="claro"] #overlay-servidor .card-servidor-header h3,
+body[data-tema="claro"] #overlay-servidor .srv-nombre,
+body[data-tema="claro"] .srv-ep-chip { color: #0F172A; }
+body[data-tema="claro"] #overlay-servidor .srv-btn { background: #fff; border-color: rgba(15,23,42,0.08); }
+body[data-tema="claro"] #overlay-servidor .srv-btn:hover { background: #F1F5F9; }
+
+
+/* ══ Ver juntos (watch party) ═══════════════════════════════════════════ */
+#rp-wp-btn.activo { color: #22c55e; }
+/* Quiénes están en la sala: burbujitas abajo a la izquierda, sobre la barra
+   de progreso. Con los controles ocultos bajan y se atenúan. */
+#wp-indicador {
+  position: absolute; left: 18px; bottom: 74px; z-index: 30;
+  display: none; align-items: center; padding: 0; border: none; background: none; cursor: pointer;
+  opacity: 0.55; transform: translateY(46px); transition: opacity 0.25s, transform 0.25s;
+}
+.rp-video-area.show-controls #wp-indicador,
+.rp-video-area.paused #wp-indicador,
+#wp-indicador:hover { opacity: 1; transform: none; }
+.wp-burb {
+  position: relative; width: 28px; height: 28px; border-radius: 50%; margin-left: -8px;
+  border: 2px solid #0b1220; background: #334155; overflow: visible; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font: 800 11.5px Inter, sans-serif; text-transform: uppercase;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.wp-burb:first-child { margin-left: 0; }
+.wp-burb img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.wp-burb::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; border: 2px solid #0b1220; }
+.wp-burb.host { box-shadow: 0 0 0 2px #22c55e, 0 2px 8px rgba(0,0,0,0.5); }
+.wp-burb.mas { background: rgba(15,23,42,0.9); font-size: 10.5px; }
+.wp-burb.mas::after { display: none; }
+
+#wp-panel {
+  position: absolute; left: 16px; bottom: 112px; z-index: 40; width: 300px; max-height: calc(100% - 170px);
+  display: none; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto;
+  background: #111827; border: 1px solid rgba(255,255,255,0.09); border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6); color: #e2e8f0; font-family: Inter, sans-serif;
+}
+#wp-panel.abierto { display: flex; animation: srv-entrar 0.18s ease; }
+.wp-cab { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.wp-lbl { margin: 0 0 3px; font-size: 10.5px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--primary-glow, #60A5FA); }
+.wp-cab h4 { margin: 0; font-size: 15px; font-weight: 700; color: #F8FAFC; line-height: 1.3; }
+.wp-x { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(255,255,255,0.08); color: #cbd5e1; cursor: pointer; flex-shrink: 0; }
+.wp-desc { margin: 0; font-size: 12.5px; color: #94a3b8; line-height: 1.5; }
+.wp-prim { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px; border: none; border-radius: 12px; background: var(--primary, #2563eb); color: #fff; font: 700 13px Inter, sans-serif; cursor: pointer; }
+.wp-prim:hover { filter: brightness(1.1); }
+.wp-sec { margin: 4px 0 0; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; }
+.wp-lista { display: flex; flex-direction: column; gap: 6px; }
+.wp-mi, .wp-am { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 12px; background: #1a2233; }
+.wp-mi img, .wp-am img, .wp-av-ph, .wp-inv img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.wp-av-ph { display: flex; align-items: center; justify-content: center; background: #334155; color: #fff; font-weight: 800; font-size: 13px; text-transform: uppercase; }
+.wp-mi span, .wp-am span { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wp-am small { display: block; font-size: 11px; font-weight: 500; color: #64748b; }
+.wp-am.off { opacity: 0.6; }
+.wp-mi em { font-style: normal; font-size: 10.5px; font-weight: 700; color: #22c55e; }
+.wp-am button { border: 1px solid rgba(var(--primary-rgb, 37,99,235), 0.6); background: transparent; color: var(--primary-glow, #60A5FA); border-radius: 8px; padding: 5px 10px; font: 700 11.5px Inter, sans-serif; cursor: pointer; }
+.wp-am button:disabled { opacity: 0.55; cursor: default; }
+.wp-vacio { margin: 0; font-size: 12px; color: #64748b; }
+.wp-sal { margin-top: 4px; padding: 9px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.4); background: rgba(239,68,68,0.08); color: #f87171; font: 700 12.5px Inter, sans-serif; cursor: pointer; }
+
+#wp-toasts { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 9700; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.wp-toast { padding: 9px 16px; border-radius: 12px; background: rgba(15,23,42,0.95); border: 1px solid rgba(255,255,255,0.1); color: #e2e8f0; font: 600 12.5px Inter, sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.4); transition: opacity 0.3s, transform 0.3s; }
+.wp-toast.fuera { opacity: 0; transform: translateY(6px); }
+
+#wp-invs { position: fixed; right: 18px; bottom: 18px; z-index: 9600; display: flex; flex-direction: column; gap: 10px; }
+.wp-inv {
+  display: flex; align-items: center; gap: 12px; width: 360px; padding: 12px 14px; border-radius: 16px;
+  background: #111827; border: 1px solid rgba(34,197,94,0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  color: #e2e8f0; font-family: Inter, sans-serif; animation: srv-entrar 0.2s ease;
+}
+.wp-inv img, .wp-inv .wp-av-ph { width: 38px; height: 38px; }
+.wp-inv-txt { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.35; }
+.wp-inv-txt span { display: block; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wp-inv-si { border: none; background: #22c55e; color: #052e16; border-radius: 10px; padding: 8px 12px; font: 800 12px Inter, sans-serif; cursor: pointer; }
+.wp-inv-no { border: none; background: rgba(255,255,255,0.08); color: #94a3b8; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; }

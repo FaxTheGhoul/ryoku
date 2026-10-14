@@ -532,11 +532,13 @@ function _mnRenderSlider(lista) {
   if (prev) { prev.onclick = () => { mnIrSlide((_mnSliderIdx - 1 + _mnSliderTotal) % _mnSliderTotal); _mnResetTimer() } }
   if (next) { next.onclick = () => { mnIrSlide((_mnSliderIdx + 1) % _mnSliderTotal); _mnResetTimer() } }
 
-  // Event delegation para botones "Ver manga"
-  track.addEventListener('click', e => {
+  // Event delegation para botones "Ver manga". onclick (no addEventListener):
+  // el slider se re-renderiza sobre el mismo track y cada render sumaba otro
+  // listener → abrirManga se llamaba varias veces y "Volver" quedaba roto.
+  track.onclick = e => {
     const btn = e.target.closest('.slider-btn-ver')
     if (btn) abrirManga(btn.dataset.url, btn.dataset.titulo)
-  })
+  }
 
   mnIrSlide(0)
   _mnResetTimer()
@@ -600,7 +602,13 @@ async function cargarMangaTendencias(onReady) {
 // Función reutilizable para renderizar grillas + recomendado
 function _mnRenderTendencias(res) {
   _mnRenderGrilla('grilla-pop',   res.pop?.general   || [])
-  _mnRenderGrilla('grilla-trend', res.trend?.general || [])
+  // MangaOni no tiene "tendencia" propia: si la lista es igual a Populares,
+  // la sección se oculta en vez de mostrar lo mismo dos veces.
+  const _clave = l => (l || []).map(m => m.link || m.url || '').join('|')
+  const _trendIgual = !!(res.trend?.general?.length) && _clave(res.trend.general) === _clave(res.pop?.general)
+  const _secTrend = document.getElementById('grilla-trend')?.closest('.mn-home-sec')
+  if (_secTrend) _secTrend.style.display = _trendIgual ? 'none' : ''
+  if (!_trendIgual) _mnRenderGrilla('grilla-trend', res.trend?.general || [])
   _mnRenderGrilla('grilla-new',   res.nuevos         || [])
 
   // ── Panel "Top de la semana" (junto al banner) ──────────────────────────
@@ -619,7 +627,7 @@ function _mnRenderTendencias(res) {
             <div class="home-top-info">
               <div class="home-top-title">${_esc(m.titulo||'')}</div>
             </div>
-            ${m.tipo ? `<div class="home-top-studio">${m.tipo}</div>` : ''}
+            ${m.tipo && String(m.tipo).toUpperCase() !== 'MANGA' ? `<div class="home-top-studio">${m.tipo}</div>` : ''}
           </div>
         </div>`
       }).join('')
@@ -813,8 +821,26 @@ function _mnRenderGrilla(grillaId, lista) {
   // Pre-inyectar imágenes del cache en memoria antes de renderizar
   lista.forEach(m => { if (!m.imagen && _portadaCache.has(m.link || m.url || '')) m.imagen = _portadaCache.get(m.link || m.url || '') })
   grilla.innerHTML = lista.map((m, i) => renderMangaTarjeta(m, i + 1)).join('')
+  _mnAjustarFilas(grilla)
   mnCargarPortadasLazy(grilla)
 }
+
+// Solo filas completas en las grillas del inicio: si la última fila queda a
+// medias (sobra un hueco a la derecha), se ocultan esas tarjetas.
+function _mnAjustarFilas(grilla) {
+  if (!grilla || document.body.classList.contains('mobile-mode')) return
+  const cards = [...grilla.querySelectorAll(':scope > .mn-tend-card')]
+  if (!cards.length) return
+  cards.forEach(c => { c.style.display = '' })
+  const cols = getComputedStyle(grilla).gridTemplateColumns.split(' ').filter(Boolean).length || 1
+  const mostrar = Math.max(cols, Math.floor(cards.length / cols) * cols)
+  cards.forEach((c, i) => { if (i >= mostrar) c.style.display = 'none' })
+}
+let _mnFilasT = null
+window.addEventListener('resize', () => {
+  clearTimeout(_mnFilasT)
+  _mnFilasT = setTimeout(() => ['grilla-pop', 'grilla-trend', 'grilla-new'].forEach(id => _mnAjustarFilas(document.getElementById(id))), 150)
+})
 
 // Cambiar tab de sección (pop o trend) + actualizar botón ver todo
 
@@ -1102,6 +1128,7 @@ function _mnBibSyncSource(src) {
   if (demoEl) demoEl.style.display = ''
   const ztFilters = document.getElementById('mnbib-zt-filters')
   if (ztFilters) ztFilters.style.display = 'contents'
+
   // Excluir géneros, Rating y Año: MangaOni no los soporta (su buscarManga
   // nunca lee p.exclude_genders / p.rate / p.year).
   const dropExc = document.getElementById('drop-exc')
@@ -1228,8 +1255,11 @@ async function abrirManga(url, titulo) {
   window._mdUltimoCapTitulo = null
 
   const _paginaOrigen = document.querySelector('#app-manga .pagina.activa')?.id?.replace('page-', '') || 'manga-inicio'
-  _mnNavStack.push(_paginaOrigen)
-  if (typeof _mangaHistorial !== 'undefined') _mangaHistorial.push(_paginaOrigen)
+  // Si ya estamos en el detalle no apilarlo: "Volver" navegaría a la misma página
+  if (_paginaOrigen !== 'manga-detalle') {
+    _mnNavStack.push(_paginaOrigen)
+    if (typeof _mangaHistorial !== 'undefined') _mangaHistorial.push(_paginaOrigen)
+  }
   navegar('manga-detalle')
   // Re-trigger animación botones flotantes manga
   const _fbManga = document.getElementById('manga-floating-btns')
@@ -2730,8 +2760,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('manga-btn-volver')?.addEventListener('click', () => {
     const fb = document.getElementById('manga-floating-btns')
     const doVolver = () => {
-      const dest = _mnNavStack.pop() || 'manga-inicio'
+      let dest = _mnNavStack.pop() || 'manga-inicio'
+      while (dest === 'manga-detalle') dest = _mnNavStack.pop() || 'manga-inicio'
       navegar(dest)
+      fb?.classList.remove('saliendo')
       mnActualizarContinuar()
     }
     if (fb) { fb.classList.add('saliendo'); setTimeout(doVolver, 240) }

@@ -25,7 +25,9 @@ function _getUser() { return window._ryokuAuth?.currentUser || null }
 // estas fuentes, venga de este dispositivo o de la nube. Así sus favoritos,
 // historial, progreso, "al día" y datos de manga desaparecen de la nube en el
 // próximo guardado, y no vuelven a bajar a ningún dispositivo.
-const _FUENTES_ELIMINADAS = ['monoschinos', 'novelcool']
+// (ehentai / e-hentai.org / lectorhentai: fuentes de prueba que se movieron a
+// otra app; se borran sus datos locales para que nunca se suban a la nube)
+const _FUENTES_ELIMINADAS = ['monoschinos', 'novelcool', 'ehentai', 'e-hentai.org', 'lectorhentai']
 function _esDeFuenteEliminada(v) { return !!v && _FUENTES_ELIMINADAS.some(d => String(v).includes(d)) }
 function _sinFuentesEliminadas(obj) {
   const o = {}
@@ -313,13 +315,16 @@ async function guardarEnCloud() {
     const allCloudProg = oldProgDoc?.datos && typeof oldProgDoc.datos === 'object' ? oldProgDoc.datos : {}
     const cloudTomb = cloudTombDoc && typeof cloudTombDoc === 'object' ? cloudTombDoc : { favs: {}, hist: {}, prog: {} }
     const cloudCarpetas = cloudCarpetasDoc?.datos && typeof cloudCarpetasDoc.datos === 'object' ? cloudCarpetasDoc.datos : {}
-    const mergedCarpetas = _mergeCarpetasObj(localCarpetas, cloudCarpetas)
+    const _marcasCarp = _mergeMarcasCarpetas(_marcasCarpetasLocal(), cloudCarpetasDoc?.marcas)
+    const mergedCarpetas = _aplicarMarcasCarpetas(_mergeCarpetasObj(localCarpetas, cloudCarpetas), _marcasCarp)
+    try { localStorage.setItem('ryoku-carpetas-marcas', JSON.stringify(_marcasCarp)) } catch (e) {}
     // 1er arg = "local" (gana en caso de duplicado), 2do = "cloud"
     const mergedTomb = _mergeTomb(localTomb, cloudTomb)
     // Podar tombstones de ítems que se volvieron a agregar después del
     // borrado (ver _podarTomb), antes de aplicar/subir.
     _podarTomb(mergedTomb, [allLocalFavs, allCloudFavs], [allLocalHist, allCloudHist], [allLocalProg, allCloudProg])
-    let mergedFavs = _mergeFavs(allLocalFavs, allCloudFavs)
+    let mergedFavs = _mergeFavs(allLocalFavs, allCloudFavs, oldFavDoc?.ordenTs)
+    const _ordenTsFinal = Math.max(_favsOrdenTsLocal(), Number(oldFavDoc?.ordenTs || 0) || 0)
     let mergedHist = _mergeHist(allLocalHist, allCloudHist)
     // Antes esto se guardaba directo (allLocalProg) pisando el doc de cloud
     // entero — si dos dispositivos habían avanzado episodios distintos, el
@@ -355,11 +360,11 @@ async function guardarEnCloud() {
 
     // Fase 2: todas las escrituras en paralelo
     const writes = [
-      _setDoc(user.uid, 'anime_favoritos',      { lista: mergedFavs }),
+      _setDoc(user.uid, 'anime_favoritos',      { lista: mergedFavs, ordenTs: _ordenTsFinal }),
       _setDoc(user.uid, 'anime_historial',      { lista: mergedHist }),
       _setDoc(user.uid, 'anime_progresos',      { datos: mergedProg }),
       _setDoc(user.uid, 'anime_tombstones',     mergedTomb),
-      _setDoc(user.uid, 'anime_favs_carpetas',  { datos: mergedCarpetas }),
+      _setDoc(user.uid, 'anime_favs_carpetas',  { datos: mergedCarpetas, marcas: _marcasCarp }),
       _setDoc(user.uid, 'anime_al_dia',         { datos: mergedAnimeAlDia }),
       _setDoc(user.uid, 'manga_al_dia',         { datos: mergedMangaAlDia }),
     ]
@@ -377,7 +382,7 @@ async function guardarEnCloud() {
       })())
     }
     if (window.api?.restoreAllTombstones) writes.push(Promise.resolve(window.api.restoreAllTombstones(mergedTomb)).catch(() => {}))
-    if (window.api?.restoreAllCarpetas)   writes.push(Promise.resolve(window.api.restoreAllCarpetas(mergedCarpetas)).catch(() => {}))
+    if (window.api?.restoreAllCarpetas)   writes.push(Promise.resolve(window.api.restoreAllCarpetas(mergedCarpetas, true)).catch(() => {}))
     await Promise.all(writes)
 
     _setStatus('Guardado ✓', 'ok')
@@ -408,18 +413,42 @@ function _unionPorClave(local, cloud, campo) {
   return out
 }
 
-function _mergeFavs(local, cloud) {
-  // Unión por url, preservando el ORDEN del array LOCAL (ese orden es el
-  // que el usuario define arrastrando las portadas en "Mis favoritos", y
-  // es la fuente de verdad). Los favoritos que existan solo en cloud (p.ej.
-  // agregados desde otro dispositivo) se agregan al final, en su orden de
-  // cloud.
-  // OJO: antes esto reconstruía el array con Object.values(map) insertando
-  // primero las entradas de cloud y luego las de local -- como JS conserva
-  // el orden de inserción de una clave ya existente al sobreescribirla, el
-  // orden final terminaba siendo siempre el de CLOUD (el más viejo), así
-  // que cualquier reordenamiento manual se perdía en el siguiente sync.
-  return _unionPorClave(local, cloud, 'url')
+// ── Orden y carpetas de favoritos entre dispositivos ─────────────────────
+// Antes el merge siempre dejaba el orden y la carpeta del dispositivo que
+// sincronizaba: si movías o reordenabas en el celular, la PC nunca se
+// enteraba (y al revés). Ahora:
+//  - Orden: cada dispositivo guarda cuándo reordenó por última vez
+//    ('ryoku-favs-orden-ts'); la nube guarda el de quien subió. Gana el orden
+//    más reciente. Lo agregado acá DESPUÉS de ese reordenamiento queda arriba.
+//  - Carpeta: cada favorito guarda cuándo se cambió su carpeta (carpetaTs);
+//    gana la asignación más reciente, venga del dispositivo que venga.
+function _favsOrdenTsLocal() { try { return Number(localStorage.getItem('ryoku-favs-orden-ts') || 0) || 0 } catch (e) { return 0 } }
+function _guardarFavsOrdenTs(ts) { try { if (ts) localStorage.setItem('ryoku-favs-orden-ts', String(ts)) } catch (e) {} }
+function _mergeFavs(local, cloud, cloudOrdenTs) {
+  const localTs = _favsOrdenTsLocal(), cTs = Number(cloudOrdenTs || 0) || 0
+  const cloudPrimero = cTs > localTs
+  const out = cloudPrimero ? _unionPorClave(cloud, local, 'url') : _unionPorClave(local, cloud, 'url')
+  const masNuevo = new Map()
+  for (const f of [...(local || []), ...(cloud || [])]) {
+    if (!f?.url) continue
+    const p = masNuevo.get(f.url)
+    if (!p || (f.carpetaTs || 0) > (p.carpetaTs || 0)) masNuevo.set(f.url, f)
+  }
+  let res = out.map(f => {
+    const g = masNuevo.get(f.url)
+    return g && (g.carpetaTs || 0) > (f.carpetaTs || 0) ? { ...f, carpeta: g.carpeta || '', carpetaTs: g.carpetaTs } : f
+  })
+  // Lo que solo existe del otro lado y se agregó DESPUÉS del orden que se
+  // usó como base va arriba (es lo más nuevo), en vez de quedar al final.
+  const enBase = new Set((cloudPrimero ? cloud : local || []).map(c => c?.url))
+  const tsBase = cloudPrimero ? cTs : localTs
+  // (solo si ya hay un orden establecido; en la primera sincronización se respeta el orden tal cual)
+  const nuevos = tsBase > 0 && enBase.size ? res.filter(f => !enBase.has(f.url) && (f.ts || 0) > tsBase) : []
+  if (nuevos.length) {
+    nuevos.sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    const s = new Set(nuevos.map(f => f.url)); res = [...nuevos, ...res.filter(f => !s.has(f.url))]
+  }
+  return res
 }
 
 // Une las carpetas de favoritos de dos dispositivos (arrays de nombres, por
@@ -435,6 +464,39 @@ function _mergeCarpetas(local, cloud) {
   const out = []
   ;(local || []).forEach(c => { if (c && !vistos.has(c)) { vistos.add(c); out.push(c) } })
   ;(cloud || []).forEach(c => { if (c && !vistos.has(c)) { vistos.add(c); out.push(c) } })
+  return out
+}
+
+// Borrados/creaciones de carpetas entre dispositivos. Antes una carpeta
+// borrada en un dispositivo volvía a aparecer al sincronizar (los nombres
+// solo se unían). Ahora cada dispositivo anota cuándo creó o borró cada
+// carpeta ('ryoku-carpetas-marcas' = { fuente: { nombre: { c, b } } }) y la
+// nube guarda la unión: una carpeta se quita si su borrado es más nuevo que
+// su creación (así también se puede volver a crear con el mismo nombre).
+function _marcasCarpetasLocal() { try { return JSON.parse(localStorage.getItem('ryoku-carpetas-marcas') || '{}') || {} } catch (e) { return {} } }
+window._ryokuCarpetaMarca = function (tipo, fuente, nombre) {
+  if (!fuente || !nombre) return
+  const m = _marcasCarpetasLocal(), k = String(nombre).trim().toLowerCase()
+  m[fuente] = m[fuente] || {}; m[fuente][k] = m[fuente][k] || {}
+  m[fuente][k][tipo === 'borrada' ? 'b' : 'c'] = Date.now()
+  try { localStorage.setItem('ryoku-carpetas-marcas', JSON.stringify(m)) } catch (e) {}
+}
+function _mergeMarcasCarpetas(a, b) {
+  const out = {}
+  for (const src of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+    out[src] = {}
+    for (const k of new Set([...Object.keys(a?.[src] || {}), ...Object.keys(b?.[src] || {})])) {
+      const x = a?.[src]?.[k] || {}, y = b?.[src]?.[k] || {}
+      out[src][k] = { c: Math.max(x.c || 0, y.c || 0), b: Math.max(x.b || 0, y.b || 0) }
+    }
+  }
+  return out
+}
+function _aplicarMarcasCarpetas(obj, marcas) {
+  const out = {}
+  for (const [src, lista] of Object.entries(obj || {})) {
+    out[src] = (lista || []).filter(n => { const m = marcas?.[src]?.[String(n).trim().toLowerCase()]; return !(m && (m.b || 0) > (m.c || 0)) })
+  }
   return out
 }
 
@@ -582,13 +644,15 @@ async function cargarDesdeCloud() {
     // ── Favs: merge cloud + local de TODAS las fuentes → restaurar todo ───
     // getAllFavsFlat devuelve favs de todas las fuentes; si no está disponible,
     // getFavs devuelve solo la fuente activa (fallback). Ya leídos arriba.
-    let allMergedFavs = _mergeFavs(allLocalFavs, allCloudFavs)  // local gana duplicados
+    let allMergedFavs = _mergeFavs(allLocalFavs, allCloudFavs, favDoc?.ordenTs)
+    const _ordenTsFinal = Math.max(_favsOrdenTsLocal(), Number(favDoc?.ordenTs || 0) || 0)
     allMergedFavs = allMergedFavs.filter(f => !(f?.url && mergedTomb.favs[f.url]))
     _d('[sync] favs local=' + allLocalFavs.length + ' cloud=' + allCloudFavs.length + ' merged=' + allMergedFavs.length)
     if (allMergedFavs.length > 0) {
       // restoreAllFavs distribuye por URL a cada fuente; fallback: restoreFavs (solo activa)
       if (window.api?.restoreAllFavs) await window.api.restoreAllFavs(allMergedFavs)
       else await window.api?.restoreFavs?.(allMergedFavs)
+      _guardarFavsOrdenTs(_ordenTsFinal)
       _d('[sync] favs restaurados (all)=' + allMergedFavs.length)
     }
 
@@ -615,8 +679,10 @@ async function cargarDesdeCloud() {
     const localCarpetas     = await (window.api?.getAllCarpetasFlat?.()) || {}
     const carpetasDoc       = await _getDoc(user.uid, 'anime_favs_carpetas')
     const cloudCarpetas     = carpetasDoc?.datos && typeof carpetasDoc.datos === 'object' ? carpetasDoc.datos : {}
-    const mergedCarpetas    = _mergeCarpetasObj(localCarpetas, cloudCarpetas)
-    if (window.api?.restoreAllCarpetas) await window.api.restoreAllCarpetas(mergedCarpetas).catch(() => {})
+    const _marcasCarp       = _mergeMarcasCarpetas(_marcasCarpetasLocal(), carpetasDoc?.marcas)
+    const mergedCarpetas    = _aplicarMarcasCarpetas(_mergeCarpetasObj(localCarpetas, cloudCarpetas), _marcasCarp)
+    try { localStorage.setItem('ryoku-carpetas-marcas', JSON.stringify(_marcasCarp)) } catch (e) {}
+    if (window.api?.restoreAllCarpetas) await window.api.restoreAllCarpetas(mergedCarpetas, true).catch(() => {})
 
     // ── Manga → localStorage (merge, no pisar) ────────────────────────────
     // Antes esto escribía mangaDoc.datos directo encima del localStorage --
@@ -741,7 +807,7 @@ async function cargarDesdeCloud() {
     }
 
     // ── Subir el merge a Firestore (ya contiene TODAS las fuentes) ─────────
-    await _subirMerge(user, allMergedFavs, allMergedHist, allMergedProg, mergedTomb, mergedCarpetas)
+    await _subirMerge(user, allMergedFavs, allMergedHist, allMergedProg, mergedTomb, mergedCarpetas, _ordenTsFinal)
     await Promise.all([
       _setDoc(user.uid, 'anime_al_dia', { datos: mergedAnimeAlDia }),
       _setDoc(user.uid, 'manga_al_dia', { datos: mergedMangaAlDia }),
@@ -758,13 +824,13 @@ async function cargarDesdeCloud() {
 }
 
 // Sube el resultado del merge a Firestore (solo si hay algo que subir)
-async function _subirMerge(user, favs, hist, prog, tomb, carpetas) {
+async function _subirMerge(user, favs, hist, prog, tomb, carpetas, ordenTs) {
   try {
-    if (favs.length > 0)               await _setDoc(user.uid, 'anime_favoritos', { lista: favs })
+    if (favs.length > 0)               await _setDoc(user.uid, 'anime_favoritos', { lista: favs, ordenTs: ordenTs || 0 })
     if (hist.length > 0)               await _setDoc(user.uid, 'anime_historial',  { lista: hist })
     if (Object.keys(prog).length > 0)  await _setDoc(user.uid, 'anime_progresos',  { datos: prog })
     if (tomb) await _setDoc(user.uid, 'anime_tombstones', tomb)
-    if (carpetas && Object.keys(carpetas).length > 0) await _setDoc(user.uid, 'anime_favs_carpetas', { datos: carpetas })
+    if (carpetas && Object.keys(carpetas).length > 0) await _setDoc(user.uid, 'anime_favs_carpetas', { datos: carpetas, marcas: _marcasCarpetasLocal() })
   } catch(e) { console.warn('[sync] error subiendo merge', e) }
 }
 

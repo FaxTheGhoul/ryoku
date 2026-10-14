@@ -147,7 +147,7 @@ async function cargarRecientes(onDone) {
           <h2>${s.titulo}</h2>
           ${s.desc && !esA ? `<p class="slider-desc">${s.desc}</p>` : ''}
           <div class="slider-btns">
-            <button class="slider-btn-ver" onclick="abrirAnime('${s.link}','${_esc(s.titulo)}')">▶ Ver ahora</button>
+            <button class="slider-btn-ver" onclick="event.stopPropagation();abrirAnime('${s.link}','${_esc(s.titulo)}')">▶ Ver ahora</button>
             ${_isMobileSlider ? `<button class="slider-btn-add" onclick="event.stopPropagation()" title="Añadir">+</button>` : ''}
           </div>
         </div>
@@ -787,12 +787,17 @@ async function cargarCalendario() {
   const hoyIdx = new Date().getDay()
   const hoyKey = DIAS_HOY[hoyIdx]
 
-  tabs.innerHTML = Object.keys(_calData).map(dia => {
+  // Orden fijo Lunes→Domingo (algunas fuentes, como AnimeAV1, devuelven los días desordenados)
+  const _ORDEN_DIAS = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo','otros']
+  const _posDia = d => { const i = _ORDEN_DIAS.indexOf(d); return i === -1 ? 99 : i }
+  const diasOrdenados = Object.keys(_calData).sort((a, b) => _posDia(a) - _posDia(b))
+
+  tabs.innerHTML = diasOrdenados.map(dia => {
     const esHoy = dia === hoyKey
     return `<button class="cal-tab${esHoy ? ' hoy' : ''}" data-dia="${dia}" onclick="selCalDia('${dia}')">${DIAS_ES[dia] || dia}</button>`
   }).join('')
 
-  const diasDisp = Object.keys(_calData)
+  const diasDisp = diasOrdenados
   _calDiaActivo = diasDisp.includes(hoyKey) ? hoyKey : diasDisp[0] || ''
   if (_calDiaActivo) selCalDia(_calDiaActivo)
 }
@@ -946,7 +951,11 @@ async function abrirAnime(url, titulo) {
   ++_epSeleccionToken
   const miToken = ++_abrirAnimeToken
   const activa = document.querySelector('#app-anime .pagina.activa')
-  _paginaAnterior = activa ? activa.id.replace('page-','') : 'inicio'
+  const _origen = activa ? activa.id.replace('page-','') : 'inicio'
+  // Si ya estamos en el detalle (doble disparo del click, o abrir otro anime
+  // desde aquí) no pisar el origen: si no, "Volver" navega a la misma página.
+  if (_origen !== 'anime') _paginaAnterior = _origen
+  else if (!_paginaAnterior || _paginaAnterior === 'anime') _paginaAnterior = 'inicio'
   // Ocultar todas las páginas del app anime y mostrar page-anime
   document.querySelectorAll('#app-anime .pagina').forEach(p => p.classList.remove('activa'))
   document.querySelector('#sidebar-anime .nav-btn.activo')?.classList.remove('activo')
@@ -1158,8 +1167,9 @@ async function toggleEpVisto(btn) {
 
 document.getElementById('btn-volver').addEventListener('click', () => {
   const fb = document.getElementById('anime-floating-btns')
-  if (fb) { fb.classList.add('saliendo'); setTimeout(() => navegar(_paginaAnterior||'inicio'), 240) }
-  else navegar(_paginaAnterior||'inicio')
+  const dest = (_paginaAnterior && _paginaAnterior !== 'anime') ? _paginaAnterior : 'inicio'
+  if (fb) { fb.classList.add('saliendo'); setTimeout(() => { navegar(dest); fb.classList.remove('saliendo') }, 240) }
+  else navegar(dest)
 })
 
 
@@ -1481,13 +1491,14 @@ function _aplicarNuevoOrdenVisible(nuevoVisibleOrder, rerender = true) {
   const byUrl = new Map(_favsCache.map(f => [f.url, f]))
   _favsCache = nuevoOrden.map(u => byUrl.get(u)).filter(Boolean)
   if (rerender) _renderFavGrilla()
+  try { localStorage.setItem('ryoku-favs-orden-ts', String(Date.now())) } catch (e) {}  // ver _mergeFavs en sync.js
   window.api.reordenarFavs(nuevoOrden).catch(() => {})
 }
 
 function _favCrearCarpeta() {
   _favModalInput('Nueva carpeta', '', nombre => {
     window.api.crearCarpetaFav(nombre)
-      .then(() => { _favCarpetaActiva = nombre; cargarFavoritos() })
+      .then(async () => { window._ryokuCarpetaMarca?.('creada', await window.api.getAnimeSource?.(), nombre); _favCarpetaActiva = nombre; cargarFavoritos() })
       .catch(e => console.warn('[fav] error creando carpeta', e))
   })
 }
@@ -1505,7 +1516,8 @@ function _favCarpetaMenu(nombre, evt) {
     menu.remove()
     _favModalInput('Renombrar carpeta', nombre, nuevo => {
       if (nuevo === nombre) return
-      window.api.renombrarCarpetaFav(nombre, nuevo).then(() => {
+      window.api.renombrarCarpetaFav(nombre, nuevo).then(async (r) => {
+        const _src = await window.api.getAnimeSource?.(); window._ryokuCarpetaMarca?.('borrada', _src, nombre); window._ryokuCarpetaMarca?.('creada', _src, nuevo)
         if (_favCarpetaActiva === nombre) _favCarpetaActiva = nuevo
         cargarFavoritos()
       }).catch(e => console.warn('[fav] error renombrando carpeta', e))
@@ -1514,7 +1526,8 @@ function _favCarpetaMenu(nombre, evt) {
   menu.querySelector('[data-accion="borrar"]').addEventListener('click', () => {
     menu.remove()
     _favModalConfirm(`¿Eliminar la carpeta "${nombre}"? Los animes dentro volverán a "Todos".`, () => {
-      window.api.borrarCarpetaFav(nombre).then(() => {
+      window.api.borrarCarpetaFav(nombre).then(async () => {
+        window._ryokuCarpetaMarca?.('borrada', await window.api.getAnimeSource?.(), nombre)
         if (_favCarpetaActiva === nombre) _favCarpetaActiva = ''
         cargarFavoritos()
       }).catch(e => console.warn('[fav] error borrando carpeta', e))
@@ -1596,8 +1609,53 @@ const _streamCache = {}
 // literalmente "Mxdrop", así que 'mixdrop' solo no lo matcheaba — mismo
 // problema que ya vimos con Filemoon/Byse, el nombre visible no siempre
 // coincide con el nombre "oficial" del proveedor.
-const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','dsvplay','ds2play','streamwish','sw','filemoon','byse','hexload','lulu']
-const _esFuncional = n => _SRV_OK.some(k => (n || '').toLowerCase().includes(k))
+const _SRV_OK = ['mp4upload','uqload','voe','savefiles','mixdrop','mxdrop','doodstream','dsvplay','ds2play','streamwish','sw','filemoon','byse','hexload','lulu','yourupload','okru','ok.ru']
+// "Ok" (ok.ru) va por nombre exacto: "ok" suelto coincidiría con cualquier cosa
+const _esFuncional = n => { const s = (n || '').toLowerCase().trim(); return s === 'ok' || /^ok\b/.test(s) || _SRV_OK.some(k => s.includes(k)) }
+
+// ── Selector de servidores (ventana centrada) ───────────────────────────
+// Por servidor: color del avatar con la inicial y prioridad de orden (menor = mejor)
+const _SRV_INFO = [
+  { k: 'hexload',    color: '#16a34a', prio: 1 },
+  { k: 'mp4upload',  color: '#2563eb', prio: 2 },
+  { k: 'voe',        color: '#7c3aed', prio: 3 },
+  { k: 'lulu',       color: '#db2777', prio: 4 },
+  { k: 'streamwish', color: '#0891b2', prio: 5 },
+  { k: 'sw',         color: '#0891b2', prio: 5 },
+  { k: 'filemoon',   color: '#ea580c', prio: 6 },
+  { k: 'byse',       color: '#ea580c', prio: 6 },
+  { k: 'uqload',     color: '#4f46e5', prio: 7 },
+  { k: 'dood',       color: '#dc2626', prio: 8 },
+  { k: 'dsvplay',    color: '#dc2626', prio: 8 },
+  { k: 'ds2play',    color: '#dc2626', prio: 8 },
+  { k: 'mixdrop',    color: '#d97706', prio: 9 },
+  { k: 'mxdrop',     color: '#d97706', prio: 9 },
+  { k: 'savefiles',  color: '#0d9488', prio: 10 },
+  { k: 'yourupload', color: '#65a30d', prio: 11 },
+  { k: 'ok',         color: '#f97316', prio: 12, exacto: true },
+]
+function _srvInfo(nombre) {
+  const n = (nombre || '').toLowerCase().trim()
+  return _SRV_INFO.find(x => x.exacto ? (n === x.k || /^ok\b/.test(n)) : n.includes(x.k)) || { color: '#475569', prio: 99 }
+}
+const _escSrv = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const _SRV_CHEVRON = '<svg class="srv-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>'
+
+function _pintarCabeceraSrv(titulo) {
+  const t = String(titulo || '')
+  const m = t.match(/^(.*?)\s*-\s*Ep(?:isodio)?\.?\s*([\d.]+)\s*$/i)
+  document.getElementById('srv-titulo').textContent = m ? m[1] : t
+  const ep = document.getElementById('srv-ep')
+  if (ep) { ep.textContent = m ? 'Episodio ' + m[2] : ''; ep.style.display = m ? '' : 'none' }
+  const cuenta = document.getElementById('srv-cuenta'); if (cuenta) cuenta.textContent = ''
+  _pintarPortadaSrv()
+}
+function _pintarPortadaSrv() {
+  const img = document.getElementById('srv-portada'); if (!img) return
+  const src = _animeActual?.imagen || document.getElementById('anime-portada')?.getAttribute('src') || ''
+  if (src) { if (img.getAttribute('src') !== src) img.src = src; img.style.display = '' }
+  else img.style.display = 'none'
+}
 
 function _preFetchServidores(lista) {
   // Solo pre-fetchear 1 servidor (el primero funcional) para no saturar la RAM de Render
@@ -1615,7 +1673,7 @@ async function abrirSelector(url, titulo) {
   _pendingEp = null  // limpiar cualquier pendiente residual
   const overlay = document.getElementById('overlay-servidor')
   const lista   = document.getElementById('srv-lista')
-  document.getElementById('srv-titulo').textContent = titulo
+  _pintarCabeceraSrv(titulo)
   lista.innerHTML = '<div class="loading">Cargando servidores...</div>'
   overlay.classList.add('activo')
 
@@ -1629,7 +1687,7 @@ async function abrirSelector(url, titulo) {
       : ''
     if (animeUrl) {
       window.api.getAnime(animeUrl).then(info => {
-        if (info) _animeActual = { url: animeUrl, titulo: info.titulo || animeName, imagen: info.imagen || '', sinopsis: info.sinopsis || '', episodios: info.episodios }
+        if (info) { _animeActual = { url: animeUrl, titulo: info.titulo || animeName, imagen: info.imagen || '', sinopsis: info.sinopsis || '', episodios: info.episodios }; _pintarPortadaSrv() }
       }).catch(() => {})
     }
   }
@@ -1653,7 +1711,7 @@ async function pedirServidorEp(url, titulo) {
   _pendingEp = { url, titulo }
   const overlay = document.getElementById('overlay-servidor')
   const lista   = document.getElementById('srv-lista')
-  document.getElementById('srv-titulo').textContent = titulo
+  _pintarCabeceraSrv(titulo)
   lista.innerHTML = '<div class="loading">Cargando servidores...</div>'
   overlay.classList.add('activo')
 
@@ -1684,8 +1742,11 @@ function _renderListaServidores() {
   const _grupo = s => (s.idioma === 'latino' ? 1 : 0)
   _indexados.sort((a, b) => {
     if (_porIdioma && _grupo(a) !== _grupo(b)) return _grupo(a) - _grupo(b)
-    return _esFuncional(b.nombre) - _esFuncional(a.nombre)
+    const f = _esFuncional(b.nombre) - _esFuncional(a.nombre)
+    return f || (_srvInfo(a.nombre).prio - _srvInfo(b.nombre).prio)
   })
+  const cuenta = document.getElementById('srv-cuenta')
+  if (cuenta) cuenta.textContent = _indexados.length + (_indexados.length === 1 ? ' servidor' : ' servidores')
   if (lista) {
     let _grupoActual = null
     lista.innerHTML = _indexados.map(s => {
@@ -1697,9 +1758,12 @@ function _renderListaServidores() {
       }
       // Bajo su título de grupo, el sufijo de idioma del nombre sobra
       const nombre = _porIdioma ? s.nombre.replace(/\s+(sub|latino)$/i, '') : s.nombre
+      const letra = (nombre.trim()[0] || '?').toUpperCase()
       return `${titulo}<button class="srv-btn ${ok ? 'srv-funcional' : ''}" id="srv-btn-${s._idx}" onclick="elegirServidor(${s._idx})">
+        <div class="srv-ava" style="--srv-c:${_srvInfo(s.nombre).color}">${_escSrv(letra)}</div>
+        <div class="srv-txt"><span class="srv-nombre">${_escSrv(nombre)}</span></div>
         <div class="srv-dot ${ok ? 'srv-dot-ok' : ''}"></div>
-        <span class="srv-nombre">${nombre}</span>
+        ${_SRV_CHEVRON}
       </button>`
     }).join('')
   }

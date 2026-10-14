@@ -857,6 +857,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow(); initDiscord(); initUpdater(mainWindow)
 })
+
 app.on('window-all-closed', () => {
   _logQuit('window-all-closed, plataforma=' + process.platform)
   if (process.platform !== 'darwin') {
@@ -913,6 +914,54 @@ function _doQuit() {
 }
 ipcMain.on('close-window', () => { _logQuit('IPC close-window recibido'); _requestQuit() })
 ipcMain.on('save-before-quit-done', () => { _logQuit('IPC save-before-quit-done recibido'); _doQuit() })
+
+// ─── AUTOCOMPLETAR (buscadores de anime y manga) ──────────────────────────────
+// Sugerencias de títulos desde AniList (GraphQL, ~150-300 ms, ordenado por
+// coincidencia). Sirve igual para cualquier fuente activa: al elegir una
+// sugerencia se busca ese título en la fuente (que ya tolera variaciones, ver
+// _buscarConTolerancia). Caché de 10 min por (tipo, texto).
+const _acCache = new Map()
+const _AC_TTL = 10 * 60 * 1000
+ipcMain.handle('autocompletar', async (_, tipo, texto) => {
+  const q = String(texto || '').trim()
+  if (q.length < 2) return []
+  const tipoAL = tipo === 'manga' ? 'MANGA' : 'ANIME'
+  const adulto = appConfig?.['app-18'] === true || appConfig?.['app-18'] === 'true'
+  const clave = `${tipoAL}|${adulto ? 1 : 0}|${q.toLowerCase()}`
+  const c = _acCache.get(clave)
+  if (c && Date.now() - c.ts < _AC_TTL) return c.data
+  const query = `query ($s: String, $t: MediaType, $adult: Boolean, $noFmt: [MediaFormat]) {
+    Page(perPage: 8) {
+      media(search: $s, type: $t, isAdult: $adult, format_not_in: $noFmt, sort: [SEARCH_MATCH, POPULARITY_DESC]) {
+        id title { romaji english } synonyms format countryOfOrigin seasonYear startDate { year } coverImage { medium }
+      }
+    }
+  }`
+  const vars = { s: q, t: tipoAL, noFmt: tipoAL === 'MANGA' ? ['NOVEL'] : ['MUSIC'] }
+  if (!adulto) vars.adult = false
+  try {
+    const { data } = await axios.post('https://graphql.anilist.co', { query, variables: vars }, {
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, timeout: 6000,
+    })
+    const FMT = { TV: 'Serie', TV_SHORT: 'Serie corta', MOVIE: 'Película', OVA: 'OVA', ONA: 'ONA', SPECIAL: 'Especial', MANGA: 'Manga', ONE_SHOT: 'One shot' }
+    const lista = (data?.data?.Page?.media || []).map(m => {
+      let formato = FMT[m.format] || ''
+      if (tipoAL === 'MANGA' && m.countryOfOrigin === 'KR') formato = 'Manhwa'
+      if (tipoAL === 'MANGA' && m.countryOfOrigin === 'CN') formato = 'Manhua'
+      const titulo = m.title?.romaji || m.title?.english || ''
+      return {
+        titulo,
+        alterno: (m.title?.english && m.title.english.toLowerCase() !== titulo.toLowerCase()) ? m.title.english : '',
+        formato,
+        anio: m.seasonYear || m.startDate?.year || '',
+        imagen: m.coverImage?.medium || '',
+      }
+    }).filter(x => x.titulo)
+    _acCache.set(clave, { data: lista, ts: Date.now() })
+    if (_acCache.size > 400) _acCache.delete(_acCache.keys().next().value)
+    return lista
+  } catch (e) { return [] }
+})
 
 // ANILIST - portada
 async function getInfoAnilist(titulo) {
@@ -1836,10 +1885,10 @@ ipcMain.handle('renombrar-carpeta-fav', (_, { viejo, nuevo } = {}) => {
     const existente = list.find(c => c !== viejo && c.toLowerCase() === nuevo.toLowerCase())
     if (existente) {
       _setC(list.filter(c => c !== viejo), s)
-      _setF(_favs(s).map(f => f.carpeta === viejo ? { ...f, carpeta: existente } : f), s)
+      _setF(_favs(s).map(f => f.carpeta === viejo ? { ...f, carpeta: existente, carpetaTs: Date.now() } : f), s)
     } else {
       _setC(list.map(c => c === viejo ? nuevo : c), s)
-      _setF(_favs(s).map(f => f.carpeta === viejo ? { ...f, carpeta: nuevo } : f), s)
+      _setF(_favs(s).map(f => f.carpeta === viejo ? { ...f, carpeta: nuevo, carpetaTs: Date.now() } : f), s)
     }
   }
   return { carpetas: _carpetas(s), favs: _favs(s) }
@@ -1847,12 +1896,13 @@ ipcMain.handle('renombrar-carpeta-fav', (_, { viejo, nuevo } = {}) => {
 ipcMain.handle('borrar-carpeta-fav', (_, nombre) => {
   const s = _src()
   _setC(_carpetas(s).filter(c => c !== nombre), s)
-  _setF(_favs(s).map(f => f.carpeta === nombre ? { ...f, carpeta: '' } : f), s)
+  _setF(_favs(s).map(f => f.carpeta === nombre ? { ...f, carpeta: '', carpetaTs: Date.now() } : f), s)
   return { carpetas: _carpetas(s), favs: _favs(s) }
 })
 ipcMain.handle('mover-fav-carpeta', (_, { url, carpeta } = {}) => {
   const s = _srcFromUrl(url) || _src()
-  _setF(_favs(s).map(f => f.url === url ? { ...f, carpeta: carpeta || '' } : f), s)
+  // carpetaTs: cuándo se cambió la carpeta -- sync.js lo usa para que gane la más reciente entre dispositivos
+  _setF(_favs(s).map(f => f.url === url ? { ...f, carpeta: carpeta || '', carpetaTs: Date.now() } : f), s)
   return _favs(s)
 })
 ipcMain.handle('reordenar-favs', (_, urls) => {
@@ -1866,8 +1916,15 @@ ipcMain.handle('reordenar-favs', (_, urls) => {
   return nuevo
 })
 ipcMain.handle('get-all-carpetas-flat', () => Object.fromEntries(_SRCS.map(s => [s, _carpetasD[s] || []])))
-ipcMain.handle('restore-all-carpetas', (_, obj) => {
+ipcMain.handle('restore-all-carpetas', (_, obj, exacto) => {
   if (!obj || typeof obj !== 'object') return
+  // exacto: la lista ya viene mergeada con los borrados aplicados (sync.js,
+  // _aplicarMarcasCarpetas) y reemplaza a la local -- así una carpeta borrada
+  // en otro dispositivo también se quita acá.
+  if (exacto) {
+    for (const s of _SRCS) if (Array.isArray(obj[s])) _setC(obj[s].filter(Boolean), s)
+    return
+  }
   for (const s of _SRCS) {
     const incoming = Array.isArray(obj[s]) ? obj[s] : []
     if (!incoming.length) continue
@@ -2117,7 +2174,24 @@ function startProxyServer() {
             ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
           }
         }
-        const proxyReq = lib.request(options, (proxyRes) => {
+        // Seguir redirecciones (Yourupload, Ok.ru y otros entregan el video
+        // tras un 302 al CDN real): se repite el pedido con los mismos headers.
+        const pedir = (opts, libX, saltos) => {
+          const r = libX.request(opts, (proxyRes) => {
+            const loc = proxyRes.headers.location
+            if (loc && [301, 302, 303, 307, 308].includes(proxyRes.statusCode) && saltos < 5) {
+              proxyRes.resume()
+              let sig
+              try { sig = new URL(loc, `${opts.protocol || 'https:'}//${opts.hostname}${opts.path}`) } catch (e) { clientRes.writeHead(502); clientRes.end(); return }
+              const https2 = sig.protocol === 'https:'
+              return pedir({ ...opts, protocol: sig.protocol, hostname: sig.hostname, port: sig.port || (https2 ? 443 : 80), path: sig.pathname + sig.search }, https2 ? https : http, saltos + 1)
+            }
+            responder(proxyRes)
+          })
+          r.on('error', () => { if (!clientRes.headersSent) clientRes.writeHead(502); clientRes.end() })
+          r.end()
+        }
+        const responder = (proxyRes) => {
           clientRes.writeHead(proxyRes.statusCode, {
             'Content-Type':   proxyRes.headers['content-type']   || 'video/mp4',
             'Content-Length': proxyRes.headers['content-length'] || '',
@@ -2125,9 +2199,8 @@ function startProxyServer() {
             'Content-Range':  proxyRes.headers['content-range']  || '',
           })
           proxyRes.pipe(clientRes)
-        })
-        proxyReq.on('error', () => { clientRes.writeHead(502); clientRes.end() })
-        proxyReq.end()
+        }
+        pedir({ ...options, protocol: parsed.protocol }, lib, 0)
       })()
     })
     _proxyServer.listen(0, '127.0.0.1', () => {
@@ -2618,9 +2691,10 @@ ipcMain.handle('get-manga-detalle', async (_, url, tituloFallback) => {
 // ─── MANGA SOURCES ────────────────────────────────────────────────────────────
 const MANGA_SOURCES = {
   zonatmo:   { id: 'zonatmo',   nombre: 'ZonaTMO',  BASE: 'https://zonatmo.com' },
-  'manga-oni': { id: 'manga-oni', nombre: 'MangaOni', BASE: 'https://manga-oni.com' }
+  'manga-oni': { id: 'manga-oni', nombre: 'MangaOni', BASE: 'https://manga-oni.com' },
 }
 let _activeMangaSource = MANGA_SOURCES[appConfig?.['manga-source']] || MANGA_SOURCES['zonatmo']
+
 
 ipcMain.handle('get-manga-sources', () =>
   Object.values(MANGA_SOURCES).map(s => ({ id: s.id, nombre: s.nombre }))
@@ -2792,8 +2866,31 @@ ipcMain.on('update-download', () => autoUpdater.downloadUpdate())
 function _lanzarProcesoIndependiente(commandLine, etiqueta) {
   return new Promise((resolve) => {
     try {
-      const cmdLineEscapado = commandLine.replace(/"/g, '""')
-      const psCreate = `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="${cmdLineEscapado}"} | Out-Null`
+      // Ventana de consola visible: en Windows 11 la terminal por defecto es
+      // Windows Terminal, que ignora "-WindowStyle Hidden" y deja abierta una
+      // pestaña negra vacía mientras corren el splash y el waiter. Para que no
+      // aparezca nada:
+      //  1. Se envuelve en "conhost.exe --headless" (Win10 1809+), que corre la
+      //     consola sin ventana y sin pasársela a Windows Terminal. Las ventanas
+      //     WinForms del splash no se ven afectadas.
+      //  2. Se le pide a WMI que cree el proceso oculto (ShowWindow=0). Si eso
+      //     falla por lo que sea, se cae al Create simple de antes.
+      let cmdFinal = commandLine
+      try {
+        const build = parseInt(String(require('os').release()).split('.')[2] || '0', 10)
+        const conhost = require('path').join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'conhost.exe')
+        if (build >= 17763 && fs.existsSync(conhost)) cmdFinal = `"${conhost}" --headless ${commandLine}`
+      } catch (_) {}
+      const cmdLineEscapado = cmdFinal.replace(/"/g, '""')
+      const psCreate =
+        `$c = "${cmdLineEscapado}"; ` +
+        `try { ` +
+          `$si = New-CimInstance -ClassName Win32_ProcessStartup -Namespace root/cimv2 -ClientOnly -Property @{ShowWindow=[uint16]0}; ` +
+          `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$c; ProcessStartupInformation=$si} -ErrorAction Stop; ` +
+          `if ($r.ReturnValue -ne 0) { throw 'rv' } ` +
+        `} catch { ` +
+          `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$c} | Out-Null ` +
+        `}`
       const launcher = spawn(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psCreate],
